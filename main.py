@@ -181,6 +181,56 @@ def print_stacking_recommendations(stack_builder: StackBuilder, projections_df: 
                 print(f"  - {p:<25} (not in DK pool)")
 
 
+def print_line_update_status(stack_builder: StackBuilder):
+    """Print when line combinations were last updated."""
+    from datetime import datetime as dt, timezone
+
+    print(f"\n{'=' * 80}")
+    print(" LINE COMBINATION UPDATE STATUS")
+    print(f"{'=' * 80}")
+
+    timestamps = stack_builder.get_update_timestamps()
+
+    if not timestamps:
+        print("  No update timestamps available")
+        return
+
+    # Parse and display timestamps
+    now = dt.now(timezone.utc)
+    stale_teams = []
+
+    for team, ts in sorted(timestamps.items()):
+        if not ts:
+            print(f"  {team:<5} No update time available")
+            continue
+
+        try:
+            # Parse ISO format timestamp (UTC)
+            update_time = dt.fromisoformat(ts.replace('Z', '+00:00'))
+            age = now - update_time
+            hours_ago = age.total_seconds() / 3600
+
+            # Convert to local time for display
+            local_time = update_time.astimezone()
+
+            if hours_ago < 0:
+                age_str = "just now"
+            elif hours_ago < 1:
+                age_str = f"{int(age.total_seconds() / 60)} min ago"
+            elif hours_ago < 24:
+                age_str = f"{hours_ago:.1f} hrs ago"
+            else:
+                age_str = f"{int(hours_ago / 24)} days ago"
+                stale_teams.append(team)
+
+            print(f"  {team:<5} Updated {age_str:<15} ({local_time.strftime('%m/%d %I:%M %p')})")
+        except Exception as e:
+            print(f"  {team:<5} {ts}")
+
+    if stale_teams:
+        print(f"\n  WARNING: {', '.join(stale_teams)} have stale data (>24 hrs old)")
+
+
 def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.DataFrame):
     """Print confirmed starting goalies."""
     print(f"\n{'=' * 80}")
@@ -387,6 +437,9 @@ def main():
         scraper = LinesScraper(rate_limit=0.5)
         lines_data = scraper.get_multiple_teams(slate_teams)
         stack_builder = StackBuilder(lines_data)
+
+        # Show line update timestamps
+        print_line_update_status(stack_builder)
 
         # Show confirmed goalies
         print_confirmed_goalies(stack_builder, player_pool)

@@ -463,6 +463,23 @@ class StackBuilder:
                 goalies[team] = data['starting_goalie']
         return goalies
 
+    def get_update_timestamps(self) -> Dict[str, str]:
+        """Get last update timestamps for all teams."""
+        timestamps = {}
+        for team, data in self.lines_data.items():
+            if data and 'updated_at' in data:
+                timestamps[team] = data['updated_at']
+        return timestamps
+
+    def get_oldest_update(self) -> Tuple[str, str]:
+        """Get the oldest update timestamp across all teams."""
+        timestamps = self.get_update_timestamps()
+        if not timestamps:
+            return None, None
+
+        oldest_team = min(timestamps, key=lambda t: timestamps[t] if timestamps[t] else '9999')
+        return oldest_team, timestamps.get(oldest_team, '')
+
 
 def print_team_lines(lines_data: Dict):
     """Pretty print team line combinations."""
