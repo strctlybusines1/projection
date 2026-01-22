@@ -1,5 +1,5 @@
 """
-DraftKings NHL Lineup Optimizer.
+DraftKings NHL Lineup Optimizer with Stacking Support.
 """
 
 import pandas as pd
@@ -11,7 +11,7 @@ warnings.filterwarnings('ignore')
 
 class NHLLineupOptimizer:
     """
-    Optimizer for DraftKings NHL lineups.
+    Optimizer for DraftKings NHL lineups with correlation-based stacking.
 
     DK NHL Classic Roster:
     - 2 Centers (C)
@@ -32,8 +32,14 @@ class NHLLineupOptimizer:
         'UTIL': 1  # Any skater (C, W, or D)
     }
 
-    def __init__(self):
-        pass
+    def __init__(self, stack_builder=None):
+        """
+        Initialize optimizer.
+
+        Args:
+            stack_builder: Optional StackBuilder instance for correlation data
+        """
+        self.stack_builder = stack_builder
 
     def _normalize_position(self, pos: str) -> str:
         """Normalize position codes."""
@@ -52,9 +58,11 @@ class NHLLineupOptimizer:
                         n_lineups: int = 1,
                         max_from_team: int = 4,
                         min_teams: int = 3,
-                        randomness: float = 0.0) -> List[pd.DataFrame]:
+                        randomness: float = 0.0,
+                        stack_boost: float = 0.15,
+                        force_stack: str = None) -> List[pd.DataFrame]:
         """
-        Generate optimized lineups using value-based selection.
+        Generate optimized lineups using value-based selection with stacking.
 
         Args:
             player_pool: DataFrame with projections and salaries
@@ -62,6 +70,8 @@ class NHLLineupOptimizer:
             max_from_team: Maximum players from one team
             min_teams: Minimum number of teams represented
             randomness: Add randomness to projections (0-1 scale)
+            stack_boost: Boost percentage for correlated players (default 15%)
+            force_stack: Force a specific stack type ('PP1', 'Line1', etc.)
 
         Returns:
             List of DataFrames, each representing a lineup
@@ -86,9 +96,15 @@ class NHLLineupOptimizer:
             # Recalculate value with adjusted projections
             df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
 
-            lineup = self._build_lineup_with_salary_awareness(df, max_from_team)
+            lineup = self._build_lineup_with_stacking(
+                df, max_from_team, stack_boost, force_stack
+            )
 
             if lineup is not None:
+                # Calculate stack bonus for the lineup
+                if self.stack_builder:
+                    lineup = self._add_stack_info(lineup)
+
                 # Check for duplicate lineups
                 lineup_hash = frozenset(lineup['name'].tolist())
                 if lineup_hash not in used_lineup_hashes:
@@ -96,6 +112,120 @@ class NHLLineupOptimizer:
                     lineups.append(lineup)
 
         return lineups
+
+    def _add_stack_info(self, lineup: pd.DataFrame) -> pd.DataFrame:
+        """Add stacking information to lineup."""
+        lineup = lineup.copy()
+        stack_info = []
+        players = lineup['name'].tolist()
+
+        for i, p1 in enumerate(players):
+            for p2 in players[i+1:]:
+                corr = self.stack_builder.get_correlation(p1, p2)
+                if corr > 0:
+                    stack_info.append(f"{p1.split()[-1]}-{p2.split()[-1]}:{corr:.0%}")
+
+        lineup['stack_info'] = ', '.join(stack_info[:3]) if stack_info else ''
+        return lineup
+
+    def _build_lineup_with_stacking(self, df: pd.DataFrame,
+                                     max_from_team: int,
+                                     stack_boost: float,
+                                     force_stack: str) -> Optional[pd.DataFrame]:
+        """
+        Build lineup with stacking preferences.
+
+        Strategy:
+        1. If stack_builder available, boost projections for correlated players
+        2. Optionally force a specific stack (PP1, Line1)
+        3. Use salary-aware selection
+        """
+        # If we have stacking data, boost correlated players
+        if self.stack_builder and stack_boost > 0:
+            df = self._apply_stack_boosts(df, stack_boost)
+
+        # If forcing a specific stack, pre-select those players
+        if force_stack and self.stack_builder:
+            return self._build_forced_stack_lineup(df, max_from_team, force_stack)
+
+        # Otherwise use salary-aware approach
+        return self._build_lineup_with_salary_awareness(df, max_from_team)
+
+    def _apply_stack_boosts(self, df: pd.DataFrame, boost_pct: float) -> pd.DataFrame:
+        """Apply projection boosts based on correlation data."""
+        df = df.copy()
+
+        # Get PP1 players across all teams - they get the biggest boost
+        pp1_players = set()
+        line1_players = set()
+
+        for team in df['team'].unique():
+            stacks = self.stack_builder.get_best_stacks(team)
+            for stack in stacks:
+                if stack.get('type') == 'PP1':
+                    for p in stack.get('players', []):
+                        pp1_players.add(p.lower())
+                elif stack.get('type') == 'Line1':
+                    for p in stack.get('players', []):
+                        line1_players.add(p.lower())
+
+        # Apply boosts
+        def get_boost(name):
+            name_lower = name.lower()
+            # Check PP1 (highest boost)
+            for pp_name in pp1_players:
+                if name_lower in pp_name or pp_name in name_lower:
+                    return 1 + boost_pct
+            # Check Line1 (moderate boost)
+            for line_name in line1_players:
+                if name_lower in line_name or line_name in name_lower:
+                    return 1 + (boost_pct * 0.6)
+            return 1.0
+
+        df['stack_boost'] = df['name'].apply(get_boost)
+        df['adj_projection'] = df['adj_projection'] * df['stack_boost']
+        df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
+
+        return df
+
+    def _build_forced_stack_lineup(self, df: pd.DataFrame,
+                                    max_from_team: int,
+                                    stack_type: str) -> Optional[pd.DataFrame]:
+        """Build lineup forcing a specific stack."""
+        from lines import find_player_match
+
+        # Find the best stack of the requested type
+        best_stack = None
+        best_proj = 0
+
+        for team in df['team'].unique():
+            stacks = self.stack_builder.get_best_stacks(team, df)
+            for stack in stacks:
+                if stack.get('type') == stack_type:
+                    proj = stack.get('projected_total', 0)
+                    if proj > best_proj:
+                        best_proj = proj
+                        best_stack = stack
+
+        if not best_stack:
+            return self._build_lineup_with_salary_awareness(df, max_from_team)
+
+        # Pre-select stack players
+        forced_players = []
+        for p in best_stack.get('players', []):
+            match = find_player_match(p, df['name'].tolist())
+            if match:
+                forced_players.append(match)
+
+        # Heavily boost forced players
+        df = df.copy()
+        df['adj_projection'] = df.apply(
+            lambda r: r['adj_projection'] * 1.5 if r['name'] in forced_players else r['adj_projection'],
+            axis=1
+        )
+        df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
+
+        return self._build_lineup_with_salary_awareness(df, max_from_team)
 
     def _build_lineup_with_salary_awareness(self, df: pd.DataFrame,
                                              max_from_team: int) -> Optional[pd.DataFrame]:

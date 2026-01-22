@@ -6,6 +6,7 @@ Usage:
     python main.py                      # Generate projections for today's slate
     python main.py --date 2026-01-22    # Generate for specific date
     python main.py --salaries file.csv  # Use specific salary file
+    python main.py --stacks             # Show stacking recommendations
 """
 
 import argparse
@@ -19,6 +20,7 @@ from data_pipeline import NHLDataPipeline
 from projections import NHLProjectionModel
 from optimizer import NHLLineupOptimizer
 from config import calculate_skater_fantasy_points, calculate_goalie_fantasy_points
+from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 
 
 def load_dk_salaries(csv_path: str) -> pd.DataFrame:
@@ -144,6 +146,62 @@ def print_value_plays(df: pd.DataFrame, title: str, n: int = 15):
     print(display_df.to_string(index=False))
 
 
+def print_stacking_recommendations(stack_builder: StackBuilder, projections_df: pd.DataFrame, teams: list):
+    """Print stacking recommendations for all teams on the slate."""
+    print(f"\n{'=' * 80}")
+    print(" STACKING RECOMMENDATIONS")
+    print(f"{'=' * 80}")
+
+    all_stacks = []
+
+    for team in teams:
+        stacks = stack_builder.get_best_stacks(team, projections_df)
+        for stack in stacks:
+            if stack.get('type') in ['PP1', 'Line1']:
+                all_stacks.append(stack)
+
+    # Sort by projected total
+    all_stacks.sort(key=lambda x: x.get('projected_total', 0), reverse=True)
+
+    for stack in all_stacks[:10]:
+        stack_type = stack.get('type', '')
+        team = stack.get('team', '')
+        players = stack.get('players', [])
+        proj = stack.get('projected_total', 0)
+        corr = stack.get('correlation', 0)
+
+        print(f"\n{team} {stack_type} (corr: {corr:.0%}, proj: {proj:.1f} pts)")
+        for p in players:
+            # Find matching player in projections
+            match = find_player_match(p, projections_df['name'].tolist())
+            if match:
+                player_data = projections_df[projections_df['name'] == match].iloc[0]
+                print(f"  - {match:<25} ${player_data['salary']:,}  {player_data['projected_fpts']:.1f} pts")
+            else:
+                print(f"  - {p:<25} (not in DK pool)")
+
+
+def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.DataFrame):
+    """Print confirmed starting goalies."""
+    print(f"\n{'=' * 80}")
+    print(" CONFIRMED STARTING GOALIES")
+    print(f"{'=' * 80}")
+
+    goalies = stack_builder.get_all_starting_goalies()
+
+    if not goalies:
+        print("  No confirmed starters found")
+        return
+
+    for team, goalie_name in goalies.items():
+        match = find_player_match(goalie_name, projections_df['name'].tolist())
+        if match:
+            player_data = projections_df[projections_df['name'] == match].iloc[0]
+            print(f"  {team:<5} {match:<25} ${player_data['salary']:,}  {player_data['projected_fpts']:.1f} pts")
+        else:
+            print(f"  {team:<5} {goalie_name:<25} (not in DK pool)")
+
+
 def print_lineup(lineup: pd.DataFrame):
     """Print optimized lineup."""
     print(f"\n{'=' * 80}")
@@ -155,6 +213,11 @@ def print_lineup(lineup: pd.DataFrame):
 
     print(f"Total Salary: ${total_salary:,} / $50,000 (${50000 - total_salary:,} remaining)")
     print(f"Total Projected: {total_proj:.1f} pts")
+
+    # Show stack info if available
+    if 'stack_info' in lineup.columns and lineup['stack_info'].iloc[0]:
+        print(f"Stacks: {lineup['stack_info'].iloc[0]}")
+
     print()
 
     print(f"{'Slot':<6} {'Name':<28} {'Team':<5} {'Salary':<9} {'Proj':<7} {'Value':<6}")
@@ -250,6 +313,12 @@ def main():
                         help='Export projections to CSV')
     parser.add_argument('--lineups', type=int, default=1,
                         help='Number of lineups to generate')
+    parser.add_argument('--stacks', action='store_true',
+                        help='Show stacking recommendations from line combinations')
+    parser.add_argument('--no-stacks', action='store_true',
+                        help='Disable stacking boost in optimizer')
+    parser.add_argument('--force-stack', type=str, default=None,
+                        help='Force a specific stack type (PP1, Line1)')
 
     args = parser.parse_args()
 
@@ -306,6 +375,26 @@ def main():
     print(f"  Matched {len(skaters_merged)} skaters")
     print(f"  Matched {len(goalies_merged)} goalies")
 
+    # Combine pools
+    player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
+
+    # Fetch line combinations if stacking enabled
+    stack_builder = None
+    slate_teams = list(dk_salaries['team'].unique())
+
+    if not args.no_stacks or args.stacks:
+        print("\nFetching line combinations from DailyFaceoff...")
+        scraper = LinesScraper(rate_limit=0.5)
+        lines_data = scraper.get_multiple_teams(slate_teams)
+        stack_builder = StackBuilder(lines_data)
+
+        # Show confirmed goalies
+        print_confirmed_goalies(stack_builder, player_pool)
+
+        # Show stacking recommendations if requested
+        if args.stacks:
+            print_stacking_recommendations(stack_builder, player_pool, slate_teams)
+
     # Print projections
     if len(skaters_merged) > 0:
         print_projections_table(skaters_merged, "TOP SKATER PROJECTIONS", n=25)
@@ -315,17 +404,19 @@ def main():
         print_projections_table(goalies_merged, "TOP GOALIE PROJECTIONS", n=10)
 
     # Generate optimized lineup
+    lineups = []
     if len(skaters_merged) > 0 and len(goalies_merged) > 0:
         print("\nOptimizing lineup...")
-        optimizer = NHLLineupOptimizer()
 
-        # Combine pools
-        player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
+        # Pass stack builder to optimizer if available
+        optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
 
         lineups = optimizer.optimize_lineup(
             player_pool,
             n_lineups=args.lineups,
-            randomness=0.05 if args.lineups > 1 else 0
+            randomness=0.05 if args.lineups > 1 else 0,
+            stack_boost=0.15 if not args.no_stacks else 0,
+            force_stack=args.force_stack
         )
 
         for i, lineup in enumerate(lineups):
