@@ -18,6 +18,14 @@ from config import (
     GOALIE_SCORING, GOALIE_BONUSES
 )
 
+# TabPFN import (optional - will gracefully handle if not installed)
+try:
+    from tabpfn import TabPFNRegressor
+    TABPFN_AVAILABLE = True
+except ImportError:
+    TABPFN_AVAILABLE = False
+    print("TabPFN not installed. Install with: pip install tabpfn")
+
 
 class NHLBacktester:
     """
@@ -337,15 +345,237 @@ class NHLBacktester:
             print(f"{model_name:<15} {metrics['mae']:<10.2f} {metrics['rmse']:<10.2f} "
                   f"{metrics['correlation']:<10.3f} {metrics['n_predictions']:<10,}")
 
+    def prepare_tabpfn_features(self, game_logs: pd.DataFrame,
+                                  player_type: str = 'skater') -> pd.DataFrame:
+        """
+        Prepare rich feature matrix for TabPFN training.
 
-def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON):
+        Features include:
+        - Rolling averages (3, 5, 10 games)
+        - Rolling std (variance indicator)
+        - Games played (experience)
+        - Home/away indicator
+        - Days rest
+        """
+        df = self.prepare_backtest_data(game_logs, player_type)
+
+        if df.empty:
+            return df
+
+        # Additional features for TabPFN
+
+        # Home/Away indicator
+        if 'homeRoadFlag' in df.columns:
+            df['is_home'] = (df['homeRoadFlag'] == 'H').astype(int)
+        else:
+            df['is_home'] = 0
+
+        # Rolling standard deviation (measures consistency)
+        for window in [5, 10]:
+            df[f'fpts_std_{window}'] = df.groupby('player_id')['actual_fpts'].transform(
+                lambda x: x.shift(1).rolling(window, min_periods=2).std()
+            )
+
+        # Rolling max (ceiling indicator)
+        df['fpts_max_10'] = df.groupby('player_id')['actual_fpts'].transform(
+            lambda x: x.shift(1).rolling(10, min_periods=1).max()
+        )
+
+        # Rolling min (floor indicator)
+        df['fpts_min_10'] = df.groupby('player_id')['actual_fpts'].transform(
+            lambda x: x.shift(1).rolling(10, min_periods=1).min()
+        )
+
+        # Days since last game (rest)
+        df['days_rest'] = df.groupby('player_id')['gameDate'].diff().dt.days.fillna(3)
+        df['days_rest'] = df['days_rest'].clip(0, 10)  # Cap at 10 days
+
+        # Trend (recent vs longer term)
+        df['trend'] = df['fpts_avg_3'] - df['fpts_avg_10']
+
+        if player_type == 'skater':
+            # Shot trend
+            if 'shots_avg_3' in df.columns and 'shots_avg_10' in df.columns:
+                df['shots_trend'] = df['shots_avg_3'] - df['shots_avg_10']
+
+            # Goals trend
+            if 'goals_avg_3' in df.columns and 'goals_avg_10' in df.columns:
+                df['goals_trend'] = df['goals_avg_3'] - df['goals_avg_10']
+
+        return df
+
+    def run_tabpfn_backtest(self, game_logs: pd.DataFrame,
+                             min_games: int = 20,
+                             train_games: int = 15,
+                             player_type: str = 'skater') -> Dict:
+        """
+        Run backtest using TabPFN model.
+
+        Uses expanding window approach:
+        - For each prediction, train on all prior games
+        - TabPFN handles small sample sizes well
+        """
+        if not TABPFN_AVAILABLE:
+            return {'error': 'TabPFN not installed'}
+
+        df = self.prepare_tabpfn_features(game_logs, player_type)
+
+        if df.empty:
+            return {'error': 'No data to backtest'}
+
+        # Define feature columns
+        feature_cols = [
+            'fpts_avg_3', 'fpts_avg_5', 'fpts_avg_10',
+            'fpts_std_5', 'fpts_std_10',
+            'fpts_max_10', 'fpts_min_10',
+            'games_played', 'is_home', 'days_rest', 'trend'
+        ]
+
+        if player_type == 'skater':
+            feature_cols.extend([
+                'goals_avg_3', 'goals_avg_5', 'goals_avg_10',
+                'assists_avg_3', 'assists_avg_5', 'assists_avg_10',
+                'shots_avg_3', 'shots_avg_5', 'shots_avg_10',
+            ])
+            if 'shots_trend' in df.columns:
+                feature_cols.append('shots_trend')
+            if 'goals_trend' in df.columns:
+                feature_cols.append('goals_trend')
+
+        # Filter to available columns
+        feature_cols = [c for c in feature_cols if c in df.columns]
+
+        # Filter to players with enough games
+        player_game_counts = df.groupby('player_id').size()
+        valid_players = player_game_counts[player_game_counts >= min_games].index
+        df = df[df['player_id'].isin(valid_players)]
+
+        print(f"\nRunning TabPFN backtest on {len(valid_players)} players")
+        print(f"Using {len(feature_cols)} features")
+
+        all_predictions = []
+
+        # Process all players together for TabPFN (it handles multi-player well)
+        # Use time-based split: first 60% train, last 40% test
+        df = df.sort_values('gameDate')
+
+        for player_id in tqdm(valid_players, desc="TabPFN Backtest"):
+            player_df = df[df['player_id'] == player_id].copy()
+
+            if len(player_df) < min_games:
+                continue
+
+            # Train on first train_games, test on rest
+            train_df = player_df.iloc[:train_games]
+            test_df = player_df.iloc[train_games:]
+
+            if len(test_df) == 0:
+                continue
+
+            # Prepare features
+            X_train = train_df[feature_cols].fillna(0)
+            y_train = train_df['actual_fpts'].values
+
+            X_test = test_df[feature_cols].fillna(0)
+            y_test = test_df['actual_fpts'].values
+
+            # Handle any remaining issues
+            X_train = X_train.replace([np.inf, -np.inf], 0)
+            X_test = X_test.replace([np.inf, -np.inf], 0)
+
+            try:
+                # Train TabPFN
+                model = TabPFNRegressor()
+                model.fit(X_train.values, y_train)
+
+                # Predict
+                predictions = model.predict(X_test.values)
+
+                # Store results
+                test_df = test_df.copy()
+                test_df['predicted_fpts'] = predictions
+                test_df['error'] = test_df['predicted_fpts'] - test_df['actual_fpts']
+                test_df['abs_error'] = test_df['error'].abs()
+                test_df['squared_error'] = test_df['error'] ** 2
+
+                all_predictions.append(test_df)
+
+            except Exception as e:
+                print(f"Error for player {player_id}: {e}")
+                continue
+
+        if not all_predictions:
+            return {'error': 'No successful predictions'}
+
+        all_results = pd.concat(all_predictions, ignore_index=True)
+
+        # Calculate metrics
+        metrics = {
+            'n_predictions': len(all_results),
+            'n_players': len(valid_players),
+            'mae': all_results['abs_error'].mean(),
+            'rmse': np.sqrt(all_results['squared_error'].mean()),
+            'correlation': all_results[['predicted_fpts', 'actual_fpts']].corr().iloc[0, 1],
+            'mean_actual': all_results['actual_fpts'].mean(),
+            'mean_predicted': all_results['predicted_fpts'].mean(),
+            'std_actual': all_results['actual_fpts'].std(),
+            'std_predicted': all_results['predicted_fpts'].std(),
+        }
+
+        for threshold in [2, 5, 10]:
+            pct = (all_results['abs_error'] <= threshold).mean() * 100
+            metrics[f'within_{threshold}_pts_pct'] = pct
+
+        return {
+            'metrics': metrics,
+            'results': all_results,
+            'player_type': player_type,
+            'model': 'TabPFN',
+            'features': feature_cols
+        }
+
+    def run_full_model_comparison(self, game_logs: pd.DataFrame,
+                                    min_games: int = 20,
+                                    train_games: int = 15,
+                                    player_type: str = 'skater') -> Dict:
+        """
+        Compare all models including TabPFN:
+        1. 3-game rolling average
+        2. 5-game rolling average
+        3. 10-game rolling average
+        4. TabPFN (ML model)
+        """
+        # First run standard comparison
+        standard_results = self.run_model_comparison(
+            game_logs, min_games=min_games, train_games=train_games, player_type=player_type
+        )
+
+        # Add TabPFN if available
+        if TABPFN_AVAILABLE:
+            print("\nTraining TabPFN model...")
+            tabpfn_results = self.run_tabpfn_backtest(
+                game_logs, min_games=min_games, train_games=train_games, player_type=player_type
+            )
+
+            if 'metrics' in tabpfn_results:
+                standard_results['TabPFN'] = {
+                    'mae': tabpfn_results['metrics']['mae'],
+                    'rmse': tabpfn_results['metrics']['rmse'],
+                    'correlation': tabpfn_results['metrics']['correlation'],
+                    'n_predictions': tabpfn_results['metrics']['n_predictions'],
+                }
+
+        return standard_results
+
+
+def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
     """
     Run full backtest pipeline.
 
     1. Fetch top players
     2. Get their game logs
     3. Run backtest
-    4. Compare models
+    4. Compare models (including TabPFN if requested)
     """
     from data_pipeline import NHLDataPipeline
 
@@ -371,18 +601,38 @@ def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON):
 
     print(f"\nFetched {len(game_logs)} total game entries")
 
-    # Run backtest
-    print("\nRunning backtest...")
+    # Run baseline backtest
+    print("\nRunning baseline backtest...")
     results = backtester.run_backtest(game_logs, min_games=15, train_games=10)
     backtester.print_backtest_report(results)
 
     # Compare models
-    print("\nComparing prediction models...")
-    comparison = backtester.run_model_comparison(game_logs, min_games=15, train_games=10)
+    if include_tabpfn and TABPFN_AVAILABLE:
+        print("\n" + "=" * 60)
+        print(" COMPARING ALL MODELS (Including TabPFN)")
+        print("=" * 60)
+        comparison = backtester.run_full_model_comparison(
+            game_logs, min_games=20, train_games=15
+        )
+    else:
+        print("\nComparing baseline models...")
+        comparison = backtester.run_model_comparison(game_logs, min_games=15, train_games=10)
+
     backtester.print_model_comparison(comparison)
 
-    return results, comparison
+    return results, comparison, game_logs
 
 
 if __name__ == "__main__":
-    results, comparison = run_full_backtest(max_players=75)
+    import argparse
+
+    parser = argparse.ArgumentParser(description='NHL DFS Backtest')
+    parser.add_argument('--players', type=int, default=75, help='Number of top players to test')
+    parser.add_argument('--no-tabpfn', action='store_true', help='Skip TabPFN comparison')
+
+    args = parser.parse_args()
+
+    results, comparison, game_logs = run_full_backtest(
+        max_players=args.players,
+        include_tabpfn=not args.no_tabpfn
+    )
