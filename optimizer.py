@@ -1,17 +1,31 @@
 """
-DraftKings NHL Lineup Optimizer with Stacking Support.
+DraftKings NHL Lineup Optimizer with GPP Stacking Support.
+
+Based on analysis of winning GPP lineups:
+- 68% of top 100 had team stacks (3-4 players)
+- Winning lineup had 6-player stack + 2-player secondary stack
+- Key pairs like Kaprizov+Zuccarello appeared in 59% of winners
+- Goalie correlation with skaters is valuable in high-scoring games
 """
 
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
+from collections import defaultdict
 import warnings
 warnings.filterwarnings('ignore')
+
+from config import (
+    GPP_MIN_STACK_SIZE, GPP_MAX_FROM_TEAM, CASH_MAX_FROM_TEAM,
+    PRIMARY_STACK_BOOST, SECONDARY_STACK_BOOST, LINEMATE_BOOST,
+    GOALIE_CORRELATION_BOOST, HIGH_TOTAL_THRESHOLD,
+    PREFERRED_PRIMARY_STACK_SIZE, PREFERRED_SECONDARY_STACK_SIZE
+)
 
 
 class NHLLineupOptimizer:
     """
-    Optimizer for DraftKings NHL lineups with correlation-based stacking.
+    Optimizer for DraftKings NHL lineups with GPP-focused stacking.
 
     DK NHL Classic Roster:
     - 2 Centers (C)
@@ -56,22 +70,30 @@ class NHLLineupOptimizer:
 
     def optimize_lineup(self, player_pool: pd.DataFrame,
                         n_lineups: int = 1,
-                        max_from_team: int = 4,
+                        mode: str = 'gpp',
+                        max_from_team: int = None,
                         min_teams: int = 3,
+                        min_stack_size: int = None,
                         randomness: float = 0.0,
-                        stack_boost: float = 0.15,
-                        force_stack: str = None) -> List[pd.DataFrame]:
+                        stack_teams: List[str] = None,
+                        secondary_stack_team: str = None,
+                        force_players: List[str] = None,
+                        exclude_players: List[str] = None) -> List[pd.DataFrame]:
         """
-        Generate optimized lineups using value-based selection with stacking.
+        Generate optimized lineups with GPP stacking strategy.
 
         Args:
             player_pool: DataFrame with projections and salaries
             n_lineups: Number of lineups to generate
-            max_from_team: Maximum players from one team
+            mode: 'gpp' for tournaments, 'cash' for 50/50s and double-ups
+            max_from_team: Maximum players from one team (auto-set by mode if None)
             min_teams: Minimum number of teams represented
+            min_stack_size: Minimum stack size required (auto-set by mode if None)
             randomness: Add randomness to projections (0-1 scale)
-            stack_boost: Boost percentage for correlated players (default 15%)
-            force_stack: Force a specific stack type ('PP1', 'Line1', etc.)
+            stack_teams: List of teams to prioritize for stacking
+            secondary_stack_team: Specific team for secondary 2-3 player stack
+            force_players: List of player names to force into lineup
+            exclude_players: List of player names to exclude
 
         Returns:
             List of DataFrames, each representing a lineup
@@ -79,180 +101,263 @@ class NHLLineupOptimizer:
         df = player_pool.copy()
         df['norm_position'] = df['position'].apply(self._normalize_position)
 
+        # Set mode-specific defaults
+        if max_from_team is None:
+            max_from_team = GPP_MAX_FROM_TEAM if mode == 'gpp' else CASH_MAX_FROM_TEAM
+
+        if min_stack_size is None:
+            min_stack_size = GPP_MIN_STACK_SIZE if mode == 'gpp' else 0
+
+        # Apply exclusions
+        if exclude_players:
+            exclude_lower = [p.lower() for p in exclude_players]
+            df = df[~df['name'].str.lower().isin(exclude_lower)]
+
         lineups = []
         used_lineup_hashes = set()
+        attempts = 0
+        max_attempts = n_lineups * 10
 
-        for i in range(n_lineups * 3):  # Try more times to get unique lineups
-            if len(lineups) >= n_lineups:
-                break
+        while len(lineups) < n_lineups and attempts < max_attempts:
+            attempts += 1
 
             # Add randomness if specified
             if randomness > 0:
                 noise = np.random.normal(1, randomness, len(df))
-                df['adj_projection'] = df['projected_fpts'] * noise.clip(0.5, 1.5)
+                df['adj_projection'] = df['projected_fpts'] * noise.clip(0.7, 1.3)
             else:
                 df['adj_projection'] = df['projected_fpts']
 
             # Recalculate value with adjusted projections
             df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
 
-            lineup = self._build_lineup_with_stacking(
-                df, max_from_team, stack_boost, force_stack
-            )
+            # Build lineup based on mode
+            if mode == 'gpp':
+                lineup = self._build_gpp_lineup(
+                    df, max_from_team, min_stack_size,
+                    stack_teams, secondary_stack_team, force_players
+                )
+            else:
+                lineup = self._build_cash_lineup(df, max_from_team, force_players)
 
-            if lineup is not None:
-                # Calculate stack bonus for the lineup
-                if self.stack_builder:
-                    lineup = self._add_stack_info(lineup)
+            if lineup is not None and len(lineup) == 9:
+                # Validate minimum stack requirement
+                if min_stack_size > 0:
+                    team_counts = lineup['team'].value_counts()
+                    max_stack = team_counts.max() if len(team_counts) > 0 else 0
+                    if max_stack < min_stack_size:
+                        continue  # Reject lineup without sufficient stack
+
+                # Validate minimum teams
+                if lineup['team'].nunique() < min_teams:
+                    continue
 
                 # Check for duplicate lineups
                 lineup_hash = frozenset(lineup['name'].tolist())
                 if lineup_hash not in used_lineup_hashes:
                     used_lineup_hashes.add(lineup_hash)
+
+                    # Add stack analysis info
+                    lineup = self._add_stack_analysis(lineup)
                     lineups.append(lineup)
 
         return lineups
 
-    def _add_stack_info(self, lineup: pd.DataFrame) -> pd.DataFrame:
-        """Add stacking information to lineup."""
-        lineup = lineup.copy()
-        stack_info = []
-        players = lineup['name'].tolist()
-
-        for i, p1 in enumerate(players):
-            for p2 in players[i+1:]:
-                corr = self.stack_builder.get_correlation(p1, p2)
-                if corr > 0:
-                    stack_info.append(f"{p1.split()[-1]}-{p2.split()[-1]}:{corr:.0%}")
-
-        lineup['stack_info'] = ', '.join(stack_info[:3]) if stack_info else ''
-        return lineup
-
-    def _build_lineup_with_stacking(self, df: pd.DataFrame,
-                                     max_from_team: int,
-                                     stack_boost: float,
-                                     force_stack: str) -> Optional[pd.DataFrame]:
+    def _build_gpp_lineup(self, df: pd.DataFrame,
+                          max_from_team: int,
+                          min_stack_size: int,
+                          stack_teams: List[str] = None,
+                          secondary_stack_team: str = None,
+                          force_players: List[str] = None) -> Optional[pd.DataFrame]:
         """
-        Build lineup with stacking preferences.
+        Build GPP lineup with enforced stacking strategy.
 
-        Strategy:
-        1. If stack_builder available, boost projections for correlated players
-        2. Optionally force a specific stack (PP1, Line1)
-        3. Use salary-aware selection
+        Strategy based on winning lineup analysis:
+        1. Select primary stack team (highest projected or specified)
+        2. Pick 4-5 correlated players from primary stack
+        3. Add secondary stack of 2-3 players from another game
+        4. Fill remaining spots with high-value plays
+        5. Correlate goalie with skater stack when possible
         """
-        # If we have stacking data, boost correlated players
-        if self.stack_builder and stack_boost > 0:
-            df = self._apply_stack_boosts(df, stack_boost)
+        # Identify best stack teams based on projections
+        team_proj = df.groupby('team')['adj_projection'].sum().sort_values(ascending=False)
 
-        # If forcing a specific stack, pre-select those players
-        if force_stack and self.stack_builder:
-            return self._build_forced_stack_lineup(df, max_from_team, force_stack)
+        # Select primary stack team
+        if stack_teams and len(stack_teams) > 0:
+            primary_team = stack_teams[0]
+        else:
+            # Choose from top 3 teams with some randomness
+            top_teams = team_proj.head(5).index.tolist()
+            weights = [0.4, 0.25, 0.15, 0.12, 0.08][:len(top_teams)]
+            primary_team = np.random.choice(top_teams, p=weights)
 
-        # Otherwise use salary-aware approach
-        return self._build_lineup_with_salary_awareness(df, max_from_team)
+        # Select secondary stack team
+        if secondary_stack_team:
+            secondary_team = secondary_stack_team
+        elif stack_teams and len(stack_teams) > 1:
+            secondary_team = stack_teams[1]
+        else:
+            # Choose different team from remaining top teams
+            remaining_teams = [t for t in team_proj.head(6).index if t != primary_team]
+            if remaining_teams:
+                secondary_team = np.random.choice(remaining_teams[:3])
+            else:
+                secondary_team = None
 
-    def _apply_stack_boosts(self, df: pd.DataFrame, boost_pct: float) -> pd.DataFrame:
-        """Apply projection boosts based on correlation data."""
-        df = df.copy()
-
-        # Get PP1 players across all teams - they get the biggest boost
-        pp1_players = set()
-        line1_players = set()
-
-        for team in df['team'].unique():
-            stacks = self.stack_builder.get_best_stacks(team)
-            for stack in stacks:
-                if stack.get('type') == 'PP1':
-                    for p in stack.get('players', []):
-                        pp1_players.add(p.lower())
-                elif stack.get('type') == 'Line1':
-                    for p in stack.get('players', []):
-                        line1_players.add(p.lower())
-
-        # Apply boosts
-        def get_boost(name):
-            name_lower = name.lower()
-            # Check PP1 (highest boost)
-            for pp_name in pp1_players:
-                if name_lower in pp_name or pp_name in name_lower:
-                    return 1 + boost_pct
-            # Check Line1 (moderate boost)
-            for line_name in line1_players:
-                if name_lower in line_name or line_name in name_lower:
-                    return 1 + (boost_pct * 0.6)
-            return 1.0
-
-        df['stack_boost'] = df['name'].apply(get_boost)
-        df['adj_projection'] = df['adj_projection'] * df['stack_boost']
-        df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
-
-        return df
-
-    def _build_forced_stack_lineup(self, df: pd.DataFrame,
-                                    max_from_team: int,
-                                    stack_type: str) -> Optional[pd.DataFrame]:
-        """Build lineup forcing a specific stack."""
-        from lines import find_player_match
-
-        # Find the best stack of the requested type
-        best_stack = None
-        best_proj = 0
-
-        for team in df['team'].unique():
-            stacks = self.stack_builder.get_best_stacks(team, df)
-            for stack in stacks:
-                if stack.get('type') == stack_type:
-                    proj = stack.get('projected_total', 0)
-                    if proj > best_proj:
-                        best_proj = proj
-                        best_stack = stack
-
-        if not best_stack:
-            return self._build_lineup_with_salary_awareness(df, max_from_team)
-
-        # Pre-select stack players
-        forced_players = []
-        for p in best_stack.get('players', []):
-            match = find_player_match(p, df['name'].tolist())
-            if match:
-                forced_players.append(match)
-
-        # Heavily boost forced players
-        df = df.copy()
-        df['adj_projection'] = df.apply(
-            lambda r: r['adj_projection'] * 1.5 if r['name'] in forced_players else r['adj_projection'],
-            axis=1
-        )
-        df['adj_value'] = df['adj_projection'] / (df['salary'] / 1000)
-
-        return self._build_lineup_with_salary_awareness(df, max_from_team)
-
-    def _build_lineup_with_salary_awareness(self, df: pd.DataFrame,
-                                             max_from_team: int) -> Optional[pd.DataFrame]:
-        """
-        Build lineup with salary cap awareness.
-
-        Strategy:
-        1. Calculate target salary per position based on pool averages
-        2. Select players balancing projection and value
-        3. Fill required positions first, then UTIL
-        """
-        # Separate by position
-        centers = df[df['norm_position'] == 'C'].copy()
-        wings = df[df['norm_position'] == 'W'].copy()
-        defense = df[df['norm_position'] == 'D'].copy()
-        goalies = df[df['norm_position'] == 'G'].copy()
-        skaters = df[df['norm_position'] != 'G'].copy()
-
-        # Calculate average salary per position for targeting
-        avg_salary = df['salary'].mean()
-
-        # Target spending: leave ~$5500 avg per player = $49,500
-        target_per_player = self.SALARY_CAP / 9
-
+        # Build the lineup with stacking
         lineup = []
         used_players = set()
-        team_counts = {}
+        team_counts = defaultdict(int)
+        remaining_salary = self.SALARY_CAP
+
+        def can_add_player(player, check_team_limit=True):
+            if player['name'] in used_players:
+                return False
+            if player['salary'] > remaining_salary:
+                return False
+            if check_team_limit:
+                team = player.get('team', 'UNK')
+                if team_counts.get(team, 0) >= max_from_team:
+                    return False
+            return True
+
+        def add_player(player, slot):
+            nonlocal remaining_salary
+            player_dict = player.to_dict() if hasattr(player, 'to_dict') else dict(player)
+            player_dict['roster_slot'] = slot
+            lineup.append(player_dict)
+            used_players.add(player['name'])
+            team = player.get('team', 'UNK')
+            team_counts[team] = team_counts.get(team, 0) + 1
+            remaining_salary -= player['salary']
+
+        # Force players if specified
+        if force_players:
+            for forced_name in force_players:
+                forced_match = df[df['name'].str.lower() == forced_name.lower()]
+                if not forced_match.empty:
+                    player = forced_match.iloc[0]
+                    pos = self._normalize_position(player['position'])
+                    if can_add_player(player, check_team_limit=False):
+                        slot = self._get_available_slot(pos, lineup)
+                        if slot:
+                            add_player(player, slot)
+
+        # Step 1: Select goalie (prefer from primary stack team for correlation)
+        goalies = df[df['norm_position'] == 'G'].copy()
+
+        # Boost primary team goalie for correlation
+        goalies['stack_adj'] = goalies.apply(
+            lambda r: r['adj_projection'] * (1 + GOALIE_CORRELATION_BOOST)
+            if r['team'] == primary_team else r['adj_projection'],
+            axis=1
+        )
+        goalies = goalies.sort_values('stack_adj', ascending=False)
+
+        for _, g in goalies.iterrows():
+            if can_add_player(g):
+                add_player(g, 'G')
+                break
+
+        # Get the goalie's team for correlation
+        goalie_team = lineup[0]['team'] if lineup else None
+
+        # Step 2: Build primary stack (target 4-5 players)
+        primary_players = df[df['team'] == primary_team].copy()
+        primary_skaters = primary_players[primary_players['norm_position'] != 'G']
+
+        # Apply linemate boosts if we have stack builder
+        if self.stack_builder:
+            primary_skaters = self._apply_linemate_boosts(primary_skaters, primary_team)
+
+        primary_skaters = primary_skaters.sort_values('adj_projection', ascending=False)
+
+        # Add primary stack players (target PREFERRED_PRIMARY_STACK_SIZE)
+        primary_target = min(PREFERRED_PRIMARY_STACK_SIZE, max_from_team - team_counts.get(primary_team, 0))
+        primary_added = 0
+
+        for _, player in primary_skaters.iterrows():
+            if primary_added >= primary_target:
+                break
+            if can_add_player(player):
+                pos = self._normalize_position(player['position'])
+                slot = self._get_available_slot(pos, lineup)
+                if slot:
+                    add_player(player, slot)
+                    primary_added += 1
+
+        # Step 3: Build secondary stack (target 2-3 players)
+        if secondary_team:
+            secondary_players = df[df['team'] == secondary_team].copy()
+            secondary_skaters = secondary_players[secondary_players['norm_position'] != 'G']
+
+            if self.stack_builder:
+                secondary_skaters = self._apply_linemate_boosts(secondary_skaters, secondary_team)
+
+            secondary_skaters = secondary_skaters.sort_values('adj_projection', ascending=False)
+
+            secondary_target = PREFERRED_SECONDARY_STACK_SIZE
+            secondary_added = 0
+
+            for _, player in secondary_skaters.iterrows():
+                if secondary_added >= secondary_target:
+                    break
+                if can_add_player(player):
+                    pos = self._normalize_position(player['position'])
+                    slot = self._get_available_slot(pos, lineup)
+                    if slot:
+                        add_player(player, slot)
+                        secondary_added += 1
+
+        # Step 4: Fill remaining positions with best available
+        remaining_spots = 9 - len(lineup)
+
+        if remaining_spots > 0:
+            # Get all skaters not yet used, prioritize by value for remaining spots
+            all_skaters = df[df['norm_position'] != 'G'].copy()
+            all_skaters = all_skaters[~all_skaters['name'].isin(used_players)]
+            all_skaters = all_skaters[all_skaters['salary'] <= remaining_salary]
+
+            # Boost players from goalie's team for correlation
+            if goalie_team:
+                all_skaters['corr_adj'] = all_skaters.apply(
+                    lambda r: r['adj_value'] * (1 + GOALIE_CORRELATION_BOOST * 0.5)
+                    if r['team'] == goalie_team else r['adj_value'],
+                    axis=1
+                )
+            else:
+                all_skaters['corr_adj'] = all_skaters['adj_value']
+
+            all_skaters = all_skaters.sort_values('corr_adj', ascending=False)
+
+            for _, player in all_skaters.iterrows():
+                if len(lineup) >= 9:
+                    break
+                if can_add_player(player):
+                    pos = self._normalize_position(player['position'])
+                    slot = self._get_available_slot(pos, lineup)
+                    if slot:
+                        add_player(player, slot)
+
+        if len(lineup) < 9:
+            return None
+
+        return pd.DataFrame(lineup)
+
+    def _build_cash_lineup(self, df: pd.DataFrame,
+                           max_from_team: int,
+                           force_players: List[str] = None) -> Optional[pd.DataFrame]:
+        """
+        Build cash game lineup prioritizing floor and consistency.
+
+        Cash games prioritize:
+        - High floor players (consistent producers)
+        - Value plays to enable studs
+        - Less emphasis on correlation
+        """
+        lineup = []
+        used_players = set()
+        team_counts = defaultdict(int)
         remaining_salary = self.SALARY_CAP
 
         def can_add_player(player):
@@ -275,159 +380,195 @@ class NHLLineupOptimizer:
             team_counts[team] = team_counts.get(team, 0) + 1
             remaining_salary -= player['salary']
 
-        def get_best_player(pool, remaining_spots, prefer_value=False):
-            """Get best available player considering salary constraints."""
-            available = pool[pool['name'].apply(lambda x: x not in used_players)]
-            available = available[available['salary'] <= remaining_salary]
-            available = available[available['team'].apply(
-                lambda t: team_counts.get(t, 0) < max_from_team
-            )]
+        # Force players if specified
+        if force_players:
+            for forced_name in force_players:
+                forced_match = df[df['name'].str.lower() == forced_name.lower()]
+                if not forced_match.empty:
+                    player = forced_match.iloc[0]
+                    pos = self._normalize_position(player['position'])
+                    slot = self._get_available_slot(pos, lineup)
+                    if slot and can_add_player(player):
+                        add_player(player, slot)
 
-            if available.empty:
-                return None
-
-            # Calculate how much salary we can afford per remaining spot
-            salary_per_spot = remaining_salary / max(remaining_spots, 1)
-
-            # If we're tight on salary, prioritize value players
-            if salary_per_spot < target_per_player * 0.8 or prefer_value:
-                # Prioritize value (projection per $1k salary)
-                return available.nlargest(1, 'adj_value').iloc[0]
-            else:
-                # Prioritize raw projection
-                return available.nlargest(1, 'adj_projection').iloc[0]
-
-        # Fill positions strategically
-        # Start with goalie (only 1 needed, less flexibility)
-        remaining_spots = 9
-
-        if not goalies.empty:
-            best_g = get_best_player(goalies, remaining_spots)
-            if best_g is not None:
-                add_player(best_g, 'G')
-                remaining_spots -= 1
-
-        # Fill 2 Centers
-        for i in range(2):
-            best_c = get_best_player(centers, remaining_spots)
-            if best_c is not None:
-                add_player(best_c, f'C{i+1}')
-                remaining_spots -= 1
-
-        # Fill 3 Wings
-        for i in range(3):
-            best_w = get_best_player(wings, remaining_spots)
-            if best_w is not None:
-                add_player(best_w, f'W{i+1}')
-                remaining_spots -= 1
-
-        # Fill 2 Defense
-        for i in range(2):
-            best_d = get_best_player(defense, remaining_spots)
-            if best_d is not None:
-                add_player(best_d, f'D{i+1}')
-                remaining_spots -= 1
-
-        # Fill UTIL (best remaining skater)
-        if remaining_spots > 0:
-            best_util = get_best_player(skaters, remaining_spots, prefer_value=True)
-            if best_util is not None:
-                add_player(best_util, 'UTIL')
-                remaining_spots -= 1
-
-        if len(lineup) < 9:
-            # Try again with more value-focused approach
-            return self._build_value_lineup(df, max_from_team)
-
-        lineup_df = pd.DataFrame(lineup)
-        lineup_df['remaining_salary'] = remaining_salary
-
-        return lineup_df
-
-    def _build_value_lineup(self, df: pd.DataFrame, max_from_team: int) -> Optional[pd.DataFrame]:
-        """
-        Build lineup prioritizing value players to ensure salary compliance.
-        """
+        # Separate by position
         centers = df[df['norm_position'] == 'C'].sort_values('adj_value', ascending=False)
         wings = df[df['norm_position'] == 'W'].sort_values('adj_value', ascending=False)
         defense = df[df['norm_position'] == 'D'].sort_values('adj_value', ascending=False)
-        goalies = df[df['norm_position'] == 'G'].sort_values('adj_value', ascending=False)
+        goalies = df[df['norm_position'] == 'G'].sort_values('adj_projection', ascending=False)
         skaters = df[df['norm_position'] != 'G'].sort_values('adj_value', ascending=False)
 
-        lineup = []
-        used_players = set()
-        team_counts = {}
-        remaining_salary = self.SALARY_CAP
+        # Fill goalie first
+        for _, g in goalies.iterrows():
+            if 'G' not in [l.get('roster_slot') for l in lineup]:
+                if can_add_player(g):
+                    add_player(g, 'G')
+                    break
 
-        def can_add(player):
-            if player['name'] in used_players:
-                return False
-            if player['salary'] > remaining_salary:
-                return False
-            team = player.get('team', 'UNK')
-            if team_counts.get(team, 0) >= max_from_team:
-                return False
-            return True
+        # Fill required positions
+        positions_needed = self._get_positions_needed(lineup)
 
-        def add_player(player, slot):
-            nonlocal remaining_salary
-            player_dict = player.to_dict()
-            player_dict['roster_slot'] = slot
-            lineup.append(player_dict)
-            used_players.add(player['name'])
-            team = player.get('team', 'UNK')
-            team_counts[team] = team_counts.get(team, 0) + 1
-            remaining_salary -= player['salary']
+        for pos, count in positions_needed.items():
+            if pos == 'G':
+                continue
 
-        # Fill with value-first approach
-        # Goalie
-        for _, p in goalies.iterrows():
-            if can_add(p):
-                add_player(p, 'G')
-                break
+            pool = {'C': centers, 'W': wings, 'D': defense}.get(pos)
+            if pool is None:
+                continue
 
-        # 2 Centers
-        c_count = 0
-        for _, p in centers.iterrows():
-            if c_count >= 2:
-                break
-            if can_add(p):
-                add_player(p, f'C{c_count+1}')
-                c_count += 1
+            filled = sum(1 for l in lineup if l.get('roster_slot', '').startswith(pos))
+            for _, player in pool.iterrows():
+                if filled >= count:
+                    break
+                if can_add_player(player):
+                    slot = self._get_available_slot(pos, lineup)
+                    if slot:
+                        add_player(player, slot)
+                        filled += 1
 
-        # 3 Wings
-        w_count = 0
-        for _, p in wings.iterrows():
-            if w_count >= 3:
-                break
-            if can_add(p):
-                add_player(p, f'W{w_count+1}')
-                w_count += 1
-
-        # 2 Defense
-        d_count = 0
-        for _, p in defense.iterrows():
-            if d_count >= 2:
-                break
-            if can_add(p):
-                add_player(p, f'D{d_count+1}')
-                d_count += 1
-
-        # UTIL
-        for _, p in skaters.iterrows():
-            if len(lineup) >= 9:
-                break
-            if can_add(p):
-                add_player(p, 'UTIL')
-                break
+        # Fill UTIL
+        if len(lineup) < 9:
+            for _, player in skaters.iterrows():
+                if len(lineup) >= 9:
+                    break
+                if can_add_player(player):
+                    slot = self._get_available_slot(self._normalize_position(player['position']), lineup)
+                    if slot:
+                        add_player(player, slot)
 
         if len(lineup) < 9:
             return None
 
-        lineup_df = pd.DataFrame(lineup)
-        lineup_df['remaining_salary'] = remaining_salary
+        return pd.DataFrame(lineup)
 
-        return lineup_df
+    def _apply_linemate_boosts(self, df: pd.DataFrame, team: str) -> pd.DataFrame:
+        """Apply projection boosts based on linemate correlations."""
+        if not self.stack_builder:
+            return df
+
+        df = df.copy()
+
+        # Get team line data
+        team_data = self.stack_builder.lines_data.get(team, {})
+        if not team_data or 'error' in team_data:
+            return df
+
+        # Identify PP1 and Line1 players (highest correlation)
+        pp1_players = set()
+        line1_players = set()
+
+        for pp in team_data.get('pp_units', []):
+            if pp.get('unit') == 1:
+                pp1_players.update([p.lower() for p in pp.get('players', [])])
+
+        for line in team_data.get('forward_lines', []):
+            if line.get('line') == 1:
+                line1_players.update([p.lower() for p in line.get('players', [])])
+
+        def get_linemate_boost(name):
+            name_lower = name.lower()
+            # Check if player is on PP1 (highest boost)
+            for pp_name in pp1_players:
+                if name_lower in pp_name or pp_name in name_lower:
+                    return 1 + LINEMATE_BOOST * 1.2  # Extra boost for PP1
+            # Check if player is on Line1
+            for line_name in line1_players:
+                if name_lower in line_name or line_name in name_lower:
+                    return 1 + LINEMATE_BOOST
+            return 1.0
+
+        df['linemate_boost'] = df['name'].apply(get_linemate_boost)
+        df['adj_projection'] = df['adj_projection'] * df['linemate_boost']
+
+        return df
+
+    def _get_available_slot(self, position: str, lineup: List[Dict]) -> Optional[str]:
+        """Get the next available roster slot for a position."""
+        filled_slots = [p.get('roster_slot') for p in lineup]
+
+        # Position requirements
+        slots = {
+            'C': ['C1', 'C2', 'UTIL'],
+            'W': ['W1', 'W2', 'W3', 'UTIL'],
+            'D': ['D1', 'D2', 'UTIL'],
+            'G': ['G']
+        }
+
+        available = slots.get(position, [])
+        for slot in available:
+            if slot not in filled_slots:
+                # For UTIL, check if we still need it
+                if slot == 'UTIL':
+                    # Count non-UTIL skater slots filled
+                    c_filled = sum(1 for s in filled_slots if s.startswith('C') and s != 'UTIL')
+                    w_filled = sum(1 for s in filled_slots if s.startswith('W'))
+                    d_filled = sum(1 for s in filled_slots if s.startswith('D'))
+
+                    # Only use UTIL if required positions are filled
+                    if c_filled >= 2 and w_filled >= 3 and d_filled >= 2:
+                        return slot
+                    # Or if this position's slots are full
+                    elif position == 'C' and c_filled >= 2:
+                        return slot
+                    elif position == 'W' and w_filled >= 3:
+                        return slot
+                    elif position == 'D' and d_filled >= 2:
+                        return slot
+                else:
+                    return slot
+
+        return None
+
+    def _get_positions_needed(self, lineup: List[Dict]) -> Dict[str, int]:
+        """Get remaining positions needed."""
+        filled = defaultdict(int)
+        for p in lineup:
+            slot = p.get('roster_slot', '')
+            if slot.startswith('C'):
+                filled['C'] += 1
+            elif slot.startswith('W'):
+                filled['W'] += 1
+            elif slot.startswith('D'):
+                filled['D'] += 1
+            elif slot == 'G':
+                filled['G'] += 1
+
+        return {
+            'C': max(0, 2 - filled['C']),
+            'W': max(0, 3 - filled['W']),
+            'D': max(0, 2 - filled['D']),
+            'G': max(0, 1 - filled['G']),
+        }
+
+    def _add_stack_analysis(self, lineup: pd.DataFrame) -> pd.DataFrame:
+        """Add stacking analysis to lineup."""
+        lineup = lineup.copy()
+
+        # Count players per team
+        team_counts = lineup['team'].value_counts()
+
+        # Identify stacks
+        stacks = []
+        for team, count in team_counts.items():
+            if count >= 2:
+                team_players = lineup[lineup['team'] == team]['name'].tolist()
+                stacks.append(f"{team}({count}): {', '.join([p.split()[-1] for p in team_players])}")
+
+        lineup['stack_info'] = '; '.join(stacks) if stacks else 'No stacks'
+
+        # Add correlation info if available
+        if self.stack_builder:
+            corr_info = []
+            players = lineup['name'].tolist()
+            for i, p1 in enumerate(players):
+                for p2 in players[i+1:]:
+                    corr = self.stack_builder.get_correlation(p1, p2)
+                    if corr > 0.5:  # Only show strong correlations
+                        corr_info.append(f"{p1.split()[-1]}-{p2.split()[-1]}:{corr:.0%}")
+            if corr_info:
+                lineup['correlations'] = ', '.join(corr_info[:5])
+
+        return lineup
 
     def format_lineup_for_dk(self, lineup: pd.DataFrame) -> str:
         """Format lineup for display."""
@@ -435,8 +576,15 @@ class NHLLineupOptimizer:
         total_salary = lineup['salary'].sum()
         total_proj = lineup['projected_fpts'].sum()
 
-        output.append(f"Total Salary: ${total_salary:,} / $50,000")
+        output.append(f"Total Salary: ${total_salary:,} / $50,000 (${50000 - total_salary:,} remaining)")
         output.append(f"Projected Points: {total_proj:.1f}")
+
+        # Show stack info
+        team_counts = lineup['team'].value_counts()
+        stacks = [f"{team}({count})" for team, count in team_counts.items() if count >= 2]
+        if stacks:
+            output.append(f"Stacks: {' + '.join(stacks)}")
+
         output.append("")
         output.append(f"{'Slot':<6} {'Name':<25} {'Team':<5} {'Salary':<9} {'Proj':<7}")
         output.append("-" * 60)
@@ -455,6 +603,57 @@ class NHLLineupOptimizer:
 
         return "\n".join(output)
 
+    def generate_gpp_lineups(self, player_pool: pd.DataFrame,
+                             n_lineups: int = 20,
+                             diversity_factor: float = 0.15) -> List[pd.DataFrame]:
+        """
+        Generate diverse GPP lineup set with varied stacking strategies.
+
+        Args:
+            player_pool: DataFrame with projections and salaries
+            n_lineups: Number of lineups to generate
+            diversity_factor: Randomness to ensure lineup diversity (0-1)
+
+        Returns:
+            List of unique lineups with different stack combinations
+        """
+        all_lineups = []
+        teams = player_pool['team'].unique().tolist()
+
+        # Generate lineups with different primary stacks
+        lineups_per_strategy = max(1, n_lineups // len(teams))
+
+        for primary_team in teams:
+            other_teams = [t for t in teams if t != primary_team]
+
+            for secondary_team in other_teams[:2]:  # Try 2 secondary stacks per primary
+                lineups = self.optimize_lineup(
+                    player_pool,
+                    n_lineups=lineups_per_strategy,
+                    mode='gpp',
+                    randomness=diversity_factor,
+                    stack_teams=[primary_team],
+                    secondary_stack_team=secondary_team
+                )
+                all_lineups.extend(lineups)
+
+                if len(all_lineups) >= n_lineups:
+                    break
+
+            if len(all_lineups) >= n_lineups:
+                break
+
+        # Deduplicate and return requested number
+        seen = set()
+        unique_lineups = []
+        for lineup in all_lineups:
+            lineup_hash = frozenset(lineup['name'].tolist())
+            if lineup_hash not in seen:
+                seen.add(lineup_hash)
+                unique_lineups.append(lineup)
+
+        return unique_lineups[:n_lineups]
+
 
 # Quick test
 if __name__ == "__main__":
@@ -463,6 +662,8 @@ if __name__ == "__main__":
     from main import load_dk_salaries, merge_projections_with_salaries
     from datetime import datetime
 
+    print("Testing GPP Optimizer...")
+
     pipeline = NHLDataPipeline()
     data = pipeline.build_projection_dataset(include_game_logs=False)
 
@@ -470,24 +671,35 @@ if __name__ == "__main__":
     today = datetime.now().strftime('%Y-%m-%d')
     projections = model.generate_projections(data, target_date=today)
 
-    dk_salaries = load_dk_salaries('DKSalaries_1.22.26.csv')
-    dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
-    dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
+    # Load salaries
+    import glob
+    salary_files = glob.glob('DKSalaries*.csv')
+    if salary_files:
+        dk_salaries = load_dk_salaries(salary_files[0])
+        dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
+        dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
 
-    projections['goalies']['position'] = 'G'
+        projections['goalies']['position'] = 'G'
 
-    skaters_merged = merge_projections_with_salaries(projections['skaters'], dk_skaters, 'skater')
-    goalies_merged = merge_projections_with_salaries(projections['goalies'], dk_goalies, 'goalie')
+        skaters_merged = merge_projections_with_salaries(projections['skaters'], dk_skaters, 'skater')
+        goalies_merged = merge_projections_with_salaries(projections['goalies'], dk_goalies, 'goalie')
 
-    player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
+        player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
-    optimizer = NHLLineupOptimizer()
-    lineups = optimizer.optimize_lineup(player_pool, n_lineups=1)
+        optimizer = NHLLineupOptimizer()
 
-    if lineups:
         print("\n" + "=" * 60)
-        print("OPTIMIZED LINEUP")
+        print("GPP LINEUP (with stacking)")
         print("=" * 60)
-        print(optimizer.format_lineup_for_dk(lineups[0]))
+        gpp_lineups = optimizer.optimize_lineup(player_pool, n_lineups=1, mode='gpp')
+        if gpp_lineups:
+            print(optimizer.format_lineup_for_dk(gpp_lineups[0]))
+
+        print("\n" + "=" * 60)
+        print("CASH LINEUP (balanced)")
+        print("=" * 60)
+        cash_lineups = optimizer.optimize_lineup(player_pool, n_lineups=1, mode='cash')
+        if cash_lineups:
+            print(optimizer.format_lineup_for_dk(cash_lineups[0]))
     else:
-        print("Failed to generate lineup")
+        print("No salary file found. Please add DKSalaries*.csv file.")

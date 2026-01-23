@@ -96,6 +96,38 @@ HOT_STREAK_THRESHOLD = 1.15   # 15% above season average
 COLD_STREAK_THRESHOLD = 0.85  # 15% below season average
 STREAK_ADJUSTMENT_FACTOR = 0.10  # Max adjustment for streaks
 
+# ==================== GPP Optimizer Configuration ====================
+# Based on analysis of winning GPP lineups from 1/22/26 slate
+
+# Stack size constraints
+GPP_MIN_STACK_SIZE = 3       # Minimum players from one team for GPP
+GPP_MAX_FROM_TEAM = 6        # Allow up to 6 from one team (winning lineup had NSH 6-stack)
+CASH_MAX_FROM_TEAM = 4       # Conservative limit for cash games
+
+# Stack correlation boosts
+PRIMARY_STACK_BOOST = 0.20   # 20% boost for primary stack players
+SECONDARY_STACK_BOOST = 0.12 # 12% boost for secondary stack
+LINEMATE_BOOST = 0.15        # 15% boost for confirmed linemates
+GOALIE_CORRELATION_BOOST = 0.10  # 10% boost for skaters with same-team goalie
+
+# Game environment targeting
+HIGH_TOTAL_THRESHOLD = 6.0   # Vegas total above this = smash spot
+BLOWOUT_SPREAD_THRESHOLD = 2.5  # Spread above this = potential blowout (target underdog)
+
+# Stack structure preferences (based on winning lineup patterns)
+# 68% of top 100 had MIN stacks, 29% had NSH stacks
+# Winning lineup: NSH(6) + MIN(2)
+PREFERRED_PRIMARY_STACK_SIZE = 4  # Target 4 players in primary stack
+PREFERRED_SECONDARY_STACK_SIZE = 2  # Target 2 players in secondary stack
+
+# Player pair correlations from GPP analysis
+# Kaprizov + Zuccarello appeared in 59% of winning lineups
+# These are linemates who should be stacked together
+TOP_CORRELATION_PAIRS = [
+    # Format: (player1, player2, team, boost_multiplier)
+    # Add known high-correlation pairs here as discovered
+]
+
 
 def calculate_skater_fantasy_points(goals, assists, shots, blocks, sh_goals=0, sh_assists=0, shootout_goals=0):
     """Calculate DraftKings fantasy points for a skater."""
