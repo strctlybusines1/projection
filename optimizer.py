@@ -99,7 +99,15 @@ class NHLLineupOptimizer:
             List of DataFrames, each representing a lineup
         """
         df = player_pool.copy()
-        df['norm_position'] = df['position'].apply(self._normalize_position)
+        # Use DK position for roster eligibility if available, otherwise fall back to projection position
+        # dk_pos is the actual position (C, LW, RW, D, G), dk_position is roster eligibility (W/UTIL, etc.)
+        if 'dk_pos' in df.columns:
+            pos_col = 'dk_pos'
+        elif 'dk_position' in df.columns:
+            pos_col = 'dk_position'
+        else:
+            pos_col = 'position'
+        df['norm_position'] = df[pos_col].apply(self._normalize_position)
 
         # Set mode-specific defaults
         if max_from_team is None:
@@ -237,7 +245,7 @@ class NHLLineupOptimizer:
                 forced_match = df[df['name'].str.lower() == forced_name.lower()]
                 if not forced_match.empty:
                     player = forced_match.iloc[0]
-                    pos = self._normalize_position(player['position'])
+                    pos = player['norm_position']
                     if can_add_player(player, check_team_limit=False):
                         slot = self._get_available_slot(pos, lineup)
                         if slot:
@@ -283,7 +291,7 @@ class NHLLineupOptimizer:
             if primary_added >= primary_target:
                 break
             if can_add_player(player):
-                pos = self._normalize_position(player['position'])
+                pos = player['norm_position']
                 slot = self._get_available_slot(pos, lineup)
                 if slot:
                     add_player(player, slot)
@@ -306,7 +314,7 @@ class NHLLineupOptimizer:
                 if secondary_added >= secondary_target:
                     break
                 if can_add_player(player):
-                    pos = self._normalize_position(player['position'])
+                    pos = player['norm_position']
                     slot = self._get_available_slot(pos, lineup)
                     if slot:
                         add_player(player, slot)
@@ -337,7 +345,7 @@ class NHLLineupOptimizer:
                 if len(lineup) >= 9:
                     break
                 if can_add_player(player):
-                    pos = self._normalize_position(player['position'])
+                    pos = player['norm_position']
                     slot = self._get_available_slot(pos, lineup)
                     if slot:
                         add_player(player, slot)
@@ -389,7 +397,7 @@ class NHLLineupOptimizer:
                 forced_match = df[df['name'].str.lower() == forced_name.lower()]
                 if not forced_match.empty:
                     player = forced_match.iloc[0]
-                    pos = self._normalize_position(player['position'])
+                    pos = player['norm_position']
                     slot = self._get_available_slot(pos, lineup)
                     if slot and can_add_player(player):
                         add_player(player, slot)
@@ -436,7 +444,7 @@ class NHLLineupOptimizer:
                 if len(lineup) >= 9:
                     break
                 if can_add_player(player):
-                    slot = self._get_available_slot(self._normalize_position(player['position']), lineup)
+                    slot = self._get_available_slot(player['norm_position'], lineup)
                     if slot:
                         add_player(player, slot)
 

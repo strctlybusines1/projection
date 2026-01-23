@@ -72,9 +72,17 @@ def merge_projections_with_salaries(projections: pd.DataFrame,
     sal['name_clean'] = sal['dk_name'].str.lower().str.strip()
     sal['name_clean'] = sal['name_clean'].str.replace(r'[^a-z\s]', '', regex=True)
 
-    # Merge
+    # Rename DK position to avoid collision with projection position
+    if 'position' in sal.columns:
+        sal = sal.rename(columns={'position': 'dk_pos'})
+
+    # Merge - include dk_pos (actual position) for roster eligibility
+    merge_cols = ['name_clean', 'salary', 'dk_position', 'dk_id', 'dk_avg_fpts']
+    if 'dk_pos' in sal.columns:
+        merge_cols.append('dk_pos')
+
     merged = proj.merge(
-        sal[['name_clean', 'salary', 'dk_position', 'dk_id', 'dk_avg_fpts']],
+        sal[merge_cols],
         on='name_clean',
         how='inner'
     )
