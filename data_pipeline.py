@@ -29,7 +29,7 @@ class NHLDataPipeline:
     # ==================== Skater Data ====================
 
     def fetch_all_skater_stats(self, season: str = CURRENT_SEASON) -> pd.DataFrame:
-        """Fetch season stats for all skaters."""
+        """Fetch season stats for all skaters including TOI breakdown."""
         print(f"Fetching skater stats for {season}...")
 
         # Get main summary stats
@@ -64,6 +64,28 @@ class NHLDataPipeline:
         }
 
         df = df.rename(columns={k: v for k, v in column_map.items() if k in df.columns})
+
+        # Fetch TOI breakdown (5v5, PP, PK)
+        toi_data = self.fetch_skater_advanced_stats(season)
+        if 'toi' in toi_data and not toi_data['toi'].empty:
+            toi_df = toi_data['toi']
+
+            # Rename TOI columns
+            toi_column_map = {
+                'playerId': 'player_id',
+                'evTimeOnIcePerGame': 'ev_toi_per_game',  # 5v5 TOI
+                'ppTimeOnIcePerGame': 'pp_toi_per_game',  # Power play TOI
+                'shTimeOnIcePerGame': 'sh_toi_per_game',  # Shorthanded TOI
+                'timeOnIcePerGame': 'total_toi_per_game',
+            }
+            toi_df = toi_df.rename(columns={k: v for k, v in toi_column_map.items() if k in toi_df.columns})
+
+            # Merge TOI breakdown into main df
+            toi_cols = ['player_id', 'ev_toi_per_game', 'pp_toi_per_game', 'sh_toi_per_game']
+            toi_cols = [c for c in toi_cols if c in toi_df.columns]
+
+            if 'player_id' in toi_df.columns and len(toi_cols) > 1:
+                df = df.merge(toi_df[toi_cols], on='player_id', how='left')
 
         # Calculate per-game stats
         if 'games_played' in df.columns and df['games_played'].gt(0).any():

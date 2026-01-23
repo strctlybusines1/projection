@@ -216,13 +216,16 @@ class FeatureEngineer:
     def _add_xg_features(self, df: pd.DataFrame, team_adv_stats: Dict[str, pd.DataFrame],
                           schedule: pd.DataFrame, target_date: Optional[str] = None) -> pd.DataFrame:
         """
-        Add expected goals (xG) features.
+        Add expected goals (xG) features, scaled by player TOI.
+
+        xGF/60 is a team-level per-60-minutes stat. Individual players don't play
+        60 minutes, so the boost must be scaled by their actual TOI.
 
         Features added:
             - team_xgf_60: Team's xG for per 60 minutes
             - team_xga_60: Team's xG against per 60 minutes
             - opp_xga_60: Opponent's xG against per 60 (soft defense = good)
-            - xg_matchup_boost: Combined xG matchup advantage
+            - xg_matchup_boost: Combined xG matchup advantage (scaled by TOI)
         """
         # Get 5v5 team stats
         team_5v5 = team_adv_stats.get('5v5', pd.DataFrame())
@@ -271,12 +274,45 @@ class FeatureEngineer:
         else:
             df['opp_xga_60'] = LEAGUE_AVG_XGA_60
 
-        # Calculate matchup boost
-        # Good offense (high xGF) vs bad defense (high xGA) = boost
+        # Calculate raw matchup factor (before TOI scaling)
+        # Good offense (high xGF) vs bad defense (high xGA) = advantage
         team_offense_factor = df['team_xgf_60'] / LEAGUE_AVG_XGF_60
         opp_defense_weakness = df['opp_xga_60'] / LEAGUE_AVG_XGA_60
 
-        df['xg_matchup_boost'] = (team_offense_factor * opp_defense_weakness).clip(0.8, 1.3)
+        raw_matchup_advantage = (team_offense_factor * opp_defense_weakness) - 1.0  # Deviation from neutral
+
+        # Scale by player's 5v5 TOI (not total TOI!)
+        # xGF/60 is a 5v5 stat, so we only apply it to 5v5 ice time
+        # PP/PK time has different dynamics
+        if 'ev_toi_per_game' in df.columns:
+            # ev_toi_per_game is 5v5 TOI in seconds
+            ev_toi = df['ev_toi_per_game']
+            if ev_toi.median() > 100:  # In seconds
+                ev_toi_minutes = ev_toi / 60.0
+            else:
+                ev_toi_minutes = ev_toi
+            toi_factor = ev_toi_minutes / 60.0  # Fraction of 60 min at 5v5
+        elif 'toi_minutes' in df.columns:
+            # Fallback: estimate 5v5 as ~80% of total TOI
+            toi_factor = (df['toi_minutes'] * 0.80) / 60.0
+        elif 'toi_per_game' in df.columns:
+            # toi_per_game might be in seconds
+            toi = df['toi_per_game']
+            if toi.median() > 100:  # Likely in seconds
+                total_toi_minutes = toi / 60.0
+            else:
+                total_toi_minutes = toi
+            # Estimate 5v5 as ~80% of total TOI
+            toi_factor = (total_toi_minutes * 0.80) / 60.0
+        else:
+            # Default assumption: average skater plays ~14 minutes at 5v5
+            toi_factor = 14.0 / 60.0
+
+        # Apply TOI-scaled boost
+        # The boost is: 1 + (matchup_advantage * toi_factor * sensitivity)
+        # sensitivity dampens the effect (0.4 = conservative estimate)
+        sensitivity = 0.4
+        df['xg_matchup_boost'] = (1.0 + raw_matchup_advantage * toi_factor * sensitivity).clip(0.96, 1.12)
 
         return df
 

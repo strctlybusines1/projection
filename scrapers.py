@@ -366,6 +366,8 @@ class NaturalStatTrickScraper:
             'GF%': 'gf_pct',
             'xGF': 'xgf',
             'xGA': 'xga',
+            'xGF/60': 'xgf',  # NST uses /60 format
+            'xGA/60': 'xga',  # NST uses /60 format
             'xGF%': 'xgf_pct',
             'SCF': 'scf',
             'SCA': 'sca',
@@ -429,9 +431,56 @@ class NaturalStatTrickScraper:
         return df
 
     def _normalize_team_code(self, team: str) -> str:
-        """Normalize NST team codes to standard NHL codes."""
-        # NST uses different codes for some teams
-        nst_to_standard = {
+        """Normalize NST team codes/names to standard NHL codes."""
+        if pd.isna(team):
+            return ''
+
+        team_str = str(team).upper().strip()
+
+        # Full team name mappings (NST often uses full names)
+        full_name_to_code = {
+            'ANAHEIM DUCKS': 'ANA',
+            'ARIZONA COYOTES': 'ARI',
+            'BOSTON BRUINS': 'BOS',
+            'BUFFALO SABRES': 'BUF',
+            'CALGARY FLAMES': 'CGY',
+            'CAROLINA HURRICANES': 'CAR',
+            'CHICAGO BLACKHAWKS': 'CHI',
+            'COLORADO AVALANCHE': 'COL',
+            'COLUMBUS BLUE JACKETS': 'CBJ',
+            'DALLAS STARS': 'DAL',
+            'DETROIT RED WINGS': 'DET',
+            'EDMONTON OILERS': 'EDM',
+            'FLORIDA PANTHERS': 'FLA',
+            'LOS ANGELES KINGS': 'LAK',
+            'MINNESOTA WILD': 'MIN',
+            'MONTREAL CANADIENS': 'MTL',
+            'NASHVILLE PREDATORS': 'NSH',
+            'NEW JERSEY DEVILS': 'NJD',
+            'NEW YORK ISLANDERS': 'NYI',
+            'NEW YORK RANGERS': 'NYR',
+            'OTTAWA SENATORS': 'OTT',
+            'PHILADELPHIA FLYERS': 'PHI',
+            'PITTSBURGH PENGUINS': 'PIT',
+            'SAN JOSE SHARKS': 'SJS',
+            'SEATTLE KRAKEN': 'SEA',
+            'ST. LOUIS BLUES': 'STL',
+            'ST LOUIS BLUES': 'STL',
+            'TAMPA BAY LIGHTNING': 'TBL',
+            'TORONTO MAPLE LEAFS': 'TOR',
+            'UTAH HOCKEY CLUB': 'UTA',
+            'VANCOUVER CANUCKS': 'VAN',
+            'VEGAS GOLDEN KNIGHTS': 'VGK',
+            'WASHINGTON CAPITALS': 'WSH',
+            'WINNIPEG JETS': 'WPG',
+        }
+
+        # Check full name first
+        if team_str in full_name_to_code:
+            return full_name_to_code[team_str]
+
+        # Short code mappings (for abbreviated codes)
+        short_code_map = {
             'T.B': 'TBL',
             'N.J': 'NJD',
             'L.A': 'LAK',
@@ -471,11 +520,7 @@ class NaturalStatTrickScraper:
             'WPG': 'WPG'
         }
 
-        if pd.isna(team):
-            return ''
-
-        team_upper = str(team).upper().strip()
-        return nst_to_standard.get(team_upper, team_upper)
+        return short_code_map.get(team_str, team_str)
 
 
 # Quick test
