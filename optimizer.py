@@ -246,6 +246,9 @@ class NHLLineupOptimizer:
         # Step 1: Select goalie (prefer from primary stack team for correlation)
         goalies = df[df['norm_position'] == 'G'].copy()
 
+        # Filter to confirmed starters only
+        goalies = self._filter_confirmed_goalies(goalies)
+
         # Boost primary team goalie for correlation
         goalies['stack_adj'] = goalies.apply(
             lambda r: r['adj_projection'] * (1 + GOALIE_CORRELATION_BOOST)
@@ -396,6 +399,7 @@ class NHLLineupOptimizer:
         wings = df[df['norm_position'] == 'W'].sort_values('adj_value', ascending=False)
         defense = df[df['norm_position'] == 'D'].sort_values('adj_value', ascending=False)
         goalies = df[df['norm_position'] == 'G'].sort_values('adj_projection', ascending=False)
+        goalies = self._filter_confirmed_goalies(goalies)  # Filter to confirmed starters
         skaters = df[df['norm_position'] != 'G'].sort_values('adj_value', ascending=False)
 
         # Fill goalie first
@@ -440,6 +444,37 @@ class NHLLineupOptimizer:
             return None
 
         return pd.DataFrame(lineup)
+
+    def _filter_confirmed_goalies(self, goalies: pd.DataFrame) -> pd.DataFrame:
+        """Filter goalies to only confirmed starters from lines data."""
+        if not self.stack_builder:
+            return goalies
+
+        confirmed = self.stack_builder.get_all_starting_goalies()
+        if not confirmed:
+            return goalies
+
+        # Build list of confirmed goalie names
+        confirmed_names = list(confirmed.values())
+
+        # Filter to confirmed starters using fuzzy matching
+        from lines import fuzzy_match
+
+        def is_confirmed(name):
+            for confirmed_name in confirmed_names:
+                if fuzzy_match(name, confirmed_name):
+                    return True
+            return False
+
+        mask = goalies['name'].apply(is_confirmed)
+        filtered = goalies[mask]
+
+        # If no matches found, return original (fallback)
+        if filtered.empty:
+            print("Warning: No confirmed goalies matched in player pool, using all goalies")
+            return goalies
+
+        return filtered
 
     def _apply_linemate_boosts(self, df: pd.DataFrame, team: str) -> pd.DataFrame:
         """Apply projection boosts based on linemate correlations."""
@@ -660,6 +695,7 @@ if __name__ == "__main__":
     from data_pipeline import NHLDataPipeline
     from projections import NHLProjectionModel
     from main import load_dk_salaries, merge_projections_with_salaries
+    from lines import LinesScraper, StackBuilder
     from datetime import datetime
 
     print("Testing GPP Optimizer...")
@@ -670,6 +706,28 @@ if __name__ == "__main__":
     model = NHLProjectionModel()
     today = datetime.now().strftime('%Y-%m-%d')
     projections = model.generate_projections(data, target_date=today)
+
+    # Fetch lines for all teams playing today
+    print("\n" + "=" * 60)
+    print("FETCHING LINE COMBINATIONS")
+    print("=" * 60)
+    schedule = pipeline.fetch_schedule(today)
+    teams_playing = set()
+    teams_playing.update(schedule['home_team'].tolist())
+    teams_playing.update(schedule['away_team'].tolist())
+    teams_playing = sorted([t for t in teams_playing if t])
+
+    print(f"Teams playing today: {', '.join(teams_playing)}")
+
+    scraper = LinesScraper()
+    all_lines = scraper.get_multiple_teams(teams_playing)
+    stack_builder = StackBuilder(all_lines)
+
+    # Show confirmed goalies
+    confirmed_goalies = stack_builder.get_all_starting_goalies()
+    print(f"\nConfirmed starters: {len(confirmed_goalies)} goalies")
+    for team, goalie in sorted(confirmed_goalies.items()):
+        print(f"  {team}: {goalie}")
 
     # Load salaries
     import glob
@@ -686,7 +744,8 @@ if __name__ == "__main__":
 
         player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
-        optimizer = NHLLineupOptimizer()
+        # Create optimizer with stack builder (includes confirmed goalie data)
+        optimizer = NHLLineupOptimizer(stack_builder=stack_builder)
 
         print("\n" + "=" * 60)
         print("GPP LINEUP (with stacking)")

@@ -506,29 +506,64 @@ def print_team_lines(lines_data: Dict):
 
 # Quick test
 if __name__ == "__main__":
+    from data_pipeline import NHLDataPipeline
+    from datetime import datetime
+
     scraper = LinesScraper()
+    pipeline = NHLDataPipeline()
 
-    # Test with Edmonton
-    print("Fetching Edmonton Oilers lines...")
-    edm_lines = scraper.get_team_lines('EDM')
-    print_team_lines(edm_lines)
+    # Get today's schedule
+    today = datetime.now().strftime('%Y-%m-%d')
+    print(f"Fetching schedule for {today}...")
+    schedule = pipeline.fetch_schedule(today)
 
-    # Test stack builder
-    print("\n" + "=" * 60)
-    print(" STACK RECOMMENDATIONS")
-    print("=" * 60)
+    if schedule.empty:
+        print("No games scheduled for today.")
+    else:
+        # Get all teams playing today
+        teams_playing = set()
+        teams_playing.update(schedule['home_team'].tolist())
+        teams_playing.update(schedule['away_team'].tolist())
+        teams_playing = sorted([t for t in teams_playing if t])  # Remove None values
 
-    stack_builder = StackBuilder({'EDM': edm_lines})
-    stacks = stack_builder.get_best_stacks('EDM')
+        print(f"Found {len(teams_playing)} teams playing today: {', '.join(teams_playing)}")
+        print(f"Games: {len(schedule)}")
+        for _, game in schedule.iterrows():
+            print(f"  {game['away_team']} @ {game['home_team']}")
 
-    for stack in stacks:
-        print(f"\n{stack['type']} Stack (corr: {stack['correlation']}):")
-        print(f"  Players: {', '.join(stack['players'])}")
+        # Fetch lines for all teams
+        print(f"\n{'=' * 60}")
+        print(f" FETCHING LINES FOR ALL {len(teams_playing)} TEAMS")
+        print(f"{'=' * 60}")
 
-    # Test linemate lookup
-    print("\n" + "=" * 60)
-    print(" LINEMATE LOOKUP: Connor McDavid")
-    print("=" * 60)
-    linemates = stack_builder.get_linemates('Connor McDavid')
-    for name, corr, stack_type in linemates[:5]:
-        print(f"  {name}: {corr:.2f} ({stack_type})")
+        all_lines = scraper.get_multiple_teams(teams_playing)
+
+        # Print each team's lines
+        for team in teams_playing:
+            if team in all_lines and 'error' not in all_lines[team]:
+                print_team_lines(all_lines[team])
+            else:
+                print(f"\n[ERROR] Could not fetch lines for {team}")
+
+        # Build stack recommendations for all teams
+        print("\n" + "=" * 60)
+        print(" STACK RECOMMENDATIONS (ALL TEAMS)")
+        print("=" * 60)
+
+        stack_builder = StackBuilder(all_lines)
+
+        for team in teams_playing:
+            stacks = stack_builder.get_best_stacks(team)
+            if stacks:
+                print(f"\n{team}:")
+                for stack in stacks:
+                    print(f"  {stack['type']} (corr: {stack['correlation']}): {', '.join(stack['players'][:4])}{'...' if len(stack['players']) > 4 else ''}")
+
+        # Show all starting goalies
+        print("\n" + "=" * 60)
+        print(" CONFIRMED STARTING GOALIES")
+        print("=" * 60)
+        goalies = stack_builder.get_all_starting_goalies()
+        for team in teams_playing:
+            goalie = goalies.get(team, 'TBD')
+            print(f"  {team}: {goalie}")
