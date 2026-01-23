@@ -6,6 +6,13 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Optional, List
 
+from config import (
+    LEAGUE_AVG_XGF_60, LEAGUE_AVG_XGA_60, LEAGUE_AVG_CF_PCT, LEAGUE_AVG_PDO,
+    PDO_HIGH_THRESHOLD, PDO_LOW_THRESHOLD, PDO_REGRESSION_FACTOR,
+    HOT_STREAK_THRESHOLD, COLD_STREAK_THRESHOLD, STREAK_ADJUSTMENT_FACTOR,
+    INJURY_STATUSES_EXCLUDE
+)
+
 
 class FeatureEngineer:
     """Engineer features for NHL DFS projections."""
@@ -14,7 +21,9 @@ class FeatureEngineer:
         pass
 
     def engineer_skater_features(self, skaters: pd.DataFrame, teams: pd.DataFrame,
-                                   schedule: pd.DataFrame, target_date: Optional[str] = None) -> pd.DataFrame:
+                                   schedule: pd.DataFrame, target_date: Optional[str] = None,
+                                   advanced_stats: Optional[Dict[str, pd.DataFrame]] = None,
+                                   injuries: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         Engineer features for skater projections.
 
@@ -23,6 +32,8 @@ class FeatureEngineer:
             teams: DataFrame with team stats
             schedule: DataFrame with upcoming games
             target_date: Date to project for (filters schedule)
+            advanced_stats: Dict with 'team' and 'player' advanced stats from NST
+            injuries: DataFrame with current injury data
 
         Returns:
             DataFrame with engineered features ready for modeling
@@ -114,6 +125,25 @@ class FeatureEngineer:
         # Players with higher per-game averages relative to GP are more consistent
         df['consistency'] = df['points_pg'] * np.log1p(df['games_played'])
 
+        # ==================== Advanced Stats Features (xG, Form, PDO) ====================
+        if advanced_stats is not None:
+            # Extract team and player advanced stats
+            team_adv = advanced_stats.get('team', {})
+            player_adv = advanced_stats.get('player', {})
+
+            # Add xG features
+            df = self._add_xg_features(df, team_adv, schedule, target_date)
+
+            # Add recent form features
+            df = self._add_recent_form_features(df, team_adv)
+
+            # Add PDO regression features
+            df = self._add_pdo_regression_features(df, team_adv)
+
+        # ==================== Injury Context Features ====================
+        if injuries is not None and not injuries.empty:
+            df = self._add_injury_context_features(df, injuries)
+
         return df
 
     def engineer_goalie_features(self, goalies: pd.DataFrame, teams: pd.DataFrame,
@@ -178,6 +208,230 @@ class FeatureEngineer:
         # ==================== Opponent Adjustments ====================
         if not teams.empty and not schedule.empty:
             df = self._add_goalie_opponent_features(df, teams, schedule, target_date)
+
+        return df
+
+    # ==================== Advanced Analytics Features ====================
+
+    def _add_xg_features(self, df: pd.DataFrame, team_adv_stats: Dict[str, pd.DataFrame],
+                          schedule: pd.DataFrame, target_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        Add expected goals (xG) features.
+
+        Features added:
+            - team_xgf_60: Team's xG for per 60 minutes
+            - team_xga_60: Team's xG against per 60 minutes
+            - opp_xga_60: Opponent's xG against per 60 (soft defense = good)
+            - xg_matchup_boost: Combined xG matchup advantage
+        """
+        # Get 5v5 team stats
+        team_5v5 = team_adv_stats.get('5v5', pd.DataFrame())
+
+        if team_5v5.empty or 'team' not in df.columns:
+            # Set defaults
+            df['team_xgf_60'] = LEAGUE_AVG_XGF_60
+            df['team_xga_60'] = LEAGUE_AVG_XGA_60
+            df['opp_xga_60'] = LEAGUE_AVG_XGA_60
+            df['xg_matchup_boost'] = 1.0
+            return df
+
+        # Build team xG lookup
+        if 'team' in team_5v5.columns:
+            team_5v5_indexed = team_5v5.set_index('team')
+        else:
+            df['team_xgf_60'] = LEAGUE_AVG_XGF_60
+            df['team_xga_60'] = LEAGUE_AVG_XGA_60
+            df['opp_xga_60'] = LEAGUE_AVG_XGA_60
+            df['xg_matchup_boost'] = 1.0
+            return df
+
+        # Map team xG stats
+        xgf_col = 'xgf' if 'xgf' in team_5v5_indexed.columns else None
+        xga_col = 'xga' if 'xga' in team_5v5_indexed.columns else None
+
+        if xgf_col:
+            df['team_xgf_60'] = df['team'].map(
+                lambda t: team_5v5_indexed.loc[t, xgf_col] if t in team_5v5_indexed.index else LEAGUE_AVG_XGF_60
+            )
+        else:
+            df['team_xgf_60'] = LEAGUE_AVG_XGF_60
+
+        if xga_col:
+            df['team_xga_60'] = df['team'].map(
+                lambda t: team_5v5_indexed.loc[t, xga_col] if t in team_5v5_indexed.index else LEAGUE_AVG_XGA_60
+            )
+        else:
+            df['team_xga_60'] = LEAGUE_AVG_XGA_60
+
+        # Get opponent xGA (opponent's defensive weakness)
+        if 'opponent' in df.columns and xga_col:
+            df['opp_xga_60'] = df['opponent'].map(
+                lambda t: team_5v5_indexed.loc[t, xga_col] if pd.notna(t) and t in team_5v5_indexed.index else LEAGUE_AVG_XGA_60
+            )
+        else:
+            df['opp_xga_60'] = LEAGUE_AVG_XGA_60
+
+        # Calculate matchup boost
+        # Good offense (high xGF) vs bad defense (high xGA) = boost
+        team_offense_factor = df['team_xgf_60'] / LEAGUE_AVG_XGF_60
+        opp_defense_weakness = df['opp_xga_60'] / LEAGUE_AVG_XGA_60
+
+        df['xg_matchup_boost'] = (team_offense_factor * opp_defense_weakness).clip(0.8, 1.3)
+
+        return df
+
+    def _add_recent_form_features(self, df: pd.DataFrame,
+                                   team_adv_stats: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """
+        Add recent form features based on last N games.
+
+        Features added:
+            - team_form_xgf: Recent xGF vs season average
+            - team_form_cf: Recent CF% vs season average
+            - team_hot_streak: 1 if team is hot (>15% above avg)
+            - team_cold_streak: 1 if team is cold (<15% below avg)
+        """
+        team_season = team_adv_stats.get('5v5', pd.DataFrame())
+        team_recent = team_adv_stats.get('recent_form', pd.DataFrame())
+
+        # Initialize defaults
+        df['team_form_xgf'] = 1.0
+        df['team_form_cf'] = 1.0
+        df['team_hot_streak'] = 0
+        df['team_cold_streak'] = 0
+
+        if team_season.empty or team_recent.empty or 'team' not in df.columns:
+            return df
+
+        # Need team column in both DataFrames
+        if 'team' not in team_season.columns or 'team' not in team_recent.columns:
+            return df
+
+        # Index by team
+        season_idx = team_season.set_index('team')
+        recent_idx = team_recent.set_index('team')
+
+        def get_form_ratio(team, col):
+            """Get recent/season ratio for a stat."""
+            if team not in season_idx.index or team not in recent_idx.index:
+                return 1.0
+            if col not in season_idx.columns or col not in recent_idx.columns:
+                return 1.0
+
+            season_val = season_idx.loc[team, col]
+            recent_val = recent_idx.loc[team, col]
+
+            if pd.isna(season_val) or pd.isna(recent_val) or season_val == 0:
+                return 1.0
+
+            return recent_val / season_val
+
+        # Calculate form ratios
+        if 'xgf' in season_idx.columns:
+            df['team_form_xgf'] = df['team'].apply(lambda t: get_form_ratio(t, 'xgf'))
+
+        if 'cf_pct' in season_idx.columns:
+            df['team_form_cf'] = df['team'].apply(lambda t: get_form_ratio(t, 'cf_pct'))
+
+        # Flag hot/cold streaks
+        df['team_hot_streak'] = (df['team_form_xgf'] >= HOT_STREAK_THRESHOLD).astype(int)
+        df['team_cold_streak'] = (df['team_form_xgf'] <= COLD_STREAK_THRESHOLD).astype(int)
+
+        return df
+
+    def _add_pdo_regression_features(self, df: pd.DataFrame,
+                                      team_adv_stats: Dict[str, pd.DataFrame]) -> pd.DataFrame:
+        """
+        Add PDO regression features.
+
+        PDO = SH% + SV% (typically ~100, regresses to mean)
+        High PDO teams are due for regression, low PDO teams should improve.
+
+        Features added:
+            - team_pdo: Team's current PDO
+            - pdo_regression_flag: 1 if PDO suggests regression
+            - pdo_adj_factor: Adjustment factor for projections
+        """
+        team_5v5 = team_adv_stats.get('5v5', pd.DataFrame())
+
+        # Initialize defaults
+        df['team_pdo'] = LEAGUE_AVG_PDO
+        df['pdo_regression_flag'] = 0
+        df['pdo_adj_factor'] = 1.0
+
+        if team_5v5.empty or 'team' not in df.columns:
+            return df
+
+        if 'pdo' not in team_5v5.columns or 'team' not in team_5v5.columns:
+            return df
+
+        team_idx = team_5v5.set_index('team')
+
+        # Map PDO
+        df['team_pdo'] = df['team'].map(
+            lambda t: team_idx.loc[t, 'pdo'] if t in team_idx.index else LEAGUE_AVG_PDO
+        )
+
+        # Flag regression candidates
+        df['pdo_regression_flag'] = (
+            (df['team_pdo'] >= PDO_HIGH_THRESHOLD) | (df['team_pdo'] <= PDO_LOW_THRESHOLD)
+        ).astype(int)
+
+        # Calculate adjustment factor
+        # High PDO -> expect regression down -> reduce projections slightly
+        # Low PDO -> expect regression up -> increase projections slightly
+        def calc_pdo_adj(pdo):
+            if pdo >= PDO_HIGH_THRESHOLD:
+                # Reduce projections (team is over-performing)
+                return 1.0 - PDO_REGRESSION_FACTOR * ((pdo - LEAGUE_AVG_PDO) / 10)
+            elif pdo <= PDO_LOW_THRESHOLD:
+                # Increase projections (team is under-performing)
+                return 1.0 + PDO_REGRESSION_FACTOR * ((LEAGUE_AVG_PDO - pdo) / 10)
+            return 1.0
+
+        df['pdo_adj_factor'] = df['team_pdo'].apply(calc_pdo_adj).clip(0.9, 1.1)
+
+        return df
+
+    def _add_injury_context_features(self, df: pd.DataFrame, injuries: pd.DataFrame) -> pd.DataFrame:
+        """
+        Add injury context features (opportunity boost from teammate injuries).
+
+        When key players are injured, remaining players may see increased:
+        - Ice time
+        - Power play time
+        - Scoring opportunities
+
+        Features added:
+            - team_injury_count: Number of injured players on team
+            - opportunity_boost: Multiplier based on teammate injuries
+        """
+        df['team_injury_count'] = 0
+        df['opportunity_boost'] = 1.0
+
+        if injuries.empty or 'team' not in df.columns:
+            return df
+
+        if 'team' not in injuries.columns or 'injury_status' not in injuries.columns:
+            return df
+
+        # Count significant injuries per team (exclude DTD)
+        severe_injuries = injuries[injuries['injury_status'].isin(INJURY_STATUSES_EXCLUDE)]
+
+        if severe_injuries.empty:
+            return df
+
+        injury_counts = severe_injuries.groupby('team').size()
+
+        # Map injury counts
+        df['team_injury_count'] = df['team'].map(
+            lambda t: injury_counts.get(t, 0)
+        )
+
+        # Calculate opportunity boost
+        # More injuries = more opportunity for healthy players
+        # Each injured teammate adds ~3% opportunity boost, capped at 15%
+        df['opportunity_boost'] = (1.0 + df['team_injury_count'] * 0.03).clip(1.0, 1.15)
 
         return df
 
@@ -297,10 +551,20 @@ class FeatureEngineer:
 
         return prob.clip(0, 1)
 
-    def get_feature_columns(self, player_type: str = 'skater') -> List[str]:
-        """Get list of feature columns for modeling."""
+    def get_feature_columns(self, player_type: str = 'skater',
+                             include_advanced: bool = True) -> List[str]:
+        """
+        Get list of feature columns for modeling.
+
+        Args:
+            player_type: 'skater' or 'goalie'
+            include_advanced: Include xG, form, PDO features
+
+        Returns:
+            List of feature column names
+        """
         if player_type == 'skater':
-            return [
+            base_features = [
                 'goals_pg', 'assists_pg', 'points_pg', 'shots_pg', 'blocks_pg',
                 'pp_points_pg', 'pp_share', 'shooting_pct_adj',
                 'high_shot_volume', 'elite_shot_volume',
@@ -309,6 +573,22 @@ class FeatureEngineer:
                 'toi_minutes', 'toi_vs_position',
                 'opp_softness', 'is_home', 'consistency'
             ]
+
+            if include_advanced:
+                advanced_features = [
+                    # xG features
+                    'team_xgf_60', 'team_xga_60', 'opp_xga_60', 'xg_matchup_boost',
+                    # Form features
+                    'team_form_xgf', 'team_form_cf', 'team_hot_streak', 'team_cold_streak',
+                    # PDO features
+                    'team_pdo', 'pdo_regression_flag', 'pdo_adj_factor',
+                    # Injury context
+                    'team_injury_count', 'opportunity_boost'
+                ]
+                return base_features + advanced_features
+
+            return base_features
+
         else:  # goalie
             return [
                 'saves_pg', 'ga_pg', 'sa_pg', 'win_rate',

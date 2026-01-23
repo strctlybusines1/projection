@@ -567,6 +567,206 @@ class NHLBacktester:
 
         return standard_results
 
+    def run_feature_comparison(self, game_logs: pd.DataFrame,
+                                baseline_features: List[str],
+                                enhanced_features: List[str],
+                                min_games: int = 20,
+                                train_games: int = 15,
+                                player_type: str = 'skater') -> Dict:
+        """
+        Compare baseline features vs enhanced features (with xG, form, PDO).
+
+        Args:
+            game_logs: Game-by-game player data
+            baseline_features: List of baseline feature columns
+            enhanced_features: List of enhanced feature columns (including xG, etc.)
+            min_games: Minimum games required
+            train_games: Games to use for training
+            player_type: 'skater' or 'goalie'
+
+        Returns:
+            Dict with comparison metrics for both feature sets
+        """
+        if not TABPFN_AVAILABLE:
+            return {'error': 'TabPFN required for feature comparison'}
+
+        df = self.prepare_tabpfn_features(game_logs, player_type)
+
+        if df.empty:
+            return {'error': 'No data to backtest'}
+
+        # Filter to players with enough games
+        player_game_counts = df.groupby('player_id').size()
+        valid_players = player_game_counts[player_game_counts >= min_games].index
+        df = df[df['player_id'].isin(valid_players)]
+
+        print(f"\nRunning feature comparison on {len(valid_players)} players")
+
+        results = {}
+
+        for feature_set_name, feature_cols in [('baseline', baseline_features),
+                                                ('enhanced', enhanced_features)]:
+            # Filter to available columns
+            available_cols = [c for c in feature_cols if c in df.columns]
+
+            if len(available_cols) < 3:
+                print(f"  Warning: {feature_set_name} has only {len(available_cols)} features")
+                continue
+
+            print(f"\n  Testing {feature_set_name} ({len(available_cols)} features)...")
+
+            all_predictions = []
+
+            for player_id in tqdm(valid_players, desc=f"{feature_set_name}"):
+                player_df = df[df['player_id'] == player_id].copy()
+
+                if len(player_df) < min_games:
+                    continue
+
+                train_df = player_df.iloc[:train_games]
+                test_df = player_df.iloc[train_games:]
+
+                if len(test_df) == 0:
+                    continue
+
+                X_train = train_df[available_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_train = train_df['actual_fpts'].values
+
+                X_test = test_df[available_cols].fillna(0).replace([np.inf, -np.inf], 0)
+                y_test = test_df['actual_fpts'].values
+
+                try:
+                    model = TabPFNRegressor()
+                    model.fit(X_train.values, y_train)
+                    predictions = model.predict(X_test.values)
+
+                    test_df = test_df.copy()
+                    test_df['predicted_fpts'] = predictions
+                    test_df['error'] = test_df['predicted_fpts'] - test_df['actual_fpts']
+                    test_df['abs_error'] = test_df['error'].abs()
+                    test_df['squared_error'] = test_df['error'] ** 2
+
+                    all_predictions.append(test_df)
+
+                except Exception as e:
+                    continue
+
+            if all_predictions:
+                all_results = pd.concat(all_predictions, ignore_index=True)
+
+                results[feature_set_name] = {
+                    'mae': all_results['abs_error'].mean(),
+                    'rmse': np.sqrt(all_results['squared_error'].mean()),
+                    'correlation': all_results[['predicted_fpts', 'actual_fpts']].corr().iloc[0, 1],
+                    'n_predictions': len(all_results),
+                    'n_features': len(available_cols)
+                }
+
+        return results
+
+    def run_xg_ablation_study(self, game_logs: pd.DataFrame,
+                               min_games: int = 20,
+                               train_games: int = 15,
+                               player_type: str = 'skater') -> Dict:
+        """
+        Ablation study: test incremental value of xG, form, and PDO features.
+
+        Feature groups tested:
+        1. Baseline (rolling averages only)
+        2. + xG features
+        3. + Recent form
+        4. + PDO regression
+        5. All combined
+
+        Returns:
+            Dict with metrics for each feature group
+        """
+        # Define feature groups
+        baseline = [
+            'fpts_avg_3', 'fpts_avg_5', 'fpts_avg_10',
+            'goals_avg_3', 'goals_avg_5', 'goals_avg_10',
+            'assists_avg_3', 'assists_avg_5', 'assists_avg_10',
+            'shots_avg_3', 'shots_avg_5', 'shots_avg_10',
+            'games_played', 'is_home', 'days_rest', 'trend'
+        ]
+
+        xg_features = [
+            'team_xgf_60', 'team_xga_60', 'opp_xga_60', 'xg_matchup_boost'
+        ]
+
+        form_features = [
+            'team_form_xgf', 'team_form_cf', 'team_hot_streak', 'team_cold_streak'
+        ]
+
+        pdo_features = [
+            'team_pdo', 'pdo_regression_flag', 'pdo_adj_factor'
+        ]
+
+        injury_features = [
+            'team_injury_count', 'opportunity_boost'
+        ]
+
+        feature_groups = {
+            '1_baseline': baseline,
+            '2_plus_xg': baseline + xg_features,
+            '3_plus_form': baseline + xg_features + form_features,
+            '4_plus_pdo': baseline + xg_features + form_features + pdo_features,
+            '5_all': baseline + xg_features + form_features + pdo_features + injury_features
+        }
+
+        print("\n" + "=" * 60)
+        print(" XG FEATURE ABLATION STUDY")
+        print("=" * 60)
+
+        results = {}
+
+        for group_name, features in feature_groups.items():
+            comparison = self.run_feature_comparison(
+                game_logs,
+                baseline_features=features,
+                enhanced_features=features,  # Same for this test
+                min_games=min_games,
+                train_games=train_games
+            )
+
+            if 'baseline' in comparison:
+                results[group_name] = comparison['baseline']
+                print(f"  {group_name}: MAE={comparison['baseline']['mae']:.2f}")
+
+        return results
+
+    def print_feature_comparison_report(self, comparison_results: Dict):
+        """Print formatted feature comparison report."""
+        print("\n" + "=" * 60)
+        print(" FEATURE COMPARISON REPORT")
+        print("=" * 60)
+
+        if not comparison_results:
+            print("  No results to display")
+            return
+
+        print(f"\n{'Feature Set':<20} {'MAE':<10} {'RMSE':<10} {'Corr':<10} {'Features':<10} {'N':<10}")
+        print("-" * 70)
+
+        # Sort by MAE (lower is better)
+        for name, metrics in sorted(comparison_results.items(), key=lambda x: x[1].get('mae', 999)):
+            print(f"{name:<20} {metrics['mae']:<10.2f} {metrics['rmse']:<10.2f} "
+                  f"{metrics['correlation']:<10.3f} {metrics.get('n_features', '-'):<10} "
+                  f"{metrics['n_predictions']:<10,}")
+
+        # Calculate improvement
+        if 'baseline' in comparison_results and 'enhanced' in comparison_results:
+            baseline_mae = comparison_results['baseline']['mae']
+            enhanced_mae = comparison_results['enhanced']['mae']
+            improvement = (baseline_mae - enhanced_mae) / baseline_mae * 100
+
+            print(f"\n  MAE Improvement: {improvement:.1f}%")
+
+            if improvement > 0:
+                print(f"  Enhanced features reduced error by {baseline_mae - enhanced_mae:.2f} pts")
+            else:
+                print(f"  Enhanced features increased error by {enhanced_mae - baseline_mae:.2f} pts")
+
 
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
     """
@@ -629,6 +829,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='NHL DFS Backtest')
     parser.add_argument('--players', type=int, default=75, help='Number of top players to test')
     parser.add_argument('--no-tabpfn', action='store_true', help='Skip TabPFN comparison')
+    parser.add_argument('--feature-comparison', action='store_true',
+                        help='Run feature comparison (baseline vs enhanced with xG)')
+    parser.add_argument('--ablation', action='store_true',
+                        help='Run xG feature ablation study')
 
     args = parser.parse_args()
 
@@ -636,3 +840,39 @@ if __name__ == "__main__":
         max_players=args.players,
         include_tabpfn=not args.no_tabpfn
     )
+
+    # Run additional tests if requested
+    backtester = NHLBacktester()
+
+    if args.feature_comparison:
+        print("\n" + "=" * 60)
+        print(" RUNNING FEATURE COMPARISON")
+        print("=" * 60)
+
+        # Define baseline and enhanced feature sets
+        baseline_features = [
+            'fpts_avg_3', 'fpts_avg_5', 'fpts_avg_10',
+            'goals_avg_3', 'goals_avg_5', 'goals_avg_10',
+            'assists_avg_3', 'assists_avg_5', 'assists_avg_10',
+            'shots_avg_3', 'shots_avg_5', 'shots_avg_10',
+            'games_played', 'is_home', 'days_rest', 'trend'
+        ]
+
+        enhanced_features = baseline_features + [
+            'team_xgf_60', 'team_xga_60', 'opp_xga_60', 'xg_matchup_boost',
+            'team_form_xgf', 'team_form_cf', 'team_hot_streak', 'team_cold_streak',
+            'team_pdo', 'pdo_regression_flag', 'pdo_adj_factor',
+            'team_injury_count', 'opportunity_boost'
+        ]
+
+        feature_comparison = backtester.run_feature_comparison(
+            game_logs,
+            baseline_features=baseline_features,
+            enhanced_features=enhanced_features
+        )
+
+        backtester.print_feature_comparison_report(feature_comparison)
+
+    if args.ablation:
+        ablation_results = backtester.run_xg_ablation_study(game_logs)
+        backtester.print_feature_comparison_report(ablation_results)

@@ -7,6 +7,9 @@ Usage:
     python main.py --date 2026-01-22    # Generate for specific date
     python main.py --salaries file.csv  # Use specific salary file
     python main.py --stacks             # Show stacking recommendations
+    python main.py --show-injuries      # Display injury report
+    python main.py --include-dtd        # Include Day-to-Day players
+    python main.py --no-injuries        # Disable injury filtering
 """
 
 import argparse
@@ -19,7 +22,7 @@ import sys
 from data_pipeline import NHLDataPipeline
 from projections import NHLProjectionModel
 from optimizer import NHLLineupOptimizer
-from config import calculate_skater_fantasy_points, calculate_goalie_fantasy_points
+from config import calculate_skater_fantasy_points, calculate_goalie_fantasy_points, INJURY_STATUSES_EXCLUDE
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 
 
@@ -231,6 +234,71 @@ def print_line_update_status(stack_builder: StackBuilder):
         print(f"\n  WARNING: {', '.join(stale_teams)} have stale data (>24 hrs old)")
 
 
+def print_injury_report(injuries: pd.DataFrame, teams: list = None):
+    """
+    Print injury report for slate teams.
+
+    Args:
+        injuries: DataFrame with injury data from MoneyPuck
+        teams: Optional list of teams to filter (slate teams)
+    """
+    print(f"\n{'=' * 80}")
+    print(" INJURY REPORT")
+    print(f"{'=' * 80}")
+
+    if injuries.empty:
+        print("  No injury data available")
+        return
+
+    # Filter to slate teams if provided
+    if teams and 'team' in injuries.columns:
+        injuries = injuries[injuries['team'].isin(teams)]
+
+    if injuries.empty:
+        print("  No injured players on today's slate")
+        return
+
+    # Group by injury status
+    for status in ['IR', 'IR-LT', 'IR-NR', 'O', 'DTD']:
+        status_df = injuries[injuries.get('injury_status', '') == status]
+
+        if status_df.empty:
+            continue
+
+        status_label = {
+            'IR': 'Injured Reserve',
+            'IR-LT': 'IR Long-Term',
+            'IR-NR': 'IR Non-Roster',
+            'O': 'Out',
+            'DTD': 'Day-to-Day'
+        }.get(status, status)
+
+        print(f"\n  {status_label} ({len(status_df)} players):")
+        print(f"  {'-' * 60}")
+
+        # Sort by team
+        status_df = status_df.sort_values('team')
+
+        for _, row in status_df.iterrows():
+            team = row.get('team', '???')
+            name = row.get('player_name', 'Unknown')
+            position = row.get('position', '?')
+            games_to_miss = row.get('games_to_miss', '')
+            return_date = row.get('return_date', '')
+
+            games_str = f", ~{int(games_to_miss)} games" if pd.notna(games_to_miss) and games_to_miss else ""
+            date_str = f", ETA: {return_date.strftime('%m/%d')}" if pd.notna(return_date) else ""
+
+            print(f"    {team:<5} {name:<25} ({position}){games_str}{date_str}")
+
+    # Summary
+    total = len(injuries)
+    severe = len(injuries[injuries['injury_status'].isin(INJURY_STATUSES_EXCLUDE)])
+    dtd = len(injuries[injuries['injury_status'] == 'DTD'])
+
+    print(f"\n  Summary: {total} total injured ({severe} out, {dtd} day-to-day)")
+
+
 def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.DataFrame):
     """Print confirmed starting goalies."""
     print(f"\n{'=' * 80}")
@@ -370,6 +438,18 @@ def main():
     parser.add_argument('--force-stack', type=str, default=None,
                         help='Force a specific stack type (PP1, Line1)')
 
+    # Injury filtering options
+    parser.add_argument('--show-injuries', action='store_true',
+                        help='Display injury report for slate teams')
+    parser.add_argument('--include-dtd', action='store_true',
+                        help='Include Day-to-Day players in projections (normally excluded)')
+    parser.add_argument('--no-injuries', action='store_true',
+                        help='Disable injury filtering (include all players)')
+
+    # Advanced stats options
+    parser.add_argument('--no-advanced', action='store_true',
+                        help='Skip fetching Natural Stat Trick advanced stats')
+
     args = parser.parse_args()
 
     # Determine date
@@ -395,15 +475,31 @@ def main():
     # Load DK salaries
     dk_salaries = load_dk_salaries(salary_path)
 
+    # Get slate teams for filtering
+    slate_teams = list(dk_salaries['team'].unique())
+
     # Fetch NHL data
     print("\nFetching NHL data...")
     pipeline = NHLDataPipeline()
-    data = pipeline.build_projection_dataset(include_game_logs=False)
+    data = pipeline.build_projection_dataset(
+        include_game_logs=False,
+        include_injuries=not args.no_injuries,
+        include_advanced_stats=not args.no_advanced
+    )
+
+    # Show injury report if requested
+    if args.show_injuries and 'injuries' in data and not data['injuries'].empty:
+        print_injury_report(data['injuries'], slate_teams)
 
     # Generate projections
     print("\nGenerating projections...")
     model = NHLProjectionModel()
-    projections = model.generate_projections(data, target_date=target_date)
+    projections = model.generate_projections(
+        data,
+        target_date=target_date,
+        filter_injuries=not args.no_injuries,
+        include_dtd=not args.include_dtd  # If --include-dtd, don't filter DTD
+    )
 
     # Separate goalies from skaters in DK salaries
     dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
@@ -430,7 +526,6 @@ def main():
 
     # Fetch line combinations if stacking enabled
     stack_builder = None
-    slate_teams = list(dk_salaries['team'].unique())
 
     if not args.no_stacks or args.stacks:
         print("\nFetching line combinations from DailyFaceoff...")

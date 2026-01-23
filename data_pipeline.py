@@ -10,9 +10,11 @@ from tqdm import tqdm
 import time
 
 from nhl_api import NHLAPIClient
+from scrapers import MoneyPuckClient, NaturalStatTrickScraper
 from config import (
     CURRENT_SEASON, NHL_TEAMS, calculate_skater_fantasy_points,
-    calculate_goalie_fantasy_points
+    calculate_goalie_fantasy_points, INJURY_STATUSES_EXCLUDE,
+    NST_RECENT_FORM_GAMES
 )
 
 
@@ -21,6 +23,8 @@ class NHLDataPipeline:
 
     def __init__(self):
         self.client = NHLAPIClient(rate_limit_delay=0.3)
+        self.injury_client = MoneyPuckClient()
+        self.nst_scraper = NaturalStatTrickScraper()
 
     # ==================== Skater Data ====================
 
@@ -214,19 +218,172 @@ class NHLDataPipeline:
 
         return df
 
+    # ==================== Injuries ====================
+
+    def fetch_injuries(self) -> pd.DataFrame:
+        """
+        Fetch current injuries from MoneyPuck.
+
+        Returns:
+            DataFrame with player_id, player_name, team, position, injury_status, etc.
+        """
+        return self.injury_client.fetch_injuries()
+
+    def get_injured_player_ids(self, include_dtd: bool = True) -> List[int]:
+        """
+        Get list of injured player IDs.
+
+        Args:
+            include_dtd: If True, include Day-to-Day players in injury list
+
+        Returns:
+            List of player IDs who are injured
+        """
+        return self.injury_client.get_injured_player_ids(exclude_dtd=not include_dtd)
+
+    def filter_injured_players(self, df: pd.DataFrame, include_dtd: bool = True,
+                                player_id_col: str = 'player_id',
+                                name_col: str = 'name') -> pd.DataFrame:
+        """
+        Filter out injured players from a DataFrame.
+
+        Args:
+            df: DataFrame with player data
+            include_dtd: If True, also filter out Day-to-Day players
+            player_id_col: Column name for player ID
+            name_col: Column name for player name
+
+        Returns:
+            DataFrame with injured players removed
+        """
+        injuries = self.fetch_injuries()
+
+        if injuries.empty:
+            return df
+
+        original_count = len(df)
+
+        # Filter by injury status
+        if include_dtd:
+            # Exclude all injuries including DTD
+            statuses_to_exclude = INJURY_STATUSES_EXCLUDE + ['DTD']
+        else:
+            # Only exclude severe injuries (IR, O, etc.)
+            statuses_to_exclude = INJURY_STATUSES_EXCLUDE
+
+        injured_df = injuries[injuries['injury_status'].isin(statuses_to_exclude)]
+
+        # Filter by player ID if available
+        if player_id_col in df.columns and 'player_id' in injured_df.columns:
+            injured_ids = injured_df['player_id'].tolist()
+            df = df[~df[player_id_col].isin(injured_ids)]
+        # Otherwise filter by name
+        elif name_col in df.columns and 'player_name' in injured_df.columns:
+            injured_names = injured_df['player_name'].str.lower().str.strip().tolist()
+            df = df[~df[name_col].str.lower().str.strip().isin(injured_names)]
+
+        filtered_count = original_count - len(df)
+        if filtered_count > 0:
+            print(f"  Filtered {filtered_count} injured players")
+
+        return df
+
+    # ==================== Advanced Stats ====================
+
+    def fetch_advanced_team_stats(self, season: str = CURRENT_SEASON,
+                                   last_n_games: Optional[int] = None) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch advanced team stats from Natural Stat Trick.
+
+        Args:
+            season: Season in YYYYYYYY format
+            last_n_games: If set, fetch stats for last N games only
+
+        Returns:
+            Dict with keys: '5v5', 'pp', 'pk', 'recent_form' (if last_n_games)
+        """
+        stats = {}
+
+        # Full season 5v5 stats
+        stats['5v5'] = self.nst_scraper.fetch_team_stats(
+            season=season, situation='5v5', rate=True
+        )
+
+        # Power play stats
+        stats['pp'] = self.nst_scraper.fetch_team_stats(
+            season=season, situation='pp', rate=True
+        )
+
+        # Penalty kill stats
+        stats['pk'] = self.nst_scraper.fetch_team_stats(
+            season=season, situation='pk', rate=True
+        )
+
+        # Recent form (last N games)
+        if last_n_games:
+            stats['recent_form'] = self.nst_scraper.fetch_team_stats(
+                season=season, situation='5v5', rate=True, last_n_games=last_n_games
+            )
+
+        return stats
+
+    def fetch_advanced_player_stats(self, season: str = CURRENT_SEASON,
+                                     last_n_games: Optional[int] = None) -> Dict[str, pd.DataFrame]:
+        """
+        Fetch advanced player stats from Natural Stat Trick.
+
+        Args:
+            season: Season in YYYYYYYY format
+            last_n_games: If set, fetch stats for last N games only
+
+        Returns:
+            Dict with keys: '5v5', 'pp', 'recent_form' (if last_n_games)
+        """
+        stats = {}
+
+        # Full season 5v5 stats
+        stats['5v5'] = self.nst_scraper.fetch_player_stats(
+            season=season, situation='5v5', rate=True
+        )
+
+        # Power play stats
+        stats['pp'] = self.nst_scraper.fetch_player_stats(
+            season=season, situation='pp', rate=True
+        )
+
+        # Recent form
+        if last_n_games:
+            stats['recent_form'] = self.nst_scraper.fetch_player_stats(
+                season=season, situation='5v5', rate=True, last_n_games=last_n_games
+            )
+
+        return stats
+
     # ==================== Combined Data ====================
 
     def build_projection_dataset(self, season: str = CURRENT_SEASON,
                                    include_game_logs: bool = False,
+                                   include_injuries: bool = True,
+                                   include_advanced_stats: bool = True,
                                    max_players_for_logs: int = 100) -> Dict[str, pd.DataFrame]:
         """
         Build complete dataset for projections.
+
+        Args:
+            season: NHL season in YYYYYYYY format
+            include_game_logs: Whether to fetch game-by-game logs (slow)
+            include_injuries: Whether to fetch injury data from MoneyPuck
+            include_advanced_stats: Whether to fetch xG/Corsi from Natural Stat Trick
+            max_players_for_logs: Max players to fetch game logs for
 
         Returns dict with:
             - skaters: Season stats for all skaters
             - goalies: Season stats for all goalies
             - teams: Team-level stats
             - schedule: Upcoming games
+            - injuries: (optional) Current injury data
+            - advanced_team_stats: (optional) xG, Corsi, PDO from NST
+            - advanced_player_stats: (optional) Player-level xG from NST
             - game_logs: (optional) Game-by-game data
         """
         print("=" * 50)
@@ -250,6 +407,35 @@ class NHLDataPipeline:
         # Schedule
         data['schedule'] = self.fetch_schedule()
         print(f"  Schedule: {len(data['schedule'])} games fetched")
+
+        # Injuries from MoneyPuck
+        if include_injuries:
+            data['injuries'] = self.fetch_injuries()
+            if not data['injuries'].empty:
+                print(f"  Injuries: {len(data['injuries'])} injured players")
+                # Show breakdown by status
+                if 'injury_status' in data['injuries'].columns:
+                    status_counts = data['injuries']['injury_status'].value_counts()
+                    for status, count in status_counts.items():
+                        print(f"    - {status}: {count}")
+
+        # Advanced stats from Natural Stat Trick
+        if include_advanced_stats:
+            print("  Fetching advanced stats (this may take a moment)...")
+            data['advanced_team_stats'] = self.fetch_advanced_team_stats(
+                season=season, last_n_games=NST_RECENT_FORM_GAMES
+            )
+            # Count teams in 5v5 stats
+            if '5v5' in data['advanced_team_stats'] and not data['advanced_team_stats']['5v5'].empty:
+                n_teams = len(data['advanced_team_stats']['5v5'])
+                print(f"  Advanced team stats: {n_teams} teams")
+
+            data['advanced_player_stats'] = self.fetch_advanced_player_stats(
+                season=season, last_n_games=NST_RECENT_FORM_GAMES
+            )
+            if '5v5' in data['advanced_player_stats'] and not data['advanced_player_stats']['5v5'].empty:
+                n_players = len(data['advanced_player_stats']['5v5'])
+                print(f"  Advanced player stats: {n_players} players")
 
         # Game logs (optional - takes longer)
         if include_game_logs and not data['skaters'].empty:

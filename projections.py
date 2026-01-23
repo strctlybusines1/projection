@@ -12,7 +12,8 @@ from tabpfn import TabPFNRegressor
 
 from config import (
     calculate_skater_fantasy_points, calculate_goalie_fantasy_points,
-    SKATER_SCORING, SKATER_BONUSES, GOALIE_SCORING, GOALIE_BONUSES
+    SKATER_SCORING, SKATER_BONUSES, GOALIE_SCORING, GOALIE_BONUSES,
+    INJURY_STATUSES_EXCLUDE, STREAK_ADJUSTMENT_FACTOR
 )
 from features import FeatureEngineer
 
@@ -40,7 +41,7 @@ class NHLProjectionModel:
     def calculate_expected_fantasy_points_skater(self, row: pd.Series) -> float:
         """
         Calculate expected DraftKings fantasy points for a skater based on per-game averages.
-        Includes bonus expected value.
+        Includes bonus expected value and advanced stat adjustments.
         """
         # Base expected points from per-game stats
         goals = row.get('goals_pg', 0)
@@ -68,12 +69,39 @@ class NHLProjectionModel:
         expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
         expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
 
-        # Apply opponent adjustment
+        # Apply opponent adjustment (basic)
         opp_softness = row.get('opp_softness', 1.0)
         if pd.notna(opp_softness):
             # Soft opponent boosts scoring stats
             scoring_boost = (opp_softness - 1.0) * 0.15 + 1.0  # Dampen the effect
             expected_pts *= scoring_boost
+
+        # ==================== Advanced Stat Adjustments ====================
+
+        # Apply xG matchup boost (based on expected goals analysis)
+        xg_matchup_boost = row.get('xg_matchup_boost', 1.0)
+        if pd.notna(xg_matchup_boost):
+            expected_pts *= xg_matchup_boost
+
+        # Apply hot/cold streak adjustment
+        if row.get('team_hot_streak', 0) == 1:
+            # Hot team = boost projections
+            expected_pts *= (1.0 + STREAK_ADJUSTMENT_FACTOR)
+        elif row.get('team_cold_streak', 0) == 1:
+            # Cold team = reduce projections
+            expected_pts *= (1.0 - STREAK_ADJUSTMENT_FACTOR)
+
+        # Apply PDO regression adjustment
+        pdo_adj = row.get('pdo_adj_factor', 1.0)
+        if pd.notna(pdo_adj):
+            expected_pts *= pdo_adj
+
+        # Apply opportunity boost from teammate injuries
+        opp_boost = row.get('opportunity_boost', 1.0)
+        if pd.notna(opp_boost):
+            expected_pts *= opp_boost
+
+        # ==================== Standard Adjustments ====================
 
         # Home ice advantage (small boost)
         if row.get('is_home') == True:
@@ -201,23 +229,40 @@ class NHLProjectionModel:
 
     def generate_projections(self, data: Dict[str, pd.DataFrame],
                               target_date: Optional[str] = None,
-                              use_tabpfn: bool = False) -> Dict[str, pd.DataFrame]:
+                              use_tabpfn: bool = False,
+                              filter_injuries: bool = True,
+                              include_dtd: bool = True) -> Dict[str, pd.DataFrame]:
         """
         Generate full projections for a slate.
 
         Args:
             data: Dict with 'skaters', 'goalies', 'teams', 'schedule' DataFrames
+                  May also include 'injuries', 'advanced_team_stats', 'advanced_player_stats'
             target_date: Date to project for (YYYY-MM-DD)
             use_tabpfn: Whether to use TabPFN (requires historical fantasy point data)
+            filter_injuries: If True, remove injured players from projections
+            include_dtd: If True, also filter out Day-to-Day players
 
         Returns:
             Dict with 'skaters' and 'goalies' projection DataFrames
         """
         print(f"Generating projections for {target_date or 'upcoming games'}...")
 
-        # Engineer features
+        # Extract advanced stats if available
+        advanced_stats = None
+        if 'advanced_team_stats' in data or 'advanced_player_stats' in data:
+            advanced_stats = {
+                'team': data.get('advanced_team_stats', {}),
+                'player': data.get('advanced_player_stats', {})
+            }
+
+        # Extract injuries if available
+        injuries = data.get('injuries', pd.DataFrame())
+
+        # Engineer features (now with advanced stats and injuries)
         skater_features = self.feature_engineer.engineer_skater_features(
-            data['skaters'], data['teams'], data['schedule'], target_date
+            data['skaters'], data['teams'], data['schedule'], target_date,
+            advanced_stats=advanced_stats, injuries=injuries
         )
 
         goalie_features = self.feature_engineer.engineer_goalie_features(
@@ -240,6 +285,24 @@ class NHLProjectionModel:
                 goalie_projections['team'].isin(teams_playing)
             ]
 
+        # Filter out injured players
+        if filter_injuries and not injuries.empty:
+            skater_count_before = len(skater_projections)
+            goalie_count_before = len(goalie_projections)
+
+            skater_projections = self._filter_injured(
+                skater_projections, injuries, include_dtd=include_dtd
+            )
+            goalie_projections = self._filter_injured(
+                goalie_projections, injuries, include_dtd=include_dtd
+            )
+
+            skaters_filtered = skater_count_before - len(skater_projections)
+            goalies_filtered = goalie_count_before - len(goalie_projections)
+
+            if skaters_filtered > 0 or goalies_filtered > 0:
+                print(f"  Filtered {skaters_filtered} injured skaters, {goalies_filtered} injured goalies")
+
         print(f"  Projected {len(skater_projections)} skaters")
         print(f"  Projected {len(goalie_projections)} goalies")
 
@@ -247,6 +310,47 @@ class NHLProjectionModel:
             'skaters': skater_projections,
             'goalies': goalie_projections
         }
+
+    def _filter_injured(self, df: pd.DataFrame, injuries: pd.DataFrame,
+                        include_dtd: bool = True) -> pd.DataFrame:
+        """
+        Remove injured players from projections.
+
+        Args:
+            df: Player projections DataFrame
+            injuries: Injuries DataFrame from MoneyPuck
+            include_dtd: If True, also filter Day-to-Day players
+
+        Returns:
+            DataFrame with injured players removed
+        """
+        if injuries.empty or 'injury_status' not in injuries.columns:
+            return df
+
+        # Determine which statuses to exclude
+        if include_dtd:
+            statuses_to_exclude = INJURY_STATUSES_EXCLUDE + ['DTD']
+        else:
+            statuses_to_exclude = INJURY_STATUSES_EXCLUDE
+
+        # Filter injuries to relevant statuses
+        injured = injuries[injuries['injury_status'].isin(statuses_to_exclude)]
+
+        if injured.empty:
+            return df
+
+        # Try to filter by player_id first
+        if 'player_id' in df.columns and 'player_id' in injured.columns:
+            injured_ids = set(injured['player_id'].tolist())
+            return df[~df['player_id'].isin(injured_ids)]
+
+        # Otherwise filter by name matching
+        if 'name' in df.columns and 'player_name' in injured.columns:
+            injured_names = set(injured['player_name'].str.lower().str.strip().tolist())
+            df_lower = df['name'].str.lower().str.strip()
+            return df[~df_lower.isin(injured_names)]
+
+        return df
 
     def get_top_plays(self, projections: Dict[str, pd.DataFrame],
                        n_skaters: int = 20, n_goalies: int = 5) -> Dict[str, pd.DataFrame]:
