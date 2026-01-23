@@ -768,5 +768,34 @@ if __name__ == "__main__":
         cash_lineups = optimizer.optimize_lineup(player_pool, n_lineups=1, mode='cash')
         if cash_lineups:
             print(optimizer.format_lineup_for_dk(cash_lineups[0]))
+
+        # Export projections to CSV for backtesting
+        print("\n" + "=" * 60)
+        print("EXPORTING PROJECTIONS FOR BACKTEST")
+        print("=" * 60)
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        date_str = datetime.now().strftime('%m_%d_%y')
+
+        # Add metadata columns
+        player_pool['projection_date'] = today
+        player_pool['timestamp'] = timestamp
+
+        # Select columns for export
+        export_cols = [
+            'name', 'team', 'position', 'dk_pos', 'salary',
+            'projected_fpts', 'floor', 'ceiling', 'dk_avg_fpts', 'edge', 'value',
+            'goals_per_game', 'assists_per_game', 'shots_per_game', 'pp_points_per_game',
+            'projection_date', 'timestamp'
+        ]
+        export_cols = [c for c in export_cols if c in player_pool.columns]
+
+        export_df = player_pool[export_cols].copy()
+        export_df = export_df.sort_values('projected_fpts', ascending=False)
+
+        filename = f"{date_str}NHLprojections_{timestamp}.csv"
+        export_df.to_csv(filename, index=False)
+
+        print(f"Exported {len(export_df)} players to: {filename}")
     else:
         print("No salary file found. Please add DKSalaries*.csv file.")
