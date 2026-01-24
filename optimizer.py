@@ -530,17 +530,18 @@ class NHLLineupOptimizer:
         filled_slots = [p.get('roster_slot') for p in lineup]
 
         # Position requirements
+        # Note: D excluded from UTIL - defensemen have lower ceilings
         slots = {
             'C': ['C1', 'C2', 'UTIL'],
             'W': ['W1', 'W2', 'W3', 'UTIL'],
-            'D': ['D1', 'D2', 'UTIL'],
+            'D': ['D1', 'D2'],  # No UTIL for defensemen
             'G': ['G']
         }
 
         available = slots.get(position, [])
         for slot in available:
             if slot not in filled_slots:
-                # For UTIL, check if we still need it
+                # For UTIL, check if we still need it (only C and W eligible)
                 if slot == 'UTIL':
                     # Count non-UTIL skater slots filled
                     c_filled = sum(1 for s in filled_slots if s.startswith('C') and s != 'UTIL')
@@ -550,12 +551,10 @@ class NHLLineupOptimizer:
                     # Only use UTIL if required positions are filled
                     if c_filled >= 2 and w_filled >= 3 and d_filled >= 2:
                         return slot
-                    # Or if this position's slots are full
+                    # Or if this position's slots are full (D excluded from UTIL)
                     elif position == 'C' and c_filled >= 2:
                         return slot
                     elif position == 'W' and w_filled >= 3:
-                        return slot
-                    elif position == 'D' and d_filled >= 2:
                         return slot
                 else:
                     return slot
