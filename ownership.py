@@ -21,33 +21,38 @@ from dataclasses import dataclass
 class OwnershipConfig:
     """Configuration for ownership model parameters."""
     # Salary curve parameters (based on historical analysis)
+    # Adjusted: boosted mid-salary range where chalk concentrates
     salary_curve = {
         (2500, 3500): 4.0,    # Punt plays
-        (3500, 4500): 7.0,    # Low value
-        (4500, 5500): 10.0,   # Value sweet spot
+        (3500, 4500): 12.0,   # Value sweet spot - BOOSTED (was 7.0)
+        (4500, 5500): 14.0,   # Value sweet spot - BOOSTED (was 10.0)
         (5500, 6500): 12.0,   # Mid-range
         (6500, 7500): 11.0,   # Solid plays
         (7500, 8500): 13.0,   # Premium
         (8500, 9500): 16.0,   # Stars
-        (9500, 11000): 20.0,  # Elite
+        (9500, 11000): 22.0,  # Elite - BOOSTED (was 20.0)
     }
 
     # Multipliers
-    pp1_boost: float = 1.4           # +40% for PP1 players
+    pp1_boost: float = 1.5           # +50% for PP1 players (was 1.4)
     pp2_boost: float = 1.15          # +15% for PP2 players
-    line1_boost: float = 1.2         # +20% for Line 1 players
-    confirmed_goalie_boost: float = 1.5  # +50% for confirmed starters
-    unconfirmed_goalie_penalty: float = 0.1  # 90% reduction if not confirmed
+    line1_boost: float = 1.25        # +25% for Line 1 players (was 1.2)
+    confirmed_goalie_boost: float = 1.8  # +80% for confirmed starters (was 1.5)
+    unconfirmed_goalie_penalty: float = 0.02  # 98% reduction - essentially 0% (was 0.1)
 
-    # Value adjustments
-    high_value_boost: float = 1.3    # +30% for top value plays
-    low_value_penalty: float = 0.7   # -30% for poor value
+    # Value adjustments - BOOSTED for mid-salary value plays
+    high_value_boost: float = 1.5    # +50% for top value plays (was 1.3)
+    elite_value_boost: float = 1.8   # +80% for elite value (NEW)
+    low_value_penalty: float = 0.6   # -40% for poor value (was 0.7)
 
     # Projection adjustments
-    high_proj_boost: float = 1.25    # +25% for high projections
+    high_proj_boost: float = 1.3     # +30% for high projections (was 1.25)
 
     # Recent performance
     hot_streak_boost: float = 1.2    # +20% for hot players
+
+    # Smash spot boost (high-value player in soft matchup)
+    smash_spot_boost: float = 1.4    # +40% for smash spots (NEW)
 
 
 class OwnershipModel:
@@ -126,17 +131,35 @@ class OwnershipModel:
         return False
 
     def _is_confirmed_goalie(self, player_name: str, team: str) -> bool:
-        """Check if goalie is confirmed starter."""
+        """
+        Check if goalie is confirmed starter.
+
+        CRITICAL: Non-confirmed goalies get essentially 0% ownership.
+        Default to NOT confirmed unless explicitly in confirmed_goalies dict.
+        """
         if not self.confirmed_goalies:
-            return True  # Assume confirmed if no data
+            return False  # Default to NOT confirmed (was True - caused over-prediction)
 
         confirmed = self.confirmed_goalies.get(team, '')
         if not confirmed:
             return False
 
-        # Fuzzy match
-        return (player_name.lower() in confirmed.lower() or
-                confirmed.lower() in player_name.lower())
+        # Fuzzy match - be generous with name matching
+        player_lower = player_name.lower().strip()
+        confirmed_lower = confirmed.lower().strip()
+
+        # Check various matching patterns
+        if player_lower in confirmed_lower or confirmed_lower in player_lower:
+            return True
+
+        # Check last name match
+        player_last = player_lower.split()[-1] if player_lower else ''
+        confirmed_last = confirmed_lower.split()[-1] if confirmed_lower else ''
+
+        if player_last and confirmed_last and player_last == confirmed_last:
+            return True
+
+        return False
 
     def predict_ownership(self, player_pool: pd.DataFrame) -> pd.DataFrame:
         """
@@ -186,15 +209,28 @@ class OwnershipModel:
             if position == 'G':
                 if self._is_confirmed_goalie(name, team):
                     multiplier *= self.config.confirmed_goalie_boost
-                else:
+                elif self.confirmed_goalies:
+                    # We have confirmation data but this goalie isn't confirmed
                     multiplier *= self.config.unconfirmed_goalie_penalty
+                else:
+                    # No confirmation data available - use salary as proxy
+                    # Higher salary goalies are more likely starters
+                    if salary >= 8000:
+                        multiplier *= 1.3  # Likely starter
+                    elif salary >= 7000:
+                        multiplier *= 1.0  # Possible starter
+                    else:
+                        multiplier *= 0.5  # Likely backup
 
-            # 4. Value adjustment
+            # 4. Value adjustment (key driver for mid-salary chalk)
             if pos_avg_value is not None and position in pos_avg_value.index:
                 avg_val = pos_avg_value[position]
                 if avg_val > 0:
                     value_ratio = value / avg_val
-                    if value_ratio > 1.2:
+                    if value_ratio > 1.5:
+                        # Elite value plays get massive boost (Victor Olofsson type)
+                        multiplier *= self.config.elite_value_boost
+                    elif value_ratio > 1.2:
                         multiplier *= self.config.high_value_boost
                     elif value_ratio < 0.8:
                         multiplier *= self.config.low_value_penalty
@@ -206,6 +242,11 @@ class OwnershipModel:
                     proj_ratio = projected / avg_proj
                     if proj_ratio > 1.3:
                         multiplier *= self.config.high_proj_boost
+
+            # 6. Smash spot detection (high value + mid salary = chalk)
+            # Players in $3.5K-$5.5K range with high value get extra boost
+            if 3500 <= salary <= 5500 and value > 3.0:
+                multiplier *= self.config.smash_spot_boost
 
             # Calculate final ownership
             predicted_own = base_own * multiplier
@@ -231,19 +272,61 @@ class OwnershipModel:
         return df
 
     def _normalize_ownership(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Normalize ownership to realistic contest levels."""
-        # Target: position-weighted ownership sums
-        # Based on historical data, avg ownership ~3-4% across all players
+        """
+        Normalize ownership to realistic contest levels.
 
-        current_mean = df['predicted_ownership'].mean()
-        target_mean = 3.5  # Based on historical analysis
+        Total ownership must sum to 900% (9 roster spots).
+        Each position has a specific number of slots:
+        - C: 2 slots = 200%
+        - W (LW+RW): 3 slots = 300%
+        - D: 2 slots = 200%
+        - G: 1 slot = 100%
+        - UTIL: 1 slot = 100% (can be any skater)
 
-        if current_mean > 0:
-            scale_factor = target_mean / current_mean
-            df['predicted_ownership'] = df['predicted_ownership'] * scale_factor
+        We normalize within each position group to hit these targets.
+        """
+        df = df.copy()
+        pos_col = 'dk_pos' if 'dk_pos' in df.columns else 'position'
 
-        # Ensure min/max bounds
-        df['predicted_ownership'] = df['predicted_ownership'].clip(0.3, 40.0)
+        # Position slot allocations (how much total ownership per position)
+        # UTIL is typically filled by best remaining skater, so we add it to skater pool
+        position_targets = {
+            'C': 200.0,      # 2 C slots
+            'LW': 150.0,     # 1.5 W slots (3 W total, split)
+            'RW': 150.0,     # 1.5 W slots
+            'D': 200.0,      # 2 D slots
+            'G': 100.0,      # 1 G slot
+            'UTIL': 100.0,   # UTIL goes to highest value skater
+        }
+
+        # For positions we have, normalize to target
+        for pos in df[pos_col].unique():
+            pos_mask = df[pos_col] == pos
+            pos_df = df[pos_mask]
+
+            if len(pos_df) == 0:
+                continue
+
+            # Get target for this position
+            target = position_targets.get(pos, 100.0)
+
+            # Current sum for this position
+            current_sum = pos_df['predicted_ownership'].sum()
+
+            if current_sum > 0:
+                scale_factor = target / current_sum
+                df.loc[pos_mask, 'predicted_ownership'] = (
+                    df.loc[pos_mask, 'predicted_ownership'] * scale_factor
+                )
+
+        # Ensure min/max bounds (after normalization)
+        # Min 0.1% for non-confirmed goalies, max 35% for chalk
+        df['predicted_ownership'] = df['predicted_ownership'].clip(0.1, 35.0)
+
+        # Re-normalize slightly if clipping changed totals significantly
+        total = df['predicted_ownership'].sum()
+        if abs(total - 900) > 50:  # If off by more than 50%, adjust
+            df['predicted_ownership'] = df['predicted_ownership'] * (900 / total)
 
         return df
 

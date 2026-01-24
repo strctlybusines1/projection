@@ -17,6 +17,30 @@ from config import (
 )
 from features import FeatureEngineer
 
+# ==================== Backtest-Derived Bias Corrections ====================
+# Based on backtest data from 1/22-1/23/26 (445 predictions)
+# Overall skater bias: +1.04 pts (over-projection)
+# Overall goalie bias: -0.86 pts (under-projection)
+
+GLOBAL_BIAS_CORRECTION = 0.97  # 3% reduction to combat over-projection
+
+# Position-specific bias corrections (skaters)
+# Derived from MAE and bias analysis by position
+POSITION_BIAS_CORRECTION = {
+    'C': 0.97,   # Centers over-projected by ~1.28 pts
+    'L': 0.96,   # Left wings over-projected by ~1.65 pts
+    'LW': 0.96,  # Left wings (alternate code)
+    'R': 1.01,   # Right wings slightly under-projected (-0.47 pts)
+    'RW': 1.01,  # Right wings (alternate code)
+    'D': 0.95,   # Defensemen over-projected by ~1.56 pts
+}
+
+# Goalie bias correction (they're under-projected by ~0.86 pts)
+GOALIE_BIAS_CORRECTION = 1.05  # 5% boost
+
+# Floor multiplier (reduced from 0.4 - 30.5% were below floor)
+FLOOR_MULTIPLIER = 0.25
+
 
 class NHLProjectionModel:
     """
@@ -103,9 +127,18 @@ class NHLProjectionModel:
 
         # ==================== Standard Adjustments ====================
 
-        # Home ice advantage (small boost)
+        # Home ice advantage (reduced from 1.02 based on backtest)
         if row.get('is_home') == True:
-            expected_pts *= 1.02
+            expected_pts *= 1.01
+
+        # ==================== Backtest Bias Corrections ====================
+        # Apply global bias correction
+        expected_pts *= GLOBAL_BIAS_CORRECTION
+
+        # Apply position-specific bias correction
+        position = row.get('position', 'C')
+        pos_correction = POSITION_BIAS_CORRECTION.get(position, 0.97)
+        expected_pts *= pos_correction
 
         return expected_pts
 
@@ -148,6 +181,10 @@ class NHLProjectionModel:
         if row.get('is_home') == True:
             expected_pts *= 1.03
 
+        # ==================== Backtest Bias Correction ====================
+        # Goalies are under-projected by ~0.86 pts on average
+        expected_pts *= GOALIE_BIAS_CORRECTION
+
         return expected_pts
 
     def project_skaters_baseline(self, skater_features: pd.DataFrame) -> pd.DataFrame:
@@ -161,7 +198,8 @@ class NHLProjectionModel:
         df['projected_fpts'] = df.apply(self.calculate_expected_fantasy_points_skater, axis=1)
 
         # Calculate floor/ceiling estimates
-        df['floor'] = df['projected_fpts'] * 0.4  # Bad game
+        # Floor reduced from 0.4 to 0.25 (30.5% were below floor in backtest)
+        df['floor'] = df['projected_fpts'] * FLOOR_MULTIPLIER
         df['ceiling'] = df['projected_fpts'] * 2.5 + 5  # Great game with bonuses
 
         # Sort by projected points
@@ -179,7 +217,8 @@ class NHLProjectionModel:
         df['projected_fpts'] = df.apply(self.calculate_expected_fantasy_points_goalie, axis=1)
 
         # Floor/ceiling
-        df['floor'] = df['projected_fpts'] * 0.3  # Bad game (loss, high GA)
+        # Floor reduced from 0.3 to 0.20 for goalies (high variance position)
+        df['floor'] = df['projected_fpts'] * 0.20  # Bad game (loss, high GA)
         df['ceiling'] = df['projected_fpts'] * 2.0 + 10  # Win + high saves + shutout
 
         df = df.sort_values('projected_fpts', ascending=False)
