@@ -97,20 +97,111 @@
 
 ## Daily Workflow
 
-### Phase 1: Pre-Slate Preparation (2-3 hours before lock)
+### Phase 1: Data Collection & Verification
 
-#### Step 1: Download DraftKings Salary File
-1. Go to DraftKings → NHL → Select contest
-2. Export CSV → Save as `DKSalaries_MMDDYY.csv` in project folder
+#### Step 1: Check Data Sources First
+Run all APIs and verify data before anything else.
 
-#### Step 2: Generate Projections
 ```bash
 cd /Users/brendanhorlbeck/Desktop/Code/projection
 
-# Basic projection run
-python main.py
+# 1. Fetch line combinations and confirmed goalies
+python lines.py
 
-# Or with specific options
+# 2. Check for postponements/schedule changes
+# Review output for any games marked as postponed
+```
+
+**Data Source Checklist:**
+- [ ] Line combinations loaded for all games
+- [ ] Confirmed goalies identified (usually ~5pm ET)
+- [ ] No postponed games (remove affected players)
+- [ ] PP1 unit assignments noted
+
+#### Step 2: Download Vegas Lines
+Save as `VegasNHL_M.DD.YY.csv` in project folder.
+
+**Key Vegas Metrics:**
+- Team implied totals (3.5+ = high scoring environment)
+- Game totals (6.5+ = shootout potential)
+- Line movement (sharp money indicators)
+
+#### Step 3: Download DraftKings Salary File
+1. Go to DraftKings → NHL → Select contest
+2. Export CSV → Save as `DKSalaries_M.DD.YY.csv`
+3. Cross-reference - remove players from postponed games
+
+---
+
+### Phase 2: Slate Analysis (THE CRITICAL STEP)
+
+#### Step 4: Analyze Slate Characteristics
+
+**Slate Size Strategy:**
+| Slate Size | Games | Stack Strategy |
+|------------|-------|----------------|
+| Small | 2-4 | Concentrate in ONE game, max line + PP overlap |
+| Medium | 5-7 | 1 primary line stack + secondary correlation |
+| Large | 8+ | 2 line stacks from different games |
+
+**Ceiling Game Identification:**
+The #1 question: Which team/line will EXCEED its Vegas expectation tonight?
+
+Check these signals for each game:
+1. **Goalie Vulnerability**
+   - [ ] Backup goalie starting?
+   - [ ] Starter on back-to-back?
+   - [ ] Recent save % struggles?
+
+2. **Team Mean Regression**
+   - [ ] High-skill team with recent cold streak?
+   - [ ] Star player due for breakout (5-game avg vs season avg)?
+
+3. **Special Teams Edge**
+   - [ ] Elite PP vs weak PK matchup?
+   - [ ] PP hot streak (unsustainable but exploitable)?
+
+4. **Rest & Schedule**
+   - [ ] Team off rest vs back-to-back opponent?
+   - [ ] Travel/timezone advantage?
+
+**Chalk Trap Detection:**
+Historical pattern shows top Vegas teams often BUST:
+- Jan 22: CAR (Vegas #1 → Actual #11), EDM (Vegas #2 → Actual #14)
+- Jan 23: COL (Vegas #1 → Actual #7), NYR (Vegas #3 → Actual #16)
+
+Don't blindly stack the highest Vegas total. Look for WHY a team will exceed expectations.
+
+#### Step 5: Build Stack Thesis
+Before running projections, document your conviction:
+
+```
+PRIMARY STACK: [TEAM] - [Why they'll exceed expectations]
+- Line: [Players]
+- Catalyst: [Goalie vulnerability / regression / matchup edge]
+- Ownership read: [Chalk / moderate / contrarian]
+
+SECONDARY STACK: [TEAM or bring-back]
+- Line: [Players]
+- Correlation path: [Same line / PP overlap / opposing goalie]
+```
+
+**Stack Types Reference:**
+| Stack Type | Description | When to Use |
+|------------|-------------|-------------|
+| Line Stack (3-man) | C + LW + RW same line | High conviction game |
+| Line Stack (2-man) | Any 2 forwards same line | Moderate conviction |
+| PP1 Stack | Players on first PP unit | PP-heavy matchup |
+| Team Stack (4+) | 4+ players same team | Small slate, max correlation |
+| Bring-back | Stack + 1 opposing player | Hedge correlation |
+
+---
+
+### Phase 3: Projection Generation
+
+#### Step 6: Generate Projections
+```bash
+# Full run with stacks and injury report
 python main.py --stacks --show-injuries
 
 # Full options:
@@ -124,22 +215,52 @@ python main.py --stacks --show-injuries
 #   --export FILE        : Export to CSV
 ```
 
-#### Step 3: Review Output
-The system will output:
+#### Step 7: Review Output Against Your Thesis
+The system outputs:
 1. **Injury Report** - Who's out, who's DTD
 2. **Line Combinations** - Current lines from DailyFaceoff
 3. **Confirmed Goalies** - Which goalies are starting
 4. **Top Projections** - Highest projected players
 5. **Value Plays** - Best pts/$ plays
 6. **Stacking Recommendations** - Best correlated groups
-7. **Optimized Lineup** - Ready-to-enter lineup
 
-#### Step 4: Manual Adjustments
-Before finalizing:
-1. Check Twitter for late news (scratches, line changes)
-2. Verify goalie confirmations (usually ~5pm ET)
-3. Consider Vegas lines (high totals = more scoring)
-4. Adjust for narrative plays the model may miss
+**Cross-check with your thesis:**
+- Does the optimizer's stack align with your conviction?
+- If not, why? (Salary constraints? Missing data?)
+- Override if your thesis has strong catalyst support
+
+---
+
+### Phase 4: Lineup Construction
+
+#### Step 8: Build Final Lineups
+
+**Lineup Construction Framework:**
+1. **Lock in core stack** (2-4 players from primary game)
+2. **Add secondary correlation** (bring-back or second stack)
+3. **Fill with ceiling pieces** (high-variance individuals)
+4. **Select goalie** (win probability + saves upside)
+
+**Ownership Leverage Guide:**
+| Ownership | Strategy | When to Use |
+|-----------|----------|-------------|
+| 0-5% | Max leverage, need strong thesis | Large fields, top-heavy payouts |
+| 5-15% | Balanced EV | Standard GPPs |
+| 15-25% | Only if ceiling probability is elite | Small fields |
+| 25%+ | Avoid in GPPs | Cash games only |
+
+**DraftKings Constraints:**
+- $50,000 salary cap
+- Roster: 2C, 3W, 2D, 1G, 1UTIL
+- **Minimum 3 teams** (enforced by DK)
+
+#### Step 9: Final Verification
+Before submitting:
+- [ ] Check Twitter for late scratches/line changes
+- [ ] Re-verify goalie confirmations if close to lock
+- [ ] Confirm 3-team minimum met
+- [ ] Salary under $50,000
+- [ ] Stack thesis documented for post-slate review
 
 ---
 
@@ -332,10 +453,17 @@ config.py (no dependencies)
 ---
 
 ## Related Documentation
-- `DAILY_PROJECTION_IMPROVEMENT_PLAN.md` - FPTS model tuning
-- `OWNERSHIP_PLAN.md` - Ownership model details
-- `README.md` - Project setup (if exists)
+
+| Document | Purpose |
+|----------|---------|
+| `DAILY_PROJECTION_IMPROVEMENT_PLAN.md` | **Strategic framework** - Stack theory, ceiling identification, leverage analysis, backtest case studies |
+| `OWNERSHIP_PLAN.md` | Ownership model details and calibration |
+| `README.md` | Project setup (if exists) |
+
+**Quick Reference:**
+- This doc (`DAILY_WORKFLOW.md`) = **WHAT to do, WHEN**
+- Improvement Plan = **WHY (strategy, theory, historical analysis)**
 
 ---
 
-*Last Updated: January 24, 2026*
+*Last Updated: January 26, 2026*

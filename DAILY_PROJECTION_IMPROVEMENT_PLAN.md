@@ -1,5 +1,10 @@
 # NHL DFS GPP Optimization Plan
 
+> **This document = Strategic Framework & Analysis**
+> For operational steps, see `DAILY_WORKFLOW.md`
+
+---
+
 ## Core Philosophy: Stacks > Individual Projections
 
 **The fundamental insight:** In NHL DFS, goals create correlated fantasy points. When a player scores, 1-2 linemates typically get assists. This means:
@@ -335,35 +340,15 @@ Then rank games by Ceiling_Score to identify where to concentrate stacks.
 
 ---
 
-## 6. DAILY WORKFLOW (UPDATED)
+## 6. DAILY WORKFLOW
 
-### Morning Analysis
+**See `DAILY_WORKFLOW.md` for complete operational steps.**
 
-1. **Check line combinations** - Who's playing with whom?
-2. **PP unit assignments** - Any changes from previous games?
-3. **Vegas lines** - Implied totals, spreads, game environments
-4. **Injury/rest updates** - Backup goalies? Key players out?
-
-### Pre-Lock Stack Selection
-
-1. **Identify primary game stacks** (highest ceiling environments)
-2. **Map correlation paths** (which linemates, which PP units)
-3. **Project ownership** (chalk vs. contrarian stacks)
-4. **Set leverage targets** based on contest structure
-
-### Lineup Construction
-
-1. **Build core stacks** (2-4 players from primary game)
-2. **Add secondary correlation** (bring-back or second stack)
-3. **Fill with ceiling pieces** (high-variance individuals)
-4. **Goalie selection** (based on win probability + saves upside)
-
-### Post-Slate Analysis
-
-1. **Review winning lineups** - What stacks hit?
-2. **Analyze correlation outcomes** - Did linemates share points?
-3. **Track ownership accuracy** - Was leverage correct?
-4. **Update models** with new data
+The workflow integrates these strategic principles:
+1. **Data sources first** - Verify lines, goalies, Vegas before projections
+2. **Slate analysis** - Identify ceiling games using signals below
+3. **Stack thesis** - Document conviction before running optimizer
+4. **Leverage check** - Cross-reference ownership vs ceiling probability
 
 ---
 
@@ -856,4 +841,8 @@ Potential predictive factors to research:
 ---
 
 *Last Updated: January 26, 2026*
-*Framework based on contest analysis from January 22-25, 2026*
+*Framework based on contest analysis from January 22-26, 2026*
+
+---
+
+> **Operational workflow:** See `DAILY_WORKFLOW.md` for daily steps
