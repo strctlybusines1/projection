@@ -68,6 +68,34 @@ class NHLLineupOptimizer:
             return 'G'
         return pos
 
+    def _get_opponent_team(self, player_row: pd.Series) -> Optional[str]:
+        """
+        Extract opponent team from game info.
+
+        Game info format: "ANA@EDM 01/26/2026 08:30PM ET"
+        Returns the team the player is playing AGAINST.
+        """
+        game_info = player_row.get('game_info', '') or player_row.get('Game Info', '')
+        player_team = player_row.get('team', '')
+
+        if not game_info or not player_team:
+            return None
+
+        try:
+            # Extract matchup part (e.g., "ANA@EDM")
+            matchup = game_info.split()[0] if game_info else ''
+            if '@' in matchup:
+                away, home = matchup.split('@')
+                # Return the opponent (the other team)
+                if player_team.upper() == away.upper():
+                    return home.upper()
+                elif player_team.upper() == home.upper():
+                    return away.upper()
+        except (IndexError, ValueError):
+            pass
+
+        return None
+
     def optimize_lineup(self, player_pool: pd.DataFrame,
                         n_lineups: int = 1,
                         mode: str = 'gpp',
@@ -273,6 +301,16 @@ class NHLLineupOptimizer:
         # Get the goalie's team for correlation
         goalie_team = lineup[0]['team'] if lineup else None
 
+        # Get the goalie's OPPONENT team - DO NOT add skaters from this team
+        # (negative correlation: if opponent scores, goalie gets hurt)
+        goalie_opponent = None
+        if lineup:
+            goalie_row = pd.Series(lineup[0])
+            goalie_opponent = self._get_opponent_team(goalie_row)
+            if goalie_opponent:
+                # Remove opponent players from consideration
+                df = df[df['team'].str.upper() != goalie_opponent.upper()]
+
         # Step 2: Build primary stack (target 4-5 players)
         primary_players = df[df['team'] == primary_team].copy()
         primary_skaters = primary_players[primary_players['norm_position'] != 'G']
@@ -416,6 +454,20 @@ class NHLLineupOptimizer:
                 if can_add_player(g):
                     add_player(g, 'G')
                     break
+
+        # Get the goalie's OPPONENT team - DO NOT add skaters from this team
+        goalie_opponent = None
+        goalie_in_lineup = [l for l in lineup if l.get('roster_slot') == 'G']
+        if goalie_in_lineup:
+            goalie_row = pd.Series(goalie_in_lineup[0])
+            goalie_opponent = self._get_opponent_team(goalie_row)
+            if goalie_opponent:
+                # Remove opponent players from all position pools
+                df = df[df['team'].str.upper() != goalie_opponent.upper()]
+                centers = centers[centers['team'].str.upper() != goalie_opponent.upper()]
+                wings = wings[wings['team'].str.upper() != goalie_opponent.upper()]
+                defense = defense[defense['team'].str.upper() != goalie_opponent.upper()]
+                skaters = skaters[skaters['team'].str.upper() != goalie_opponent.upper()]
 
         # Fill required positions
         positions_needed = self._get_positions_needed(lineup)
