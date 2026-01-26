@@ -664,6 +664,129 @@ class NHLLineupOptimizer:
 
         return lineup
 
+    def analyze_contest(self, total_entries: int, prize_pool: float,
+                        first_place: float, tenth_place: float,
+                        min_cash: float, min_cash_place: int) -> Dict:
+        """
+        Analyze contest structure to determine optimal strategy.
+
+        Args:
+            total_entries: Total number of entries in contest
+            prize_pool: Total prize pool in dollars
+            first_place: First place prize
+            tenth_place: Tenth place prize
+            min_cash: Minimum cash payout
+            min_cash_place: Last place that cashes
+
+        Returns:
+            Dict with strategy recommendations
+        """
+        # Calculate key metrics
+        first_pct_of_pool = (first_place / prize_pool) * 100
+        payout_pct = (min_cash_place / total_entries) * 100
+        top_10_pct = (10 / total_entries) * 100
+        min_cash_multiplier = min_cash / 5  # Assuming $5 entry
+
+        # Determine contest type
+        if first_pct_of_pool >= 15:
+            contest_type = "TOP_HEAVY"
+        elif first_pct_of_pool >= 10:
+            contest_type = "MODERATE"
+        else:
+            contest_type = "FLAT"
+
+        # Determine field size category
+        if total_entries <= 100:
+            field_size = "SMALL"
+        elif total_entries <= 1000:
+            field_size = "MEDIUM"
+        else:
+            field_size = "LARGE"
+
+        # Strategy recommendations based on contest type
+        strategies = {
+            "TOP_HEAVY": {
+                "stack_depth": "4-5 players",
+                "leverage_target": "HIGH - Max uniqueness",
+                "risk_tolerance": "HIGH - Accept bust rate",
+                "goal": "Target 1st place, not min-cash",
+                "secondary_stack": "2-3 players, different game",
+                "goalie_strategy": "Correlate with primary stack"
+            },
+            "MODERATE": {
+                "stack_depth": "3-4 players",
+                "leverage_target": "MODERATE - Some differentiation",
+                "risk_tolerance": "MEDIUM - Balance floor/ceiling",
+                "goal": "Target top 10%, min-cash backup",
+                "secondary_stack": "2 players for diversification",
+                "goalie_strategy": "Best projection, slight correlation"
+            },
+            "FLAT": {
+                "stack_depth": "2-3 players",
+                "leverage_target": "LOW - Chalk is OK",
+                "risk_tolerance": "LOW - Protect floor",
+                "goal": "Multiple paths to top 20%",
+                "secondary_stack": "2 players, spread risk",
+                "goalie_strategy": "Best win probability"
+            }
+        }
+
+        strategy = strategies[contest_type]
+
+        return {
+            "contest_type": contest_type,
+            "field_size": field_size,
+            "metrics": {
+                "first_place_pct": f"{first_pct_of_pool:.1f}%",
+                "payout_pct": f"{payout_pct:.1f}%",
+                "top_10_entries": int(total_entries * 0.10),
+                "min_cash_multiplier": f"{min_cash_multiplier:.1f}x"
+            },
+            "strategy": strategy,
+            "summary": self._get_strategy_summary(contest_type, field_size)
+        }
+
+    def _get_strategy_summary(self, contest_type: str, field_size: str) -> str:
+        """Get a plain-English strategy summary."""
+        summaries = {
+            ("TOP_HEAVY", "SMALL"): "Small top-heavy field. Go for unique stacks - everyone is trying to win.",
+            ("TOP_HEAVY", "MEDIUM"): "Medium top-heavy GPP. Max leverage with 4-5 player stacks. Accept variance.",
+            ("TOP_HEAVY", "LARGE"): "Large top-heavy field. Need maximum uniqueness to differentiate. Full send on ceiling.",
+            ("MODERATE", "SMALL"): "Small balanced field. Moderate stacks, don't over-leverage.",
+            ("MODERATE", "MEDIUM"): "Standard GPP structure. 3-4 player stacks with secondary correlation.",
+            ("MODERATE", "LARGE"): "Large moderate field. Some leverage needed but don't go crazy.",
+            ("FLAT", "SMALL"): "Small flat payout. Being on chalk is fine. Protect your floor.",
+            ("FLAT", "MEDIUM"): "Medium flat field. Balanced approach - multiple paths to cash.",
+            ("FLAT", "LARGE"): "Large flat field. Floor matters. 2-3 man stacks, spread risk across games."
+        }
+        return summaries.get((contest_type, field_size), "Standard GPP approach recommended.")
+
+    def print_contest_analysis(self, total_entries: int, prize_pool: float,
+                               first_place: float, tenth_place: float,
+                               min_cash: float, min_cash_place: int):
+        """Print formatted contest analysis."""
+        analysis = self.analyze_contest(
+            total_entries, prize_pool, first_place, tenth_place, min_cash, min_cash_place
+        )
+
+        print("\n" + "=" * 60)
+        print("CONTEST ANALYSIS")
+        print("=" * 60)
+        print(f"Contest Type: {analysis['contest_type']} | Field: {analysis['field_size']}")
+        print(f"1st Place: {analysis['metrics']['first_place_pct']} of pool")
+        print(f"Pays: {analysis['metrics']['payout_pct']} of field")
+        print(f"Top 10 = {analysis['metrics']['top_10_entries']} entries")
+        print(f"Min Cash: {analysis['metrics']['min_cash_multiplier']} entry")
+        print()
+        print(f"STRATEGY: {analysis['summary']}")
+        print()
+        print("Recommendations:")
+        for key, value in analysis['strategy'].items():
+            print(f"  • {key.replace('_', ' ').title()}: {value}")
+        print("=" * 60)
+
+        return analysis
+
     def format_lineup_for_dk(self, lineup: pd.DataFrame) -> str:
         """Format lineup for display."""
         output = []

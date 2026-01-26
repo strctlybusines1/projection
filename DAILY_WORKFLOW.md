@@ -231,15 +231,57 @@ The system outputs:
 
 ---
 
-### Phase 4: Lineup Construction
+### Phase 4: Contest Analysis & Lineup Construction
 
-#### Step 8: Build Final Lineups
+#### Step 8: Analyze Contest Structure
+
+Before building lineups, input your contest details:
+
+**Required Contest Info:**
+- Total entries
+- Total prize pool
+- 1st place prize
+- 10th place prize
+- Min cash payout and place
+
+**Contest Type Matrix:**
+
+| Metric | Top-Heavy GPP | Flat GPP | Single Entry |
+|--------|--------------|----------|--------------|
+| 1st Place % of Pool | >15% | <10% | Varies |
+| Pays Top % | <20% | >25% | >20% |
+| Stack Depth | 5+ players | 3-4 players | 2-3 players |
+| Leverage Target | Max unique | Moderate | Balanced |
+| Risk Tolerance | High | Medium | Medium-Low |
+
+**Strategy by Contest Type:**
+
+```
+TOP-HEAVY (1st = 15%+ of pool):
+  → Max leverage, unique stacks
+  → Accept higher bust rate
+  → Target 1st place, not min-cash
+
+FLAT PAYOUT (1st = <10% of pool):
+  → Balanced approach
+  → Don't over-leverage
+  → Multiple paths to ceiling
+
+SINGLE ENTRY:
+  → Can't diversify across lineups
+  → Need floor AND ceiling
+  → 2-3 man stacks preferred
+  → Being on "right chalk" is OK
+```
+
+#### Step 9: Build Final Lineups
 
 **Lineup Construction Framework:**
 1. **Lock in core stack** (2-4 players from primary game)
 2. **Add secondary correlation** (bring-back or second stack)
 3. **Fill with ceiling pieces** (high-variance individuals)
 4. **Select goalie** (win probability + saves upside)
+5. **Verify no goalie/opponent conflict** (optimizer now enforces this)
 
 **Ownership Leverage Guide:**
 | Ownership | Strategy | When to Use |
