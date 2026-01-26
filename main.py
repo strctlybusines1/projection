@@ -26,6 +26,30 @@ from config import calculate_skater_fantasy_points, calculate_goalie_fantasy_poi
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 
 
+def normalize_position(pos: str) -> str:
+    """
+    Normalize NHL positions to DraftKings format.
+
+    L, LW, R, RW -> W (Wing)
+    C -> C (Center)
+    D -> D (Defense)
+    G -> G (Goalie)
+    """
+    if pd.isna(pos):
+        return 'W'
+    pos = str(pos).upper().strip()
+    if pos in ('L', 'LW', 'R', 'RW'):
+        return 'W'
+    return pos
+
+
+def normalize_positions_column(df: pd.DataFrame, col: str = 'position') -> pd.DataFrame:
+    """Apply position normalization to a DataFrame column."""
+    if col in df.columns:
+        df[col] = df[col].apply(normalize_position)
+    return df
+
+
 def load_dk_salaries(csv_path: str) -> pd.DataFrame:
     """Load and parse DraftKings salary CSV."""
     print(f"Loading DK salaries from: {csv_path}")
@@ -42,9 +66,11 @@ def load_dk_salaries(csv_path: str) -> pd.DataFrame:
         'ID': 'dk_id',
     })
 
-    # Parse position (first position listed)
+    # Parse position (first position listed) and normalize L/R to W
     if 'position' in df.columns:
         df['base_position'] = df['position'].str.upper()
+        df = normalize_positions_column(df, 'position')
+        df = normalize_positions_column(df, 'base_position')
 
     # Normalize team codes
     if 'team' in df.columns:
@@ -114,6 +140,10 @@ def print_projections_table(df: pd.DataFrame, title: str, n: int = 25):
 
     display_df = df.nlargest(n, 'projected_fpts')[cols].copy()
 
+    # Normalize positions for display (L/R -> W)
+    if 'position' in display_df.columns:
+        display_df['position'] = display_df['position'].apply(normalize_position)
+
     # Format columns
     if 'salary' in display_df.columns:
         display_df['salary'] = display_df['salary'].apply(lambda x: f"${x:,}")
@@ -144,6 +174,10 @@ def print_value_plays(df: pd.DataFrame, title: str, n: int = 15):
     # Filter to reasonable salary range for value plays
     value_df = df[df['salary'] <= 6500].copy()
     display_df = value_df.nlargest(n, 'value')[cols].copy()
+
+    # Normalize positions for display (L/R -> W)
+    if 'position' in display_df.columns:
+        display_df['position'] = display_df['position'].apply(normalize_position)
 
     if 'salary' in display_df.columns:
         display_df['salary'] = display_df['salary'].apply(lambda x: f"${x:,}")
@@ -510,7 +544,7 @@ def main():
     )
 
     # Separate goalies from skaters in DK salaries
-    dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
+    dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'W', 'D'])]
     dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
 
     # Add position column to goalies if missing
@@ -571,8 +605,7 @@ def main():
             player_pool,
             n_lineups=args.lineups,
             randomness=0.05 if args.lineups > 1 else 0,
-            stack_boost=0.15 if not args.no_stacks else 0,
-            force_stack=args.force_stack
+            stack_teams=[args.force_stack] if args.force_stack else None
         )
 
         for i, lineup in enumerate(lineups):

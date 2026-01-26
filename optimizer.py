@@ -741,7 +741,7 @@ if __name__ == "__main__":
     salary_files = glob.glob('DKSalaries*.csv')
     if salary_files:
         dk_salaries = load_dk_salaries(salary_files[0])
-        dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
+        dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'W', 'D'])]
         dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
 
         projections['goalies']['position'] = 'G'

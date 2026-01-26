@@ -32,6 +32,7 @@ POSITION_BIAS_CORRECTION = {
     'LW': 0.96,  # Left wings (alternate code)
     'R': 1.01,   # Right wings slightly under-projected (-0.47 pts)
     'RW': 1.01,  # Right wings (alternate code)
+    'W': 0.985,  # Generic wing (average of L and R)
     'D': 0.95,   # Defensemen over-projected by ~1.56 pts
 }
 
@@ -344,6 +345,12 @@ class NHLProjectionModel:
 
         print(f"  Projected {len(skater_projections)} skaters")
         print(f"  Projected {len(goalie_projections)} goalies")
+
+        # Normalize positions (L/LW/R/RW -> W) for DraftKings compatibility
+        if 'position' in skater_projections.columns:
+            skater_projections['position'] = skater_projections['position'].apply(
+                lambda x: 'W' if str(x).upper() in ('L', 'LW', 'R', 'RW') else str(x).upper()
+            )
 
         return {
             'skaters': skater_projections,
