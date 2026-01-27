@@ -135,6 +135,16 @@ Save as `VegasNHL_M.DD.YY.csv` in project folder.
 
 ### Phase 2: Slate Analysis (THE CRITICAL STEP)
 
+#### Step 3b: Vegas Total Game Ranking
+Run the Vegas ranking as the first analysis step to prioritize games:
+
+```bash
+# Display games ranked by Vegas total (highest = primary target)
+python main.py --vegas VegasNHL_M.DD.YY.csv --stacks --show-injuries
+```
+
+**Key Insight (Jan 26 backtest):** ANA@EDM (7.0 total) produced 158.3 pts from top 5 players. BOS@NYR (6.5 total) only produced 94.4. Vegas total is the single strongest signal for game environment quality.
+
 #### Step 4: Analyze Slate Characteristics
 
 **Slate Size Strategy:**
@@ -152,16 +162,23 @@ Check these signals for each game:
    - [ ] Backup goalie starting?
    - [ ] Starter on back-to-back?
    - [ ] Recent save % struggles?
+   - [ ] **Goalie Quality Tier**: Check system output for ELITE/STARTER/BACKUP label
+   - [ ] **WARNING**: BACKUP-tier goalies are penalized 20% in projections (Jan 26: Korpisalo 4.8 FPTS)
 
-2. **Team Mean Regression**
+2. **Injury Opportunity Signal**
+   - [ ] Teams with key player injuries (top-6 F / top-4 D) create opportunity for remaining players
+   - [ ] System applies quality-weighted boost: +5% per key injury, +2% per regular, capped at 20%
+   - [ ] Jan 26 example: ANA lost multiple key players → Granlund 43.3 FPTS at 14.31% owned
+
+3. **Team Mean Regression**
    - [ ] High-skill team with recent cold streak?
    - [ ] Star player due for breakout (5-game avg vs season avg)?
 
-3. **Special Teams Edge**
+4. **Special Teams Edge**
    - [ ] Elite PP vs weak PK matchup?
    - [ ] PP hot streak (unsustainable but exploitable)?
 
-4. **Rest & Schedule**
+5. **Rest & Schedule**
    - [ ] Team off rest vs back-to-back opponent?
    - [ ] Travel/timezone advantage?
 
@@ -508,4 +525,4 @@ config.py (no dependencies)
 
 ---
 
-*Last Updated: January 26, 2026*
+*Last Updated: January 27, 2026*

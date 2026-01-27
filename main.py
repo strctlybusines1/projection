@@ -342,7 +342,7 @@ def print_injury_report(injuries: pd.DataFrame, teams: list = None):
 
 
 def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.DataFrame):
-    """Print confirmed starting goalies."""
+    """Print confirmed starting goalies with quality tier labels."""
     print(f"\n{'=' * 80}")
     print(" CONFIRMED STARTING GOALIES")
     print(f"{'=' * 80}")
@@ -357,9 +357,110 @@ def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.Data
         match = find_player_match(goalie_name, projections_df['name'].tolist())
         if match:
             player_data = projections_df[projections_df['name'] == match].iloc[0]
-            print(f"  {team:<5} {match:<25} ${player_data['salary']:,}  {player_data['projected_fpts']:.1f} pts")
+            tier = player_data.get('goalie_tier', '?')
+            tier_str = f"[{tier}]"
+            warning = " ⚠ WARNING: BACKUP-TIER GOALIE" if tier == 'BACKUP' else ""
+            print(f"  {team:<5} {match:<25} {tier_str:<10} ${player_data['salary']:,}  "
+                  f"{player_data['projected_fpts']:.1f} pts{warning}")
         else:
             print(f"  {team:<5} {goalie_name:<25} (not in DK pool)")
+
+
+def print_vegas_ranking(vegas_path: str):
+    """
+    Print Vegas game total ranking from CSV file.
+
+    Ranks games by game_total descending and labels:
+    - PRIMARY TARGET for highest total
+    - SECONDARY for 2nd highest
+    - TERTIARY for 3rd highest
+
+    Based on Jan 26 backtest: ANA@EDM (7.0 total) produced 158.3 pts from top 5,
+    BOS@NYR (6.5 total) only 94.4. Vegas total is a top signal.
+    """
+    print(f"\n{'=' * 80}")
+    print(" VEGAS GAME RANKING (by Game Total)")
+    print(f"{'=' * 80}")
+
+    try:
+        vegas_df = pd.read_csv(vegas_path)
+    except FileNotFoundError:
+        print(f"  Vegas file not found: {vegas_path}")
+        return
+    except Exception as e:
+        print(f"  Error loading Vegas file: {e}")
+        return
+
+    if vegas_df.empty:
+        print("  No Vegas data available")
+        return
+
+    # Identify the game total column (handle variations)
+    total_col = None
+    for candidate in ['game_total', 'total', 'Total', 'Game Total', 'over_under', 'OU']:
+        if candidate in vegas_df.columns:
+            total_col = candidate
+            break
+
+    if total_col is None:
+        print(f"  No game total column found. Columns: {list(vegas_df.columns)}")
+        return
+
+    # Sort by game total descending
+    vegas_df = vegas_df.sort_values(total_col, ascending=False).reset_index(drop=True)
+
+    # Identify matchup column
+    matchup_col = None
+    for candidate in ['matchup', 'game', 'Game', 'teams', 'Teams']:
+        if candidate in vegas_df.columns:
+            matchup_col = candidate
+            break
+
+    # If no matchup column, try to build from home/away
+    if matchup_col is None:
+        home_col = None
+        away_col = None
+        for h in ['home', 'Home', 'home_team', 'HomeTeam']:
+            if h in vegas_df.columns:
+                home_col = h
+                break
+        for a in ['away', 'Away', 'away_team', 'AwayTeam']:
+            if a in vegas_df.columns:
+                away_col = a
+                break
+        if home_col and away_col:
+            vegas_df['_matchup'] = vegas_df[away_col].astype(str) + ' @ ' + vegas_df[home_col].astype(str)
+            matchup_col = '_matchup'
+
+    # Identify spread column
+    spread_col = None
+    for candidate in ['spread', 'Spread', 'line', 'Line']:
+        if candidate in vegas_df.columns:
+            spread_col = candidate
+            break
+
+    # Identify moneyline column
+    ml_col = None
+    for candidate in ['moneyline', 'ml', 'Moneyline', 'ML', 'home_ml']:
+        if candidate in vegas_df.columns:
+            ml_col = candidate
+            break
+
+    # Labels for top 3
+    labels = ['PRIMARY TARGET', 'SECONDARY', 'TERTIARY']
+
+    for i, (_, row) in enumerate(vegas_df.iterrows()):
+        label = labels[i] if i < len(labels) else ''
+        matchup = row.get(matchup_col, f"Game {i+1}") if matchup_col else f"Game {i+1}"
+        total = row[total_col]
+        spread = f"  Spread: {row[spread_col]}" if spread_col and pd.notna(row.get(spread_col)) else ""
+        ml = f"  ML: {row[ml_col]}" if ml_col and pd.notna(row.get(ml_col)) else ""
+
+        if label:
+            print(f"\n  >>> {label} <<<")
+        print(f"  {matchup:<30} Total: {total}{spread}{ml}")
+
+    print()
 
 
 def print_lineup(lineup: pd.DataFrame):
@@ -488,6 +589,10 @@ def main():
     parser.add_argument('--no-injuries', action='store_true',
                         help='Disable injury filtering (include all players)')
 
+    # Vegas lines
+    parser.add_argument('--vegas', type=str, default=None,
+                        help='Path to Vegas lines CSV file for game ranking')
+
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
@@ -519,6 +624,10 @@ def main():
 
     # Get slate teams for filtering
     slate_teams = list(dk_salaries['team'].unique())
+
+    # Show Vegas game ranking if provided
+    if args.vegas:
+        print_vegas_ranking(args.vegas)
 
     # Fetch NHL data
     print("\nFetching NHL data...")

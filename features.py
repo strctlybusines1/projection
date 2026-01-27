@@ -10,7 +10,7 @@ from config import (
     LEAGUE_AVG_XGF_60, LEAGUE_AVG_XGA_60, LEAGUE_AVG_CF_PCT, LEAGUE_AVG_PDO,
     PDO_HIGH_THRESHOLD, PDO_LOW_THRESHOLD, PDO_REGRESSION_FACTOR,
     HOT_STREAK_THRESHOLD, COLD_STREAK_THRESHOLD, STREAK_ADJUSTMENT_FACTOR,
-    INJURY_STATUSES_EXCLUDE
+    INJURY_STATUSES_EXCLUDE, GOALIE_TIERS, INJURY_OPPORTUNITY
 )
 
 
@@ -208,6 +208,45 @@ class FeatureEngineer:
         # ==================== Opponent Adjustments ====================
         if not teams.empty and not schedule.empty:
             df = self._add_goalie_opponent_features(df, teams, schedule, target_date)
+
+        # ==================== Goalie Quality Tier ====================
+        df = self.assign_goalie_tier(df)
+
+        return df
+
+    # ==================== Goalie Quality Tier ====================
+
+    def assign_goalie_tier(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Assign quality tier to goalies based on save_pct and games_started.
+
+        Tiers (from config.GOALIE_TIERS):
+            ELITE:   sv% >= 0.915 AND gs >= 20 → 1.0x multiplier
+            STARTER: sv% >= 0.900 AND gs >= 15 → 0.95x multiplier
+            BACKUP:  everyone else              → 0.80x multiplier
+
+        Features added:
+            - goalie_tier: 'ELITE', 'STARTER', or 'BACKUP'
+            - tier_multiplier: projection multiplier for the tier
+        """
+        df['goalie_tier'] = 'BACKUP'
+        df['tier_multiplier'] = GOALIE_TIERS['BACKUP']['projection_mult']
+
+        save_pct_col = 'save_pct' if 'save_pct' in df.columns else None
+        gs_col = 'games_started' if 'games_started' in df.columns else 'games_played'
+
+        if save_pct_col is None or gs_col not in df.columns:
+            return df
+
+        # Assign tiers (STARTER first, then ELITE overwrites qualifying goalies)
+        for tier_name in ['STARTER', 'ELITE']:
+            tier = GOALIE_TIERS[tier_name]
+            mask = (
+                (df[save_pct_col] >= tier['min_save_pct']) &
+                (df[gs_col] >= tier['min_games_started'])
+            )
+            df.loc[mask, 'goalie_tier'] = tier_name
+            df.loc[mask, 'tier_multiplier'] = tier['projection_mult']
 
         return df
 
@@ -433,16 +472,19 @@ class FeatureEngineer:
         """
         Add injury context features (opportunity boost from teammate injuries).
 
-        When key players are injured, remaining players may see increased:
-        - Ice time
-        - Power play time
-        - Scoring opportunities
+        Quality-weighted: key player injuries (top-6 F / top-4 D, ppg >= 0.5)
+        give a larger boost than regular player injuries.
+
+        Based on Jan 26 backtest: ANA losing Carlsson + Terry + McTavish (key players)
+        gave remaining ANA players (Granlund 43.3 FPTS) a large opportunity boost.
 
         Features added:
             - team_injury_count: Number of injured players on team
-            - opportunity_boost: Multiplier based on teammate injuries
+            - team_key_injury_count: Number of key injured players on team
+            - opportunity_boost: Multiplier based on teammate injuries (quality-weighted)
         """
         df['team_injury_count'] = 0
+        df['team_key_injury_count'] = 0
         df['opportunity_boost'] = 1.0
 
         if injuries.empty or 'team' not in df.columns:
@@ -457,17 +499,48 @@ class FeatureEngineer:
         if severe_injuries.empty:
             return df
 
+        # Classify injured players as "key" or "regular"
+        # Key player: ppg >= threshold (top-6 F / top-4 D caliber)
+        ppg_threshold = INJURY_OPPORTUNITY['key_player_threshold_ppg']
+
+        # Calculate ppg for injured players if stats available
+        if 'points_per_game' in severe_injuries.columns:
+            ppg_col = 'points_per_game'
+        elif 'points' in severe_injuries.columns and 'games_played' in severe_injuries.columns:
+            severe_injuries = severe_injuries.copy()
+            gp = severe_injuries['games_played'].replace(0, np.nan)
+            severe_injuries['_ppg'] = (severe_injuries['points'] / gp).fillna(0)
+            ppg_col = '_ppg'
+        else:
+            ppg_col = None
+
+        if ppg_col is not None:
+            key_injuries = severe_injuries[severe_injuries[ppg_col] >= ppg_threshold]
+            regular_injuries = severe_injuries[severe_injuries[ppg_col] < ppg_threshold]
+        else:
+            # Without stats, treat all as regular
+            key_injuries = pd.DataFrame()
+            regular_injuries = severe_injuries
+
+        # Count by team
         injury_counts = severe_injuries.groupby('team').size()
+        key_counts = key_injuries.groupby('team').size() if not key_injuries.empty else pd.Series(dtype=int)
+        regular_counts = regular_injuries.groupby('team').size() if not regular_injuries.empty else pd.Series(dtype=int)
 
-        # Map injury counts
-        df['team_injury_count'] = df['team'].map(
-            lambda t: injury_counts.get(t, 0)
-        )
+        # Map counts
+        df['team_injury_count'] = df['team'].map(lambda t: injury_counts.get(t, 0))
+        df['team_key_injury_count'] = df['team'].map(lambda t: key_counts.get(t, 0))
 
-        # Calculate opportunity boost
-        # More injuries = more opportunity for healthy players
-        # Each injured teammate adds ~3% opportunity boost, capped at 15%
-        df['opportunity_boost'] = (1.0 + df['team_injury_count'] * 0.03).clip(1.0, 1.15)
+        # Calculate quality-weighted opportunity boost
+        key_boost_rate = INJURY_OPPORTUNITY['key_player_boost']
+        regular_boost_rate = INJURY_OPPORTUNITY['regular_player_boost']
+        max_boost = INJURY_OPPORTUNITY['max_boost']
+
+        key_boost = df['team'].map(lambda t: key_counts.get(t, 0)) * key_boost_rate
+        reg_boost = df['team'].map(lambda t: regular_counts.get(t, 0)) * regular_boost_rate
+        total_boost = (key_boost + reg_boost).clip(0, max_boost)
+
+        df['opportunity_boost'] = (1.0 + total_boost).clip(1.0, 1.0 + max_boost)
 
         return df
 

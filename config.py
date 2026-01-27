@@ -34,6 +34,23 @@ GOALIE_BONUSES = {
     "thirty_five_plus_saves": 3.0,  # 35+ saves
 }
 
+# Goalie Quality Tiers
+# Based on Jan 26 backtest: Korpisalo (backup-quality) recommended as starter, scored 4.8 FPTS
+GOALIE_TIERS = {
+    'ELITE': {'min_save_pct': 0.915, 'min_games_started': 20, 'projection_mult': 1.0},
+    'STARTER': {'min_save_pct': 0.900, 'min_games_started': 15, 'projection_mult': 0.95},
+    'BACKUP': {'min_save_pct': 0.0, 'min_games_started': 0, 'projection_mult': 0.80},
+}
+
+# Injury Opportunity Boost
+# Based on Jan 26 backtest: ANA lost key players, Granlund (43.3 FPTS) exploded
+INJURY_OPPORTUNITY = {
+    'key_player_boost': 0.05,      # +5% per key injured player (top-6 F, top-4 D)
+    'regular_player_boost': 0.02,  # +2% per other injured player
+    'max_boost': 0.20,             # Cap at 20% total boost
+    'key_player_threshold_ppg': 0.5,  # Points per game threshold for "key player"
+}
+
 # NHL API Configuration
 NHL_API_WEB_BASE = "https://api-web.nhle.com"
 NHL_API_STATS_BASE = "https://api.nhle.com/stats/rest"

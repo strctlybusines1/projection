@@ -840,7 +840,64 @@ Potential predictive factors to research:
 
 ---
 
-*Last Updated: January 26, 2026*
+## 16. BACKTEST CASE STUDY: January 26, 2026
+
+### The Slate
+- 3-game slate: ANA@EDM, BOS@NYR, SJS@WPG
+- Small slate = concentrated correlation opportunities
+
+### Key Findings
+
+**1. Vegas Total is the Top Signal**
+
+| Game | Vegas Total | Top 5 Actual Pts | Pts Rank |
+|------|-----------|-------------------|----------|
+| ANA@EDM | 7.0 | 158.3 | #1 |
+| BOS@NYR | 6.5 | 94.4 | #2 |
+| SJS@WPG | 5.5 | ~70 | #3 |
+
+The highest Vegas total game (ANA@EDM, 7.0) produced 158.3 pts from top 5 players — 67% more than the second-best game. **Vegas total should be the primary game selection signal.**
+
+**2. Injuries = Opportunity (Granlund Case)**
+
+ANA had multiple key injuries (Carlsson, Terry, McTavish), yet remaining ANA players exploded:
+- **Mikael Granlund: 43.3 FPTS at 14.31% owned** — injury opportunity winner
+- Remaining healthy ANA players absorbed ice time, PP time, and scoring chances
+- Old model: flat +3% per injury → ~9% boost
+- New model: quality-weighted +5% per key injury → ~15% boost
+
+**3. Backup Goalie Trap (Korpisalo Case)**
+
+System recommended Korpisalo as a starter. Result: **4.8 FPTS**.
+- Korpisalo: .895 sv%, limited starts → BACKUP tier
+- New goalie quality tier system now penalizes BACKUP goalies by 20%
+- ELITE (sv% ≥ .915, 20+ GS): full projection
+- STARTER (sv% ≥ .900, 15+ GS): 5% reduction
+- BACKUP (everyone else): 20% reduction
+
+**4. Decision Error: BOS@NYR over ANA@EDM**
+
+The system prioritized BOS@NYR (6.5 total) over ANA@EDM (7.0 total) due to injury concerns for ANA. This was wrong — the injuries created opportunity, not reduced output.
+
+### Corrective Actions Implemented
+
+| Issue | Fix | File |
+|-------|-----|------|
+| Backup goalie recommended | Goalie Quality Tiers (ELITE/STARTER/BACKUP) | `config.py`, `features.py`, `projections.py`, `main.py` |
+| Injuries treated as risk only | Quality-weighted injury boost (+5% key, +2% regular) | `config.py`, `features.py` |
+| Vegas total not displayed | Vegas game ranking display with --vegas flag | `main.py` |
+| No game prioritization | PRIMARY/SECONDARY/TERTIARY labels by Vegas total | `main.py` |
+
+### Key Lessons
+
+1. **Vegas total > all other signals** for game environment quality
+2. **Injuries = opportunity** for remaining healthy players, not a reason to avoid the team
+3. **Goalie quality matters** — backup-tier goalies are traps in DFS
+4. **Small slates amplify these signals** — fewer games means getting the right game is critical
+
+---
+
+*Last Updated: January 27, 2026*
 *Framework based on contest analysis from January 22-26, 2026*
 
 ---

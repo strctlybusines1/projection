@@ -186,6 +186,12 @@ class NHLProjectionModel:
         # Goalies are under-projected by ~0.86 pts on average
         expected_pts *= GOALIE_BIAS_CORRECTION
 
+        # ==================== Goalie Quality Tier ====================
+        # Penalizes BACKUP goalies by 20%, STARTER by 5%, ELITE unchanged
+        tier_mult = row.get('tier_multiplier', 1.0)
+        if pd.notna(tier_mult):
+            expected_pts *= tier_mult
+
         return expected_pts
 
     def project_skaters_baseline(self, skater_features: pd.DataFrame) -> pd.DataFrame:
