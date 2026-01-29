@@ -211,7 +211,7 @@ BLOWOUT_SPREAD_THRESHOLD = 2.5  # Spread above this = potential blowout (target 
 # 68% of top 100 had MIN stacks, 29% had NSH stacks
 # Winning lineup: NSH(6) + MIN(2)
 PREFERRED_PRIMARY_STACK_SIZE = 4  # Target 4 players in primary stack
-PREFERRED_SECONDARY_STACK_SIZE = 2  # Target 2 players in secondary stack
+PREFERRED_SECONDARY_STACK_SIZE = 3  # Target 3 players in secondary stack (based on $360 Spin analysis)
 
 # Player pair correlations from GPP analysis
 # Kaprizov + Zuccarello appeared in 59% of winning lineups
