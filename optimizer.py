@@ -10,6 +10,7 @@ Based on analysis of winning GPP lineups:
 
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 import warnings
@@ -19,7 +20,8 @@ from config import (
     GPP_MIN_STACK_SIZE, GPP_MAX_FROM_TEAM, CASH_MAX_FROM_TEAM,
     PRIMARY_STACK_BOOST, SECONDARY_STACK_BOOST, LINEMATE_BOOST,
     GOALIE_CORRELATION_BOOST, HIGH_TOTAL_THRESHOLD,
-    PREFERRED_PRIMARY_STACK_SIZE, PREFERRED_SECONDARY_STACK_SIZE
+    PREFERRED_PRIMARY_STACK_SIZE, PREFERRED_SECONDARY_STACK_SIZE,
+    DAILY_SALARIES_DIR, DAILY_PROJECTIONS_DIR,
 )
 
 
@@ -911,11 +913,15 @@ if __name__ == "__main__":
     for team, goalie in sorted(confirmed_goalies.items()):
         print(f"  {team}: {goalie}")
 
-    # Load salaries
-    import glob
-    salary_files = glob.glob('DKSalaries*.csv')
+    # Load salaries (daily_salaries/ first, then project root)
+    project_dir = Path(__file__).parent
+    salaries_dir = project_dir / DAILY_SALARIES_DIR
+    salary_files = list(salaries_dir.glob('DKSalaries*.csv')) if salaries_dir.exists() else []
+    if not salary_files:
+        salary_files = list(project_dir.glob('DKSalaries*.csv'))
     if salary_files:
-        dk_salaries = load_dk_salaries(salary_files[0])
+        salary_files = sorted(salary_files)
+        dk_salaries = load_dk_salaries(str(salary_files[0]))
         dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'W', 'D'])]
         dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
 
@@ -968,8 +974,11 @@ if __name__ == "__main__":
         export_df = export_df.sort_values('projected_fpts', ascending=False)
 
         filename = f"{date_str}NHLprojections_{timestamp}.csv"
-        export_df.to_csv(filename, index=False)
+        out_dir = project_dir / DAILY_PROJECTIONS_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        export_path = out_dir / filename
+        export_df.to_csv(str(export_path), index=False)
 
-        print(f"Exported {len(export_df)} players to: {filename}")
+        print(f"Exported {len(export_df)} players to: {export_path}")
     else:
-        print("No salary file found. Please add DKSalaries*.csv file.")
+        print("No salary file found. Please add DKSalaries*.csv to daily_salaries/ or project folder.")

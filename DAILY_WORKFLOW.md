@@ -1,3 +1,4 @@
+
 # NHL DFS Projection System - Daily Workflow
 
 ## System Architecture Overview
@@ -72,6 +73,7 @@
 │  • Compare projections to actual results                                     │
 │  • Calculate MAE, RMSE, correlation                                         │
 │  • Model comparison (rolling avg vs TabPFN)                                 │
+│  • Results feed into projection bias and improvement plans                   │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,9 +95,32 @@
 | `main.py` | CLI entry point | `main()` - orchestrates everything |
 | `backtest.py` | Backtesting | `NHLBacktester.run_backtest()` |
 
+### Data folders
+
+All paths are relative to the `projection/` folder. The code looks in these directories first (with fallback to project root where applicable).
+
+| Folder | Purpose |
+|--------|---------|
+| **daily_salaries/** | DK salary CSVs per slate (e.g. `DKSalaries_M.DD.YY.csv`) |
+| **vegas/** | Vegas lines per slate (e.g. `VegasNHL_M.DD.YY.csv`) |
+| **backtests/** | xlsx backtest workbooks (e.g. `1.26.26_nhl_backtest.xlsx`) |
+| **contests/** | DK contest result CSVs (e.g. `$5main_NHL_M.DD.YY.csv`) |
+| **daily_projections/** | Generated projection and lineup CSVs (dates in filenames) |
+
 ---
 
 ## Daily Workflow
+
+### Phase 0: Review Latest Backtest (optional but recommended)
+
+Before building today's slate, know where your model stands:
+
+- **Option A:** Open the most recent backtest spreadsheet (**backtests/X.XX.XX_nhl_backtest.xlsx**) and skim MAE, correlation, and bias by position.
+- **Option B:** Run `python backtest.py --players 75` to refresh metrics.
+
+Use this to spot weak spots (e.g. goalie bias, position over/under) before locking in stacks.
+
+---
 
 ### Phase 1: Data Collection & Verification
 
@@ -119,7 +144,7 @@ python lines.py
 - [ ] PP1 unit assignments noted
 
 #### Step 2: Download Vegas Lines
-Save as `VegasNHL_M.DD.YY.csv` in project folder.
+Save as `VegasNHL_M.DD.YY.csv` in the **vegas/** folder.
 
 **Key Vegas Metrics:**
 - Team implied totals (3.5+ = high scoring environment)
@@ -128,22 +153,12 @@ Save as `VegasNHL_M.DD.YY.csv` in project folder.
 
 #### Step 3: Download DraftKings Salary File
 1. Go to DraftKings → NHL → Select contest
-2. Export CSV → Save as `DKSalaries_M.DD.YY.csv`
+2. Export CSV → Save as `DKSalaries_M.DD.YY.csv` in the **daily_salaries/** folder
 3. Cross-reference - remove players from postponed games
 
 ---
 
 ### Phase 2: Slate Analysis (THE CRITICAL STEP)
-
-#### Step 3b: Vegas Total Game Ranking
-Run the Vegas ranking as the first analysis step to prioritize games:
-
-```bash
-# Display games ranked by Vegas total (highest = primary target)
-python main.py --vegas VegasNHL_M.DD.YY.csv --stacks --show-injuries
-```
-
-**Key Insight (Jan 26 backtest):** ANA@EDM (7.0 total) produced 158.3 pts from top 5 players. BOS@NYR (6.5 total) only produced 94.4. Vegas total is the single strongest signal for game environment quality.
 
 #### Step 4: Analyze Slate Characteristics
 
@@ -162,23 +177,16 @@ Check these signals for each game:
    - [ ] Backup goalie starting?
    - [ ] Starter on back-to-back?
    - [ ] Recent save % struggles?
-   - [ ] **Goalie Quality Tier**: Check system output for ELITE/STARTER/BACKUP label
-   - [ ] **WARNING**: BACKUP-tier goalies are penalized 20% in projections (Jan 26: Korpisalo 4.8 FPTS)
 
-2. **Injury Opportunity Signal**
-   - [ ] Teams with key player injuries (top-6 F / top-4 D) create opportunity for remaining players
-   - [ ] System applies quality-weighted boost: +5% per key injury, +2% per regular, capped at 20%
-   - [ ] Jan 26 example: ANA lost multiple key players → Granlund 43.3 FPTS at 14.31% owned
-
-3. **Team Mean Regression**
+2. **Team Mean Regression**
    - [ ] High-skill team with recent cold streak?
    - [ ] Star player due for breakout (5-game avg vs season avg)?
 
-4. **Special Teams Edge**
+3. **Special Teams Edge**
    - [ ] Elite PP vs weak PK matchup?
    - [ ] PP hot streak (unsustainable but exploitable)?
 
-5. **Rest & Schedule**
+4. **Rest & Schedule**
    - [ ] Team off rest vs back-to-back opponent?
    - [ ] Travel/timezone advantage?
 
@@ -248,57 +256,15 @@ The system outputs:
 
 ---
 
-### Phase 4: Contest Analysis & Lineup Construction
+### Phase 4: Lineup Construction & Export
 
-#### Step 8: Analyze Contest Structure
-
-Before building lineups, input your contest details:
-
-**Required Contest Info:**
-- Total entries
-- Total prize pool
-- 1st place prize
-- 10th place prize
-- Min cash payout and place
-
-**Contest Type Matrix:**
-
-| Metric | Top-Heavy GPP | Flat GPP | Single Entry |
-|--------|--------------|----------|--------------|
-| 1st Place % of Pool | >15% | <10% | Varies |
-| Pays Top % | <20% | >25% | >20% |
-| Stack Depth | 5+ players | 3-4 players | 2-3 players |
-| Leverage Target | Max unique | Moderate | Balanced |
-| Risk Tolerance | High | Medium | Medium-Low |
-
-**Strategy by Contest Type:**
-
-```
-TOP-HEAVY (1st = 15%+ of pool):
-  → Max leverage, unique stacks
-  → Accept higher bust rate
-  → Target 1st place, not min-cash
-
-FLAT PAYOUT (1st = <10% of pool):
-  → Balanced approach
-  → Don't over-leverage
-  → Multiple paths to ceiling
-
-SINGLE ENTRY:
-  → Can't diversify across lineups
-  → Need floor AND ceiling
-  → 2-3 man stacks preferred
-  → Being on "right chalk" is OK
-```
-
-#### Step 9: Build Final Lineups
+#### Step 8: Build & Export Final Lineups
 
 **Lineup Construction Framework:**
 1. **Lock in core stack** (2-4 players from primary game)
 2. **Add secondary correlation** (bring-back or second stack)
 3. **Fill with ceiling pieces** (high-variance individuals)
 4. **Select goalie** (win probability + saves upside)
-5. **Verify no goalie/opponent conflict** (optimizer now enforces this)
 
 **Ownership Leverage Guide:**
 | Ownership | Strategy | When to Use |
@@ -313,6 +279,16 @@ SINGLE ENTRY:
 - Roster: 2C, 3W, 2D, 1G, 1UTIL
 - **Minimum 3 teams** (enforced by DK)
 
+**Generate and export lineups:**
+```bash
+# Generate multiple lineups for GPP
+python main.py --lineups 5 --stacks
+
+# Export for DraftKings upload (writes to daily_projections/)
+python main.py --lineups 20 --export projections.csv
+```
+Projections and lineup exports are written to **daily_projections/** (filenames include date).
+
 #### Step 9: Final Verification
 Before submitting:
 - [ ] Check Twitter for late scratches/line changes
@@ -323,51 +299,33 @@ Before submitting:
 
 ---
 
-### Phase 2: Contest Entry
+### Phase 5: Contest Entry
 
-#### Build Final Lineups
-```bash
-# Generate multiple lineups for GPP
-python main.py --lineups 5 --stacks
+Use the lineups you built and exported in Phase 4.
 
-# Export for DraftKings upload
-python main.py --lineups 20 --export projections.csv
-```
-
-#### Enter Contests
-1. Use exported CSV or manually enter
+1. Use exported CSV or manually enter on DraftKings
 2. Verify lineup validity on DraftKings
 3. Submit before lock
 
 ---
 
-### Phase 3: Post-Slate Analysis (Next Morning)
+### Phase 6: Post-Slate Analysis (Next Morning)
 
 #### Step 1: Download Contest Results
 1. DraftKings → My Contests → Click on finished contest
 2. Download standings/results CSV
-3. Save as `$5main_NHL_M.DD.YY.csv`
+3. Save as `$5main_NHL_M.DD.YY.csv` in the **contests/** folder
 
 #### Step 2: Update Backtest Spreadsheet
-1. Open `X.XX.XX_nhl_backtest.xlsx`
+1. Open **backtests/X.XX.XX_nhl_backtest.xlsx**
 2. Add actual FPTS and ownership to "Actual" sheet
 3. Compare to "Projection" sheet
 
-#### Step 3: Run Validation
+#### Step 3: Run Backtest
 ```bash
-# Quick validation script
-python3 << 'EOF'
-import pandas as pd
-from ownership import OwnershipModel
-
-# Load projections and actual results
-proj_df = pd.read_csv('01_23_26NHLprojections_TIMESTAMP.csv')
-contest_df = pd.read_csv('$5main_NHL1.23.26.csv')
-
-# Calculate MAE, correlation, bias
-# ... (see backtest code)
-EOF
+python backtest.py --players 75
 ```
+Review output (MAE, RMSE, correlation) and compare to your backtest spreadsheet. Use this to tune the model.
 
 #### Step 4: Update Plans
 Based on backtest results, update:
@@ -377,6 +335,12 @@ Based on backtest results, update:
 ---
 
 ## Quick Commands Reference
+
+### Before Slate (optional)
+```bash
+# Review latest backtest metrics
+python backtest.py --players 75
+```
 
 ### Daily Run (Most Common)
 ```bash
@@ -405,10 +369,11 @@ python optimizer.py
 python ownership.py
 ```
 
-### Backtest Previous Slate
+### Post-slate: run backtest
 ```bash
 python backtest.py --players 75
 ```
+(See Phase 6, Step 3 for full post-slate validation.)
 
 ---
 
@@ -525,4 +490,4 @@ config.py (no dependencies)
 
 ---
 
-*Last Updated: January 27, 2026*
+*Last Updated: January 26, 2026*

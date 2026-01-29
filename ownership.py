@@ -13,8 +13,11 @@ Key insights from historical analysis:
 
 import pandas as pd
 import numpy as np
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+
+from config import DAILY_SALARIES_DIR, CONTESTS_DIR
 
 
 @dataclass
@@ -462,7 +465,6 @@ def print_ownership_report(df: pd.DataFrame, top_n: int = 20):
 
 # Quick test
 if __name__ == "__main__":
-    import glob
     from data_pipeline import NHLDataPipeline
     from projections import NHLProjectionModel
     from main import load_dk_salaries, merge_projections_with_salaries
@@ -492,11 +494,15 @@ if __name__ == "__main__":
     stack_builder = StackBuilder(all_lines)
     confirmed_goalies = stack_builder.get_all_starting_goalies()
 
-    # Load salaries and merge
-    salary_files = glob.glob('DKSalaries*.csv')
+    # Load salaries and merge (daily_salaries/ first, then project root)
+    project_dir = Path(__file__).parent
+    salaries_dir = project_dir / DAILY_SALARIES_DIR
+    salary_files = list(salaries_dir.glob('DKSalaries*.csv')) if salaries_dir.exists() else []
+    if not salary_files:
+        salary_files = list(project_dir.glob('DKSalaries*.csv'))
+    salary_files = sorted(salary_files)
     if salary_files:
-        # Use most recent salary file
-        salary_file = sorted(salary_files)[-1]
+        salary_file = str(salary_files[-1])
         dk_salaries = load_dk_salaries(salary_file)
         dk_skaters = dk_salaries[dk_salaries['position'].isin(['C', 'LW', 'RW', 'D'])]
         dk_goalies = dk_salaries[dk_salaries['position'] == 'G']
@@ -533,11 +539,15 @@ if __name__ == "__main__":
         print("\n" + "=" * 70)
         print("HISTORICAL OWNERSHIP COMPARISON")
         print("=" * 70)
-        contest_files = glob.glob('$*main_NHL*.csv')
+        contests_dir = project_dir / CONTESTS_DIR
+        contest_files = list(contests_dir.glob('$*main_NHL*.csv')) if contests_dir.exists() else []
+        if not contest_files:
+            contest_files = list(project_dir.glob('$*main_NHL*.csv'))
+        contest_files = [str(p) for p in contest_files]
         if contest_files:
             historical = analyze_historical_ownership(contest_files)
             print(f"Analyzed {len(contest_files)} contests, {len(historical)} player observations")
             print(f"Historical avg ownership: {historical['%Drafted'].mean():.2f}%")
             print(f"Predicted avg ownership: {player_pool['predicted_ownership'].mean():.2f}%")
     else:
-        print("No salary file found.")
+        print("No salary file found. Add DKSalaries*.csv to daily_salaries/ or project folder.")

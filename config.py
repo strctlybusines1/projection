@@ -2,6 +2,13 @@
 DraftKings NHL Scoring Configuration and API Settings
 """
 
+# Data directories (relative to projection/)
+DAILY_SALARIES_DIR = "daily_salaries"
+VEGAS_DIR = "vegas"
+BACKTESTS_DIR = "backtests"
+CONTESTS_DIR = "contests"
+DAILY_PROJECTIONS_DIR = "daily_projections"
+
 # DraftKings NHL Classic Scoring - Skaters
 SKATER_SCORING = {
     "goals": 8.5,

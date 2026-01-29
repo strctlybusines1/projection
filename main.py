@@ -23,7 +23,14 @@ import sys
 from data_pipeline import NHLDataPipeline
 from projections import NHLProjectionModel
 from optimizer import NHLLineupOptimizer
-from config import calculate_skater_fantasy_points, calculate_goalie_fantasy_points, INJURY_STATUSES_EXCLUDE
+from config import (
+    calculate_skater_fantasy_points,
+    calculate_goalie_fantasy_points,
+    INJURY_STATUSES_EXCLUDE,
+    DAILY_SALARIES_DIR,
+    VEGAS_DIR,
+    DAILY_PROJECTIONS_DIR,
+)
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 
 
@@ -614,17 +621,20 @@ def main():
     print(f"{'#' * 80}")
 
     # Find salary file
+    project_dir = Path(__file__).parent
     if args.salaries:
         salary_path = args.salaries
     else:
-        # Look for most recent DK salary file in current directory
-        project_dir = Path(__file__).parent
-        salary_files = list(project_dir.glob('DKSalaries*.csv'))
+        # Look in daily_salaries/ first, then project root
+        salaries_dir = project_dir / DAILY_SALARIES_DIR
+        salary_files = list(salaries_dir.glob('DKSalaries*.csv')) if salaries_dir.exists() else []
+        if not salary_files:
+            salary_files = list(project_dir.glob('DKSalaries*.csv'))
         if salary_files:
             salary_path = str(sorted(salary_files)[-1])  # Most recent
             print(f"\nAuto-detected salary file: {salary_path}")
         else:
-            print("\nNo DraftKings salary file found. Run with --salaries <path>")
+            print("\nNo DraftKings salary file found. Run with --salaries <path> or add DKSalaries*.csv to daily_salaries/")
             sys.exit(1)
 
     # Load DK salaries
@@ -633,9 +643,17 @@ def main():
     # Get slate teams for filtering
     slate_teams = list(dk_salaries['team'].unique())
 
-    # Show Vegas game ranking if provided
+    # Show Vegas game ranking if provided or auto-detect from vegas/
     if args.vegas:
         print_vegas_ranking(args.vegas)
+    else:
+        vegas_dir = project_dir / VEGAS_DIR
+        if vegas_dir.exists():
+            vegas_files = sorted(vegas_dir.glob('Vegas*.csv')) + sorted(vegas_dir.glob('VegasNHL*.csv'))
+            vegas_files = list(dict.fromkeys(vegas_files))  # dedupe
+            if vegas_files:
+                vegas_path = str(vegas_files[-1])  # Most recent
+                print_vegas_ranking(vegas_path)
 
     # Fetch NHL data
     print("\nFetching NHL data...")
@@ -744,13 +762,18 @@ def main():
                 print(f"\n--- Lineup {i+1} ---")
             print_lineup(lineup)
 
-    # Export if requested
+    # Export if requested (write to daily_projections/ if path has no directory)
     if args.export:
-        export_projections(skaters_merged, goalies_merged, args.export)
+        export_path = args.export
+        if Path(export_path).name == export_path or '/' not in export_path and '\\' not in export_path:
+            out_dir = project_dir / DAILY_PROJECTIONS_DIR
+            out_dir.mkdir(parents=True, exist_ok=True)
+            export_path = str(out_dir / export_path)
+        export_projections(skaters_merged, goalies_merged, export_path)
 
         # Also export lineups if generated
         if lineups:
-            lineup_path = args.export.replace('.csv', '_lineups.csv')
+            lineup_path = export_path.replace('.csv', '_lineups.csv')
             export_lineup_for_dk(lineups[0], lineup_path)
 
     print(f"\n{'#' * 80}")
