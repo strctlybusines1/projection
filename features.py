@@ -10,7 +10,10 @@ from config import (
     LEAGUE_AVG_XGF_60, LEAGUE_AVG_XGA_60, LEAGUE_AVG_CF_PCT, LEAGUE_AVG_PDO,
     PDO_HIGH_THRESHOLD, PDO_LOW_THRESHOLD, PDO_REGRESSION_FACTOR,
     HOT_STREAK_THRESHOLD, COLD_STREAK_THRESHOLD, STREAK_ADJUSTMENT_FACTOR,
-    INJURY_STATUSES_EXCLUDE, GOALIE_TIERS, INJURY_OPPORTUNITY
+    INJURY_STATUSES_EXCLUDE, GOALIE_TIERS, INJURY_OPPORTUNITY,
+    SIGNAL_WEIGHTS_NORMALIZED, SIGNAL_COMPOSITE_SENSITIVITY,
+    SIGNAL_COMPOSITE_CLIP_LOW, SIGNAL_COMPOSITE_CLIP_HIGH,
+    LEAGUE_AVG_SHARE_PCT
 )
 
 
@@ -139,6 +142,9 @@ class FeatureEngineer:
 
             # Add PDO regression features
             df = self._add_pdo_regression_features(df, team_adv)
+
+            # Add signal-weighted composite matchup features
+            df = self._add_signal_composite_features(df, team_adv, schedule, target_date)
 
         # ==================== Injury Context Features ====================
         if injuries is not None and not injuries.empty:
@@ -351,7 +357,7 @@ class FeatureEngineer:
         # The boost is: 1 + (matchup_advantage * toi_factor * sensitivity)
         # sensitivity dampens the effect (0.4 = conservative estimate)
         sensitivity = 0.4
-        df['xg_matchup_boost'] = (1.0 + raw_matchup_advantage * toi_factor * sensitivity).clip(0.96, 1.12)
+        df['xg_matchup_boost'] = (1.0 + raw_matchup_advantage * toi_factor * sensitivity).clip(0.97, 1.08)
 
         return df
 
@@ -465,6 +471,99 @@ class FeatureEngineer:
             return 1.0
 
         df['pdo_adj_factor'] = df['team_pdo'].apply(calc_pdo_adj).clip(0.9, 1.1)
+
+        return df
+
+    def _add_signal_composite_features(self, df: pd.DataFrame,
+                                        team_adv_stats: Dict[str, pd.DataFrame],
+                                        schedule: pd.DataFrame,
+                                        target_date: Optional[str] = None) -> pd.DataFrame:
+        """
+        Add signal-weighted composite matchup feature based on backtest findings.
+
+        The backtest (signal_noise_report.csv) found share/percentage metrics
+        (SFpct, xGFpct, SCFpct, FFpct, CFpct) are the strongest predictors of
+        DFS output with high persistence and predictive correlation.
+
+        Creates a composite score: team offensive quality + opponent defensive weakness,
+        weighted by each stat's backtest predictive correlation.
+
+        Features added:
+            - team_signal_composite: Team's weighted share deviation from 50%
+            - opp_signal_composite: Opponent's defensive weakness (inverted share)
+            - signal_matchup_boost: Combined matchup multiplier
+        """
+        team_5v5 = team_adv_stats.get('5v5', pd.DataFrame())
+
+        # Initialize defaults
+        df['team_signal_composite'] = 0.0
+        df['opp_signal_composite'] = 0.0
+        df['signal_matchup_boost'] = 1.0
+
+        if team_5v5.empty or 'team' not in df.columns:
+            return df
+
+        if 'team' not in team_5v5.columns:
+            return df
+
+        team_5v5_idx = team_5v5.set_index('team')
+
+        # Determine which signal columns are available
+        available_signals = {
+            stat: weight
+            for stat, weight in SIGNAL_WEIGHTS_NORMALIZED.items()
+            if stat in team_5v5_idx.columns
+        }
+
+        if not available_signals:
+            return df
+
+        # Re-normalize weights to available stats only
+        total_avail = sum(available_signals.values())
+        if total_avail == 0:
+            return df
+        weights = {k: v / total_avail for k, v in available_signals.items()}
+
+        def calc_team_composite(team_code):
+            """Weighted composite of team's offensive share quality."""
+            if team_code not in team_5v5_idx.index:
+                return 0.0
+            row = team_5v5_idx.loc[team_code]
+            composite = 0.0
+            for stat, w in weights.items():
+                val = row.get(stat, LEAGUE_AVG_SHARE_PCT)
+                if pd.isna(val):
+                    val = LEAGUE_AVG_SHARE_PCT
+                composite += w * (val - LEAGUE_AVG_SHARE_PCT)
+            return composite
+
+        def calc_opp_weakness(opp_code):
+            """Weighted composite of opponent's defensive weakness.
+            If opponent has 47% SFpct, they give up 53% to opponents.
+            Weakness = 50 - opp_value (positive = weaker defense)."""
+            if pd.isna(opp_code) or opp_code not in team_5v5_idx.index:
+                return 0.0
+            row = team_5v5_idx.loc[opp_code]
+            composite = 0.0
+            for stat, w in weights.items():
+                val = row.get(stat, LEAGUE_AVG_SHARE_PCT)
+                if pd.isna(val):
+                    val = LEAGUE_AVG_SHARE_PCT
+                composite += w * (LEAGUE_AVG_SHARE_PCT - val)
+            return composite
+
+        df['team_signal_composite'] = df['team'].apply(calc_team_composite)
+
+        if 'opponent' in df.columns:
+            df['opp_signal_composite'] = df['opponent'].apply(calc_opp_weakness)
+
+        # Net matchup: average of team quality + opponent weakness
+        net_deviation = (df['team_signal_composite'] + df['opp_signal_composite']) / 2.0
+
+        # Convert to multiplier (sensitivity=0.30 means +5 pct-pt deviation -> +1.5% boost)
+        df['signal_matchup_boost'] = (
+            1.0 + net_deviation * SIGNAL_COMPOSITE_SENSITIVITY / 100.0
+        ).clip(SIGNAL_COMPOSITE_CLIP_LOW, SIGNAL_COMPOSITE_CLIP_HIGH)
 
         return df
 

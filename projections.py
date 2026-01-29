@@ -94,12 +94,12 @@ class NHLProjectionModel:
         expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
         expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
 
-        # Apply opponent adjustment (basic)
-        opp_softness = row.get('opp_softness', 1.0)
-        if pd.notna(opp_softness):
-            # Soft opponent boosts scoring stats
-            scoring_boost = (opp_softness - 1.0) * 0.15 + 1.0  # Dampen the effect
-            expected_pts *= scoring_boost
+        # Apply signal-weighted matchup adjustment (replaces basic opp_softness)
+        # Based on backtest: share metrics (SFpct, xGFpct, SCFpct, FFpct, CFpct)
+        # predict DFS output better than simple GA/game
+        signal_boost = row.get('signal_matchup_boost', 1.0)
+        if pd.notna(signal_boost):
+            expected_pts *= signal_boost
 
         # ==================== Advanced Stat Adjustments ====================
 

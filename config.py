@@ -106,12 +106,30 @@ LEAGUE_AVG_PDO = 100.0   # PDO (SH% + SV%)
 # PDO regression thresholds
 PDO_HIGH_THRESHOLD = 102.0  # Above this, expect regression down
 PDO_LOW_THRESHOLD = 98.0    # Below this, expect regression up
-PDO_REGRESSION_FACTOR = 0.05  # How much to adjust projections
+PDO_REGRESSION_FACTOR = 0.02  # Reduced from 0.05 - backtest confirms PDO is noise (corr 0.107)
 
 # Hot/cold streak thresholds (based on recent xG vs season avg)
 HOT_STREAK_THRESHOLD = 1.15   # 15% above season average
 COLD_STREAK_THRESHOLD = 0.85  # 15% below season average
 STREAK_ADJUSTMENT_FACTOR = 0.10  # Max adjustment for streaks
+
+# ==================== Signal-Weighted Team Quality Configuration ====================
+# Derived from season_signal_backtest.py results (signal_noise_report.csv)
+# Weights = max absolute predictive correlation with DK net pts/game
+SIGNAL_WEIGHTS = {
+    'sf_pct':   0.455,   # Shot share - persistence 0.527, corr 0.455
+    'xgf_pct':  0.455,   # xG share - persistence 0.454, corr 0.455
+    'scf_pct':  0.438,   # Scoring chance share - persistence 0.478, corr 0.438
+    'ff_pct':   0.432,   # Fenwick share - persistence 0.546, corr 0.432
+    'cf_pct':   0.402,   # Corsi share - persistence 0.581, corr 0.402
+}
+_total = sum(SIGNAL_WEIGHTS.values())
+SIGNAL_WEIGHTS_NORMALIZED = {k: v / _total for k, v in SIGNAL_WEIGHTS.items()}
+
+SIGNAL_COMPOSITE_SENSITIVITY = 0.30   # Pct-point deviation -> projection % change
+SIGNAL_COMPOSITE_CLIP_LOW = 0.92      # Worst matchup: -8%
+SIGNAL_COMPOSITE_CLIP_HIGH = 1.10     # Best matchup: +10%
+LEAGUE_AVG_SHARE_PCT = 50.0           # Neutral share percentage
 
 # ==================== GPP Optimizer Configuration ====================
 # Based on analysis of winning GPP lineups from 1/22/26 slate
