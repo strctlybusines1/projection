@@ -14,8 +14,9 @@ from scrapers import MoneyPuckClient, NaturalStatTrickScraper
 from config import (
     CURRENT_SEASON, NHL_TEAMS, calculate_skater_fantasy_points,
     calculate_goalie_fantasy_points, INJURY_STATUSES_EXCLUDE,
-    NST_RECENT_FORM_GAMES
+    NST_RECENT_FORM_GAMES, TEAM_DANGER_CSV_DIR, TEAM_DANGER_CSV,
 )
+from danger_stats import load_team_danger_stats
 
 
 class NHLDataPipeline:
@@ -458,6 +459,13 @@ class NHLDataPipeline:
             if '5v5' in data['advanced_player_stats'] and not data['advanced_player_stats']['5v5'].empty:
                 n_players = len(data['advanced_player_stats']['5v5'])
                 print(f"  Advanced player stats: {n_players} players")
+
+        # Team danger (HD/MD/LD) from test-folder NST CSVs for goalie opponent shot quality
+        if TEAM_DANGER_CSV_DIR:
+            danger_df = load_team_danger_stats(csv_dir=TEAM_DANGER_CSV_DIR, csv_file=TEAM_DANGER_CSV)
+            if danger_df is not None and not danger_df.empty:
+                data['team_danger_stats'] = danger_df
+                print(f"  Team danger stats: {len(danger_df)} teams (HD/MD/LD)")
 
         # Game logs (optional - takes longer)
         if include_game_logs and not data['skaters'].empty:

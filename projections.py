@@ -13,7 +13,8 @@ from tabpfn import TabPFNRegressor
 from config import (
     calculate_skater_fantasy_points, calculate_goalie_fantasy_points,
     SKATER_SCORING, SKATER_BONUSES, GOALIE_SCORING, GOALIE_BONUSES,
-    INJURY_STATUSES_EXCLUDE, STREAK_ADJUSTMENT_FACTOR
+    INJURY_STATUSES_EXCLUDE, STREAK_ADJUSTMENT_FACTOR,
+    LEAGUE_AVG_HD_SHARE, SHOT_QUALITY_ADJ_CAP,
 )
 from features import FeatureEngineer
 
@@ -146,11 +147,32 @@ class NHLProjectionModel:
     def calculate_expected_fantasy_points_goalie(self, row: pd.Series) -> float:
         """
         Calculate expected DraftKings fantasy points for a goalie.
+        When opponent shot mix and goalie (team) save % by type are available,
+        uses danger-weighted expected saves and GA; otherwise uses raw saves_pg / ga_pg.
         """
-        saves = row.get('saves_pg', 25)
-        ga = row.get('ga_pg', 2.5)
-        win_rate = row.get('win_rate', 0.5)
         sa_pg = row.get('sa_pg', 28)
+        win_rate = row.get('win_rate', 0.5)
+
+        # Opponent shot mix + goalie team save % by type → expected saves and GA
+        opp_hd = row.get('opp_HD_share')
+        opp_md = row.get('opp_MD_share')
+        opp_ld = row.get('opp_LD_share')
+        sv_hd = row.get('team_HDSV_pct')
+        sv_md = row.get('team_MDSV_pct')
+        sv_ld = row.get('team_LDSV_pct')
+        use_danger_weighted = all(
+            pd.notna(x) for x in [opp_hd, opp_md, opp_ld, sv_hd, sv_md, sv_ld]
+        ) and (abs((opp_hd or 0) + (opp_md or 0) + (opp_ld or 0) - 1.0) < 0.01)
+
+        if use_danger_weighted:
+            # Expected save rate vs this opponent's shot mix
+            expected_save_rate = opp_hd * sv_hd + opp_md * sv_md + opp_ld * sv_ld
+            expected_save_rate = np.clip(expected_save_rate, 0.0, 1.0)
+            saves = sa_pg * expected_save_rate
+            ga = sa_pg * (1.0 - expected_save_rate)
+        else:
+            saves = row.get('saves_pg', 25)
+            ga = row.get('ga_pg', 2.5)
 
         # Base expected points
         expected_pts = (
@@ -171,12 +193,19 @@ class NHLProjectionModel:
         prob_35_saves = row.get('prob_35plus_saves', 0)
         expected_pts += prob_35_saves * GOALIE_BONUSES['thirty_five_plus_saves']
 
-        # Opponent adjustment (weak offense = good for goalie)
-        opp_weakness = row.get('opp_offense_weakness', 1.0)
-        if pd.notna(opp_weakness):
-            # Facing weak offense reduces GA
-            ga_reduction = (opp_weakness - 1.0) * 0.1 + 1.0
-            expected_pts *= ga_reduction
+        # Opponent adjustment (weak offense = good for goalie) – only when not using danger-weighted
+        if not use_danger_weighted:
+            opp_weakness = row.get('opp_offense_weakness', 1.0)
+            if pd.notna(opp_weakness):
+                ga_reduction = (opp_weakness - 1.0) * 0.1 + 1.0
+                expected_pts *= ga_reduction
+        # When using danger-weighted, opp mix is already in expected_saves/GA; optional small quality_adj
+        else:
+            opp_hd_share = row.get('opp_HD_share')
+            if pd.notna(opp_hd_share):
+                quality_adj = 1.0 + (LEAGUE_AVG_HD_SHARE - opp_hd_share) * 0.15  # lighter when danger-weighted
+                quality_adj = np.clip(quality_adj, 1.0 - SHOT_QUALITY_ADJ_CAP, 1.0 + SHOT_QUALITY_ADJ_CAP)
+                expected_pts *= quality_adj
 
         # Home ice advantage
         if row.get('is_home') == True:
@@ -312,7 +341,8 @@ class NHLProjectionModel:
         )
 
         goalie_features = self.feature_engineer.engineer_goalie_features(
-            data['goalies'], data['teams'], data['schedule'], target_date
+            data['goalies'], data['teams'], data['schedule'], target_date,
+            team_danger_df=data.get('team_danger_stats'),
         )
 
         # Generate baseline projections

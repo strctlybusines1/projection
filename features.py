@@ -153,7 +153,8 @@ class FeatureEngineer:
         return df
 
     def engineer_goalie_features(self, goalies: pd.DataFrame, teams: pd.DataFrame,
-                                   schedule: pd.DataFrame, target_date: Optional[str] = None) -> pd.DataFrame:
+                                   schedule: pd.DataFrame, target_date: Optional[str] = None,
+                                   team_danger_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """Engineer features for goalie projections."""
         df = goalies.copy()
 
@@ -213,7 +214,7 @@ class FeatureEngineer:
 
         # ==================== Opponent Adjustments ====================
         if not teams.empty and not schedule.empty:
-            df = self._add_goalie_opponent_features(df, teams, schedule, target_date)
+            df = self._add_goalie_opponent_features(df, teams, schedule, target_date, team_danger_df)
 
         # ==================== Goalie Quality Tier ====================
         df = self.assign_goalie_tier(df)
@@ -696,8 +697,9 @@ class FeatureEngineer:
         return df
 
     def _add_goalie_opponent_features(self, df: pd.DataFrame, teams: pd.DataFrame,
-                                        schedule: pd.DataFrame, target_date: Optional[str] = None) -> pd.DataFrame:
-        """Add opponent-based features for goalies."""
+                                        schedule: pd.DataFrame, target_date: Optional[str] = None,
+                                        team_danger_df: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+        """Add opponent-based features for goalies (incl. opponent shot quality HD/MD/LD when available)."""
         team_stats = teams.set_index('team').to_dict('index')
 
         if target_date:
@@ -737,6 +739,58 @@ class FeatureEngineer:
 
         # For goalies, facing weak offense is good
         df['opp_offense_weakness'] = 3.0 / df['opp_gf_pg'].replace(0, 3.0)
+
+        # Opponent shot quality (HD/MD/LD from test-folder NST CSVs)
+        if team_danger_df is not None and not team_danger_df.empty:
+            danger_cols = ['hdsf_60', 'mdsf_60', 'ldsf_60', 'hd_share']
+            if all(c in team_danger_df.columns for c in danger_cols):
+                df['opp_HDSF_60'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'hdsf_60'] if opp in team_danger_df.index else np.nan
+                )
+                df['opp_MDSF_60'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'mdsf_60'] if opp in team_danger_df.index else np.nan
+                )
+                df['opp_LDSF_60'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'ldsf_60'] if opp in team_danger_df.index else np.nan
+                )
+                df['opp_HD_share'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'hd_share'] if opp in team_danger_df.index else np.nan
+                )
+                df['opp_MD_share'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'md_share'] if opp in team_danger_df.index else np.nan
+                )
+                df['opp_LD_share'] = df['opponent'].map(
+                    lambda opp: team_danger_df.loc[opp, 'ld_share'] if opp in team_danger_df.index else np.nan
+                )
+                # Display-only tier: High / Medium / Low by opp_HD_share percentiles on this slate
+                valid = df['opp_HD_share'].notna()
+                if valid.any():
+                    p33 = df.loc[valid, 'opp_HD_share'].quantile(0.33)
+                    p67 = df.loc[valid, 'opp_HD_share'].quantile(0.67)
+                    def tier(h):
+                        if pd.isna(h):
+                            return None
+                        if h <= p33:
+                            return 'Low'
+                        if h <= p67:
+                            return 'Medium'
+                        return 'High'
+                    df['opp_shot_quality_tier'] = df['opp_HD_share'].apply(tier)
+                else:
+                    df['opp_shot_quality_tier'] = None
+
+            # Goalie's team save % by shot type (HDSV%, MDSV%, LDSV%) – affects projection vs opponent mix
+            sv_cols = ['hdsv_pct', 'mdsv_pct', 'ldsv_pct']
+            if all(c in team_danger_df.columns for c in sv_cols):
+                df['team_HDSV_pct'] = df['team'].map(
+                    lambda t: team_danger_df.loc[t, 'hdsv_pct'] if t in team_danger_df.index else np.nan
+                )
+                df['team_MDSV_pct'] = df['team'].map(
+                    lambda t: team_danger_df.loc[t, 'mdsv_pct'] if t in team_danger_df.index else np.nan
+                )
+                df['team_LDSV_pct'] = df['team'].map(
+                    lambda t: team_danger_df.loc[t, 'ldsv_pct'] if t in team_danger_df.index else np.nan
+                )
 
         return df
 

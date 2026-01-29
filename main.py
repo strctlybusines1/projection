@@ -32,6 +32,7 @@ from config import (
     DAILY_PROJECTIONS_DIR,
 )
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
+from ownership import OwnershipModel, print_ownership_report
 
 
 def normalize_position(pos: str) -> str:
@@ -762,19 +763,40 @@ def main():
                 print(f"\n--- Lineup {i+1} ---")
             print_lineup(lineup)
 
-    # Export if requested (write to daily_projections/ if path has no directory)
+    # --- Run ownership model on player pool ---
+    print("\nGenerating ownership projections...")
+    ownership_model = OwnershipModel()
+    if stack_builder:
+        confirmed = stack_builder.get_all_starting_goalies()
+        ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
+    player_pool = ownership_model.predict_ownership(player_pool)
+    print_ownership_report(player_pool)
+
+    # --- Auto-export projections + ownership with timestamp ---
+    date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    out_dir = project_dir / DAILY_PROJECTIONS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    auto_export_path = str(out_dir / f"{date_str}NHLprojections_{timestamp}.csv")
+
+    export_cols = ['name', 'team', 'position', 'salary', 'projected_fpts',
+                   'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling',
+                   'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score']
+    export_cols = [c for c in export_cols if c in player_pool.columns]
+    player_pool.sort_values('projected_fpts', ascending=False)[export_cols].to_csv(auto_export_path, index=False)
+    print(f"\nProjections + ownership exported to: {auto_export_path}")
+
+    # Also export lineups CSV if generated
+    if lineups:
+        lineup_path = auto_export_path.replace('.csv', '_lineups.csv')
+        export_lineup_for_dk(lineups[0], lineup_path)
+
+    # Legacy --export flag still works
     if args.export:
         export_path = args.export
         if Path(export_path).name == export_path or '/' not in export_path and '\\' not in export_path:
-            out_dir = project_dir / DAILY_PROJECTIONS_DIR
-            out_dir.mkdir(parents=True, exist_ok=True)
             export_path = str(out_dir / export_path)
         export_projections(skaters_merged, goalies_merged, export_path)
-
-        # Also export lineups if generated
-        if lineups:
-            lineup_path = export_path.replace('.csv', '_lineups.csv')
-            export_lineup_for_dk(lineups[0], lineup_path)
 
     print(f"\n{'#' * 80}")
     print("  PROJECTION COMPLETE")

@@ -9,6 +9,12 @@ BACKTESTS_DIR = "backtests"
 CONTESTS_DIR = "contests"
 DAILY_PROJECTIONS_DIR = "daily_projections"
 
+# Team danger (HD/MD/LD) from test-folder NST CSVs - optional for goalie shot quality
+TEAM_DANGER_CSV_DIR = None   # e.g. "../test" (relative to projection/) to use CSVs; None = skip
+TEAM_DANGER_CSV = None        # specific file e.g. "1.25.26_1.27.26_nhl.csv"; None = pick latest by date
+LEAGUE_AVG_HD_SHARE = 0.33    # ~league avg share of shots that are high-danger
+SHOT_QUALITY_ADJ_CAP = 0.08   # cap opponent shot-quality adjustment at ±8%
+
 # DraftKings NHL Classic Scoring - Skaters
 SKATER_SCORING = {
     "goals": 8.5,
@@ -98,6 +104,44 @@ NST_TEAM_MAP = {
     'N.J': 'NJD',
     'L.A': 'LAK',
     'S.J': 'SJS',
+}
+
+# Full team name -> abbrev (for NST CSVs that use e.g. "Chicago Blackhawks")
+TEAM_FULL_NAME_TO_ABBREV = {
+    'ANAHEIM DUCKS': 'ANA',
+    'ARIZONA COYOTES': 'ARI',
+    'BOSTON BRUINS': 'BOS',
+    'BUFFALO SABRES': 'BUF',
+    'CALGARY FLAMES': 'CGY',
+    'CAROLINA HURRICANES': 'CAR',
+    'CHICAGO BLACKHAWKS': 'CHI',
+    'COLORADO AVALANCHE': 'COL',
+    'COLUMBUS BLUE JACKETS': 'CBJ',
+    'DALLAS STARS': 'DAL',
+    'DETROIT RED WINGS': 'DET',
+    'EDMONTON OILERS': 'EDM',
+    'FLORIDA PANTHERS': 'FLA',
+    'LOS ANGELES KINGS': 'LAK',
+    'MINNESOTA WILD': 'MIN',
+    'MONTREAL CANADIENS': 'MTL',
+    'NASHVILLE PREDATORS': 'NSH',
+    'NEW JERSEY DEVILS': 'NJD',
+    'NEW YORK ISLANDERS': 'NYI',
+    'NEW YORK RANGERS': 'NYR',
+    'OTTAWA SENATORS': 'OTT',
+    'PHILADELPHIA FLYERS': 'PHI',
+    'PITTSBURGH PENGUINS': 'PIT',
+    'SAN JOSE SHARKS': 'SJS',
+    'SEATTLE KRAKEN': 'SEA',
+    'ST. LOUIS BLUES': 'STL',
+    'ST LOUIS BLUES': 'STL',
+    'TAMPA BAY LIGHTNING': 'TBL',
+    'TORONTO MAPLE LEAFS': 'TOR',
+    'UTAH HOCKEY CLUB': 'UTA',
+    'VANCOUVER CANUCKS': 'VAN',
+    'VEGAS GOLDEN KNIGHTS': 'VGK',
+    'WASHINGTON CAPITALS': 'WSH',
+    'WINNIPEG JETS': 'WPG',
 }
 
 # Standard team code mappings (for reverse lookup)

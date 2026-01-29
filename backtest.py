@@ -4,6 +4,7 @@ Backtesting module for NHL DFS projections.
 Tests projection accuracy against historical game results.
 """
 
+import sys
 import pandas as pd
 import numpy as np
 from typing import Dict, List, Optional, Tuple
@@ -768,6 +769,145 @@ class NHLBacktester:
                 print(f"  Enhanced features increased error by {enhanced_mae - baseline_mae:.2f} pts")
 
 
+def fetch_goalies_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFrame:
+    """
+    Fetch actual goalie DK fantasy points for a slate date from NHL API boxscores.
+
+    Args:
+        client: NHLAPIClient instance
+        date: YYYY-MM-DD (e.g. 2026-01-28)
+
+    Returns:
+        DataFrame with columns: name (from boxscore, e.g. "S. Martin"), team, actual_fpts, last_name (for matching)
+    """
+    sched = client.get_schedule(date=date)
+    rows = []
+    for week in sched.get("gameWeek", []):
+        if week.get("date") != date:
+            continue
+        for game in week.get("games", []):
+            if game.get("gameState") != "OFF":
+                continue
+            gid = game.get("id")
+            away_abbrev = game.get("awayTeam", {}).get("abbrev", "")
+            home_abbrev = game.get("homeTeam", {}).get("abbrev", "")
+            try:
+                box = client.get_boxscore(gid)
+            except Exception:
+                continue
+            pbs = box.get("playerByGameStats", {})
+            backtester = NHLBacktester()
+            for side, abbrev in [("awayTeam", away_abbrev), ("homeTeam", home_abbrev)]:
+                for g in pbs.get(side, {}).get("goalies", []):
+                    toi = g.get("toi", "0:00")
+                    saves = g.get("saves", 0) or 0
+                    if toi == "00:00" and saves == 0:
+                        continue
+                    name_raw = g.get("name", {})
+                    name = name_raw.get("default", "") if isinstance(name_raw, dict) else str(name_raw)
+                    game_dict = {
+                        "saves": g.get("saves", 0),
+                        "goalsAgainst": g.get("goalsAgainst", 0),
+                        "decision": g.get("decision", ""),
+                    }
+                    pts = backtester.calculate_goalie_dk_points(game_dict)
+                    last_name = name.split()[-1] if name else ""
+                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts, "last_name": last_name})
+    if not rows:
+        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name"])
+    return pd.DataFrame(rows)
+
+
+def run_slate_goalie_backtest(
+    date: str = "2026-01-28",
+    use_danger_stats: bool = True,
+) -> Dict:
+    """
+    Run goalie projection vs actuals for a single slate date (e.g. last night).
+    Uses opponent shot quality + save % by type when use_danger_stats=True.
+
+    Returns:
+        Dict with mae, bias, n_matched, n_actuals, n_projected, details DataFrame.
+    """
+    from data_pipeline import NHLDataPipeline
+    from projections import NHLProjectionModel
+    import config as cfg
+
+    if use_danger_stats:
+        cfg.TEAM_DANGER_CSV_DIR = "../test"
+    backtester = NHLBacktester()
+    client = backtester.client
+
+    # Build dataset and generate projections for date
+    pipeline = NHLDataPipeline()
+    data = pipeline.build_projection_dataset(
+        include_game_logs=False,
+        include_injuries=False,
+        include_advanced_stats=False,
+    )
+    # Override schedule with the target date (default fetch uses today's date)
+    data['schedule'] = pipeline.fetch_schedule(date)
+    model = NHLProjectionModel()
+    projections = model.generate_projections(data, target_date=date, filter_injuries=False)
+    goalie_proj = projections.get("goalies")
+    if goalie_proj is None or goalie_proj.empty:
+        return {"error": "No goalie projections", "mae": None, "bias": None, "n_matched": 0}
+
+    # Actuals from NHL API
+    actuals_df = fetch_goalies_actuals_for_date(client, date)
+    if actuals_df.empty:
+        return {"error": "No actual goalie results for date", "mae": None, "bias": None, "n_matched": 0}
+
+    # Match by last name + team (boxscore has "S. Martin", projection has "Scott Martin")
+    def match_goalie(row_act):
+        last = row_act["last_name"]
+        team = row_act["team"]
+        cand = goalie_proj[
+            (goalie_proj["team"] == team)
+            & (goalie_proj["name"].str.endswith(" " + last, na=False))
+        ]
+        if len(cand) == 1:
+            return cand.index[0]
+        if len(cand) > 1:
+            # Prefer exact match on full name if possible
+            for idx, r in cand.iterrows():
+                if r["name"].split()[-1] == last:
+                    return idx
+            return cand.index[0]
+        return None
+
+    actuals_df["proj_idx"] = actuals_df.apply(match_goalie, axis=1)
+    matched = actuals_df.dropna(subset=["proj_idx"])
+    if matched.empty:
+        return {
+            "error": "No goalies matched between projections and actuals",
+            "mae": None,
+            "bias": None,
+            "n_matched": 0,
+            "n_actuals": len(actuals_df),
+            "n_projected": len(goalie_proj),
+        }
+
+    proj_fpts = matched["proj_idx"].map(lambda i: goalie_proj.loc[i, "projected_fpts"])
+    actual_fpts = matched["actual_fpts"].values
+    err = proj_fpts.values - actual_fpts
+    mae = float(np.abs(err).mean())
+    bias = float(err.mean())
+
+    details = matched[["name", "team", "actual_fpts"]].copy()
+    details["projected_fpts"] = proj_fpts.values
+    details["error"] = err
+
+    return {
+        "mae": mae,
+        "bias": bias,
+        "n_matched": len(matched),
+        "n_actuals": len(actuals_df),
+        "n_projected": len(goalie_proj),
+        "details": details,
+    }
+
+
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
     """
     Run full backtest pipeline.
@@ -833,8 +973,30 @@ if __name__ == "__main__":
                         help='Run feature comparison (baseline vs enhanced with xG)')
     parser.add_argument('--ablation', action='store_true',
                         help='Run xG feature ablation study')
+    parser.add_argument('--slate-date', type=str, default=None,
+                        help='Run slate goalie backtest for date (YYYY-MM-DD, e.g. 2026-01-28)')
+    parser.add_argument('--no-danger', action='store_true',
+                        help='With --slate-date: disable opponent shot quality / save%% by type')
 
     args = parser.parse_args()
+
+    if args.slate_date:
+        print("=" * 60)
+        print(f" SLATE GOALIE BACKTEST — {args.slate_date}")
+        print("=" * 60)
+        result = run_slate_goalie_backtest(date=args.slate_date, use_danger_stats=not args.no_danger)
+        if result.get("error"):
+            print(f"  Error: {result['error']}")
+        else:
+            print(f"  Goalie MAE:  {result['mae']:.2f} pts")
+            print(f"  Goalie bias: {result['bias']:+.2f} pts (positive = over-projected)")
+            print(f"  Matched:     {result['n_matched']} goalies (of {result['n_actuals']} actuals, {result['n_projected']} projected)")
+            if result.get("details") is not None and not result["details"].empty:
+                print("\n  Per-goalie:")
+                for _, r in result["details"].iterrows():
+                    print(f"    {r['name']:<20} {r['team']}  proj={r['projected_fpts']:.1f}  actual={r['actual_fpts']:.1f}  err={r['error']:+.1f}")
+        print("=" * 60)
+        sys.exit(0)
 
     results, comparison, game_logs = run_full_backtest(
         max_players=args.players,
