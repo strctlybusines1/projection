@@ -506,6 +506,18 @@ if __name__ == "__main__":
         skaters_merged = merge_projections_with_salaries(projections['skaters'], dk_skaters, 'skater')
         goalies_merged = merge_projections_with_salaries(projections['goalies'], dk_goalies, 'goalie')
 
+        # Filter to confirmed starting goalies only
+        if confirmed_goalies:
+            from lines import fuzzy_match as _fm
+            confirmed_names = list(confirmed_goalies.values())
+            def _is_confirmed(name):
+                return any(_fm(name, cn) for cn in confirmed_names)
+            before = len(goalies_merged)
+            goalies_merged = goalies_merged[goalies_merged['name'].apply(_is_confirmed)]
+            filtered_count = before - len(goalies_merged)
+            if filtered_count > 0:
+                print(f"  Filtered {filtered_count} non-confirmed goalies from pool")
+
         player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
         # Run ownership model

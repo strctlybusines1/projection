@@ -15,6 +15,7 @@ Usage:
 import argparse
 import pandas as pd
 import numpy as np
+import re
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -91,12 +92,19 @@ def merge_projections_with_salaries(projections: pd.DataFrame,
     proj = projections.copy()
     sal = salaries.copy()
 
-    # Clean names for matching
-    proj['name_clean'] = proj['name'].str.lower().str.strip()
-    proj['name_clean'] = proj['name_clean'].str.replace(r'[^a-z\s]', '', regex=True)
+    # Clean names for matching (transliterate unicode accents first)
+    import unicodedata
+    _UMLAUT_MAP = {'ü': 'ue', 'ö': 'oe', 'ä': 'ae', 'ß': 'ss'}
+    def _clean_name(s):
+        for orig, repl in _UMLAUT_MAP.items():
+            s = s.replace(orig, repl).replace(orig.upper(), repl.capitalize())
+        s = unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode('ascii')
+        s = s.lower().strip()
+        s = re.sub(r'[^a-z\s]', '', s)
+        return s
 
-    sal['name_clean'] = sal['dk_name'].str.lower().str.strip()
-    sal['name_clean'] = sal['name_clean'].str.replace(r'[^a-z\s]', '', regex=True)
+    proj['name_clean'] = proj['name'].apply(_clean_name)
+    sal['name_clean'] = sal['dk_name'].apply(_clean_name)
 
     # Rename DK position to avoid collision with projection position
     if 'position' in sal.columns:
@@ -689,6 +697,20 @@ def main():
 
         # Show confirmed goalies
         print_confirmed_goalies(stack_builder, player_pool)
+
+        # Filter player pool and goalie projections to confirmed starters only
+        confirmed = stack_builder.get_all_starting_goalies()
+        if confirmed:
+            from lines import fuzzy_match as _fm
+            confirmed_names = list(confirmed.values())
+            def _is_confirmed(name):
+                return any(_fm(name, cn) for cn in confirmed_names)
+            before = len(goalies_merged)
+            goalies_merged = goalies_merged[goalies_merged['name'].apply(_is_confirmed)]
+            player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
+            filtered_count = before - len(goalies_merged)
+            if filtered_count > 0:
+                print(f"  Filtered {filtered_count} non-confirmed goalies from pool")
 
         # Show stacking recommendations if requested
         if args.stacks:
