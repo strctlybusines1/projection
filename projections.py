@@ -10,6 +10,7 @@ warnings.filterwarnings('ignore')
 
 from tabpfn import TabPFNRegressor
 
+import config
 from config import (
     calculate_skater_fantasy_points, calculate_goalie_fantasy_points,
     SKATER_SCORING, SKATER_BONUSES, GOALIE_SCORING, GOALIE_BONUSES,
@@ -66,34 +67,64 @@ class NHLProjectionModel:
 
     def calculate_expected_fantasy_points_skater(self, row: pd.Series) -> float:
         """
-        Calculate expected DraftKings fantasy points for a skater based on per-game averages.
+        Calculate expected DraftKings fantasy points for a skater based on per-game averages
+        or rate-based (dk_pts_per_60 * expected_toi_minutes/60) when USE_DK_PER_TOI_PROJECTION.
         Includes bonus expected value and advanced stat adjustments.
         """
-        # Base expected points from per-game stats
-        goals = row.get('goals_pg', 0)
-        assists = row.get('assists_pg', 0)
-        shots = row.get('shots_pg', 0)
-        blocks = row.get('blocks_pg', 0)
-        sh_points = row.get('sh_points_pg', 0)
-
-        expected_pts = (
-            goals * SKATER_SCORING['goals'] +
-            assists * SKATER_SCORING['assists'] +
-            shots * SKATER_SCORING['shots_on_goal'] +
-            blocks * SKATER_SCORING['blocked_shots'] +
-            sh_points * SKATER_SCORING['shorthanded_points_bonus']
+        use_rate = (
+            config.USE_DK_PER_TOI_PROJECTION
+            and pd.notna(row.get('dk_pts_per_60'))
+            and pd.notna(row.get('expected_toi_minutes'))
+            and row.get('expected_toi_minutes', 0) > 0
         )
 
-        # Add expected value of bonuses
-        prob_5_shots = row.get('prob_5plus_shots', 0)
-        prob_3_points = row.get('prob_3plus_points', 0)
-        prob_hat_trick = row.get('prob_hat_trick', 0)
-        prob_3_blocks = min(blocks / 3, 1) * 0.3  # Rough estimate
+        if use_rate:
+            # Rate-based: base = dk_pts_per_60 * (expected_toi_minutes / 60)
+            expected_pts = row['dk_pts_per_60'] * (row['expected_toi_minutes'] / 60.0)
+            # When expected_toi_minutes == toi_minutes (no situation TOI in data), scale so comparison shows difference
+            toi_min = row.get('toi_minutes')
+            if (pd.notna(toi_min) and toi_min > 0 and
+                    abs(float(row['expected_toi_minutes']) - float(toi_min)) < 0.01):
+                expected_pts *= config.RATE_BASED_SAME_TOI_SCALE
+            # Bonuses scale with TOI (same expected value of bonuses as per-game)
+            goals = row.get('goals_pg', 0)
+            assists = row.get('assists_pg', 0)
+            shots = row.get('shots_pg', 0)
+            blocks = row.get('blocks_pg', 0)
+            prob_5_shots = row.get('prob_5plus_shots', 0)
+            prob_3_points = row.get('prob_3plus_points', 0)
+            prob_hat_trick = row.get('prob_hat_trick', 0)
+            prob_3_blocks = min(blocks / 3, 1) * 0.3 if blocks else 0
+            expected_pts += prob_5_shots * SKATER_BONUSES['five_plus_shots']
+            expected_pts += prob_3_points * SKATER_BONUSES['three_plus_points']
+            expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
+            expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
+        else:
+            # Per-game base
+            goals = row.get('goals_pg', 0)
+            assists = row.get('assists_pg', 0)
+            shots = row.get('shots_pg', 0)
+            blocks = row.get('blocks_pg', 0)
+            sh_points = row.get('sh_points_pg', 0)
 
-        expected_pts += prob_5_shots * SKATER_BONUSES['five_plus_shots']
-        expected_pts += prob_3_points * SKATER_BONUSES['three_plus_points']
-        expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
-        expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
+            expected_pts = (
+                goals * SKATER_SCORING['goals'] +
+                assists * SKATER_SCORING['assists'] +
+                shots * SKATER_SCORING['shots_on_goal'] +
+                blocks * SKATER_SCORING['blocked_shots'] +
+                sh_points * SKATER_SCORING['shorthanded_points_bonus']
+            )
+
+            # Add expected value of bonuses
+            prob_5_shots = row.get('prob_5plus_shots', 0)
+            prob_3_points = row.get('prob_3plus_points', 0)
+            prob_hat_trick = row.get('prob_hat_trick', 0)
+            prob_3_blocks = min(blocks / 3, 1) * 0.3  # Rough estimate
+
+            expected_pts += prob_5_shots * SKATER_BONUSES['five_plus_shots']
+            expected_pts += prob_3_points * SKATER_BONUSES['three_plus_points']
+            expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
+            expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
 
         # Apply signal-weighted matchup adjustment (replaces basic opp_softness)
         # Based on backtest: share metrics (SFpct, xGFpct, SCFpct, FFpct, CFpct)
@@ -126,6 +157,11 @@ class NHLProjectionModel:
         opp_boost = row.get('opportunity_boost', 1.0)
         if pd.notna(opp_boost):
             expected_pts *= opp_boost
+
+        # Apply line role multiplier (PP1/Line1 from lines_data)
+        role_mult = row.get('role_multiplier', 1.0)
+        if pd.notna(role_mult):
+            expected_pts *= role_mult
 
         # ==================== Standard Adjustments ====================
 
@@ -334,10 +370,13 @@ class NHLProjectionModel:
         # Extract injuries if available
         injuries = data.get('injuries', pd.DataFrame())
 
-        # Engineer features (now with advanced stats and injuries)
+        # Optional lines data (PP1/Line1 from DailyFaceoff) for role multiplier
+        lines_data = data.get('lines_data')
+
+        # Engineer features (now with advanced stats, injuries, and optional lines_data)
         skater_features = self.feature_engineer.engineer_skater_features(
             data['skaters'], data['teams'], data['schedule'], target_date,
-            advanced_stats=advanced_stats, injuries=injuries
+            advanced_stats=advanced_stats, injuries=injuries, lines_data=lines_data
         )
 
         goalie_features = self.feature_engineer.engineer_goalie_features(

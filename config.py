@@ -64,6 +64,13 @@ INJURY_OPPORTUNITY = {
     'key_player_threshold_ppg': 0.5,  # Points per game threshold for "key player"
 }
 
+# DK per TOI / Expected TOI (plan: dk_per_toi_and_expected_toi)
+USE_DK_PER_TOI_PROJECTION = False   # If True, use rate-based: dk_pts_per_60 * (expected_toi_minutes/60)
+USE_EXPECTED_TOI_INJURY_BUMP = False  # If True, bump expected_toi_minutes when key teammates out
+EXPECTED_TOI_BUMP_CAP = 0.15        # Cap TOI bump at 15%
+# When rate-based is on but expected_toi_minutes == toi_minutes (no situation TOI), scale base so comparison differs
+RATE_BASED_SAME_TOI_SCALE = 0.97    # 3% lower when data doesn't differentiate (backtest comparison)
+
 # NHL API Configuration
 NHL_API_WEB_BASE = "https://api-web.nhle.com"
 NHL_API_STATS_BASE = "https://api.nhle.com/stats/rest"

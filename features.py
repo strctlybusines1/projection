@@ -13,7 +13,8 @@ from config import (
     INJURY_STATUSES_EXCLUDE, GOALIE_TIERS, INJURY_OPPORTUNITY,
     SIGNAL_WEIGHTS_NORMALIZED, SIGNAL_COMPOSITE_SENSITIVITY,
     SIGNAL_COMPOSITE_CLIP_LOW, SIGNAL_COMPOSITE_CLIP_HIGH,
-    LEAGUE_AVG_SHARE_PCT
+    LEAGUE_AVG_SHARE_PCT, SKATER_SCORING,
+    USE_EXPECTED_TOI_INJURY_BUMP, EXPECTED_TOI_BUMP_CAP,
 )
 
 
@@ -26,7 +27,8 @@ class FeatureEngineer:
     def engineer_skater_features(self, skaters: pd.DataFrame, teams: pd.DataFrame,
                                    schedule: pd.DataFrame, target_date: Optional[str] = None,
                                    advanced_stats: Optional[Dict[str, pd.DataFrame]] = None,
-                                   injuries: Optional[pd.DataFrame] = None) -> pd.DataFrame:
+                                   injuries: Optional[pd.DataFrame] = None,
+                                   lines_data: Optional[Dict] = None) -> pd.DataFrame:
         """
         Engineer features for skater projections.
 
@@ -37,6 +39,7 @@ class FeatureEngineer:
             target_date: Date to project for (filters schedule)
             advanced_stats: Dict with 'team' and 'player' advanced stats from NST
             injuries: DataFrame with current injury data
+            lines_data: Optional dict team -> {forward_lines, pp_units} for PP1/Line1 role tags
 
         Returns:
             DataFrame with engineered features ready for modeling
@@ -120,6 +123,40 @@ class FeatureEngineer:
             pos_avg_toi = df.groupby('position')['toi_minutes'].transform('mean')
             df['toi_vs_position'] = df['toi_minutes'] / pos_avg_toi
 
+        # ==================== DK per 60 and Expected TOI (rate-based projection) ====================
+        # expected_toi_minutes: from ev+pp+sh when available and positive, else toi_minutes (so rate-based can differ from per-game)
+        if all(c in df.columns for c in ['ev_toi_per_game', 'pp_toi_per_game', 'sh_toi_per_game']):
+            ev = df['ev_toi_per_game'].fillna(0)
+            pp = df['pp_toi_per_game'].fillna(0)
+            sh = df['sh_toi_per_game'].fillna(0)
+            if (ev.median() > 100 or pp.median() > 100 or sh.median() > 100):
+                raw_min = (ev + pp + sh) / 60.0  # situation TOI in minutes
+            else:
+                raw_min = ev + pp + sh
+            # Per-row fallback: use toi_minutes when ev+pp+sh is 0 or tiny (no TOI breakdown for that player)
+            if 'toi_minutes' in df.columns:
+                df['expected_toi_minutes'] = np.where(raw_min > 0.5, raw_min, df['toi_minutes'].values)
+            else:
+                df['expected_toi_minutes'] = np.where(raw_min > 0.5, raw_min, np.nan)
+        elif 'toi_minutes' in df.columns:
+            df['expected_toi_minutes'] = df['toi_minutes'].copy()
+        else:
+            df['expected_toi_minutes'] = np.nan
+
+        # dk_pts_per_60: base DK points per game (no bonuses) * 60 / toi_minutes
+        base_dk_pg = (
+            df['goals_pg'] * SKATER_SCORING['goals'] +
+            df['assists_pg'] * SKATER_SCORING['assists'] +
+            df['shots_pg'] * SKATER_SCORING['shots_on_goal'] +
+            df['blocks_pg'] * SKATER_SCORING['blocked_shots'] +
+            df.get('sh_points_pg', pd.Series(0, index=df.index)).fillna(0) * SKATER_SCORING['shorthanded_points_bonus']
+        )
+        toi_min = df['toi_minutes'] if 'toi_minutes' in df.columns else df.get('expected_toi_minutes')
+        if toi_min is not None and (toi_min > 0).any():
+            df['dk_pts_per_60'] = np.where(toi_min > 0, base_dk_pg * 60.0 / toi_min, np.nan)
+        else:
+            df['dk_pts_per_60'] = np.nan
+
         # ==================== Opponent Adjustments ====================
         if not teams.empty and not schedule.empty:
             df = self._add_opponent_features(df, teams, schedule, target_date)
@@ -149,6 +186,14 @@ class FeatureEngineer:
         # ==================== Injury Context Features ====================
         if injuries is not None and not injuries.empty:
             df = self._add_injury_context_features(df, injuries)
+
+        # Apply expected TOI bump (volume) when key teammates are out
+        if USE_EXPECTED_TOI_INJURY_BUMP and 'expected_toi_bump' in df.columns and 'expected_toi_minutes' in df.columns:
+            df['expected_toi_minutes'] = df['expected_toi_minutes'] * (1.0 + df['expected_toi_bump'])
+
+        # Line role (PP1, Line1) from lines_data for expected TOI context and role multiplier
+        if lines_data is not None and isinstance(lines_data, dict):
+            df = self._add_line_role_features(df, lines_data)
 
         return df
 
@@ -568,6 +613,58 @@ class FeatureEngineer:
 
         return df
 
+    def _name_matches_line(self, full_name: str, line_names: List[str]) -> bool:
+        """Return True if full_name matches any name in line_names (last-name or contains)."""
+        if not full_name or not line_names:
+            return False
+        last = full_name.strip().split()[-1].lower() if full_name.strip().split() else ""
+        if not last:
+            return False
+        for p in line_names:
+            if not p:
+                continue
+            p_last = p.strip().split()[-1].lower() if p.strip().split() else ""
+            if last == p_last or (len(last) > 2 and (last in p.lower() or p.lower().endswith(last))):
+                return True
+        return False
+
+    def _add_line_role_features(self, df: pd.DataFrame, lines_data: Dict) -> pd.DataFrame:
+        """
+        Add line role features from lines_data (PP1, Line1) for expected TOI context and role multiplier.
+        lines_data: team -> { pp_units: [{ unit: 1, players: [...] }], forward_lines: [{ line: 1, players: [...] }] }.
+        Features: is_pp1, is_line1, role_multiplier (1.05 PP1, 1.02 Line1, else 1.0).
+        """
+        df = df.copy()
+        df["is_pp1"] = 0
+        df["is_line1"] = 0
+        df["role_multiplier"] = 1.0
+        if "team" not in df.columns or "name" not in df.columns:
+            return df
+        for team, data in lines_data.items():
+            if not data or not isinstance(data, dict) or "error" in data:
+                continue
+            pp1_names = []
+            for pp in data.get("pp_units", []):
+                if pp.get("unit") == 1:
+                    pp1_names.extend(pp.get("players", []))
+            line1_names = []
+            for line in data.get("forward_lines", []):
+                if line.get("line") == 1:
+                    line1_names.extend(line.get("players", []))
+            mask = df["team"] == team
+            for idx in df.index[mask]:
+                name = df.at[idx, "name"]
+                if isinstance(name, str):
+                    if self._name_matches_line(name, pp1_names):
+                        df.at[idx, "is_pp1"] = 1
+                    if self._name_matches_line(name, line1_names):
+                        df.at[idx, "is_line1"] = 1
+            # role_multiplier: PP1 > Line1 > else
+            df.loc[mask, "role_multiplier"] = np.where(
+                df.loc[mask, "is_pp1"] == 1, 1.05, np.where(df.loc[mask, "is_line1"] == 1, 1.02, 1.0)
+            )
+        return df
+
     def _add_injury_context_features(self, df: pd.DataFrame, injuries: pd.DataFrame) -> pd.DataFrame:
         """
         Add injury context features (opportunity boost from teammate injuries).
@@ -641,6 +738,15 @@ class FeatureEngineer:
         total_boost = (key_boost + reg_boost).clip(0, max_boost)
 
         df['opportunity_boost'] = (1.0 + total_boost).clip(1.0, 1.0 + max_boost)
+
+        # Expected TOI bump (volume): when key/regular players are out, remaining players get more TOI
+        if USE_EXPECTED_TOI_INJURY_BUMP:
+            key_per_team = df['team'].map(lambda t: key_counts.get(t, 0))
+            reg_per_team = df['team'].map(lambda t: regular_counts.get(t, 0))
+            toi_bump = (key_per_team * 0.04 + reg_per_team * 0.01).clip(0, EXPECTED_TOI_BUMP_CAP)
+            df['expected_toi_bump'] = toi_bump
+        else:
+            df['expected_toi_bump'] = 0.0
 
         return df
 

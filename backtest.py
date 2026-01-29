@@ -769,6 +769,68 @@ class NHLBacktester:
                 print(f"  Enhanced features increased error by {enhanced_mae - baseline_mae:.2f} pts")
 
 
+def fetch_skaters_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFrame:
+    """
+    Fetch actual skater DK fantasy points for a slate date from NHL API boxscores.
+
+    Args:
+        client: NHLAPIClient instance
+        date: YYYY-MM-DD (e.g. 2026-01-28)
+
+    Returns:
+        DataFrame with columns: name (from boxscore), team, actual_fpts, last_name (for matching)
+    """
+    sched = client.get_schedule(date=date)
+    rows = []
+    backtester = NHLBacktester()
+    for week in sched.get("gameWeek", []):
+        if week.get("date") != date:
+            continue
+        for game in week.get("games", []):
+            if game.get("gameState") != "OFF":
+                continue
+            gid = game.get("id")
+            away_abbrev = game.get("awayTeam", {}).get("abbrev", "")
+            home_abbrev = game.get("homeTeam", {}).get("abbrev", "")
+            try:
+                box = client.get_boxscore(gid)
+            except Exception:
+                continue
+            pbs = box.get("playerByGameStats", {})
+            for side, abbrev in [("awayTeam", away_abbrev), ("homeTeam", home_abbrev)]:
+                side_data = pbs.get(side, {})
+                skater_list = side_data.get("skaters", [])
+                if not skater_list:
+                    fwd = side_data.get("forwards", [])
+                    defs = side_data.get("defensemen", [])
+                    skater_list = (fwd if isinstance(fwd, list) else []) + (defs if isinstance(defs, list) else [])
+                for s in skater_list:
+                    if not isinstance(s, dict):
+                        continue
+                    name_raw = s.get("name", {})
+                    name = name_raw.get("default", "") if isinstance(name_raw, dict) else str(name_raw)
+                    goals = s.get("goals", 0) or 0
+                    assists = s.get("assists", 0) or 0
+                    shots = s.get("shots", 0) or 0
+                    blocks = s.get("blockedShots", 0) or s.get("blocked", 0) or 0
+                    sh_goals = s.get("shorthandedGoals", 0) or s.get("shGoals", 0) or 0
+                    sh_assists = s.get("shorthandedAssists", 0) or 0
+                    game_dict = {
+                        "goals": goals,
+                        "assists": assists,
+                        "shots": shots,
+                        "blockedShots": blocks,
+                        "shorthandedGoals": sh_goals,
+                        "shorthandedAssists": sh_assists,
+                    }
+                    pts = backtester.calculate_skater_dk_points(game_dict)
+                    last_name = name.split()[-1] if name else ""
+                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts, "last_name": last_name})
+    if not rows:
+        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name"])
+    return pd.DataFrame(rows)
+
+
 def fetch_goalies_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFrame:
     """
     Fetch actual goalie DK fantasy points for a slate date from NHL API boxscores.
@@ -908,6 +970,102 @@ def run_slate_goalie_backtest(
     }
 
 
+def run_slate_skater_backtest(
+    date: str = "2026-01-28",
+    use_rate_based: bool = False,
+) -> Dict:
+    """
+    Run skater projection vs actuals for a single slate date.
+    When use_rate_based=True, sets USE_DK_PER_TOI_PROJECTION so projections use
+    dk_pts_per_60 * (expected_toi_minutes/60).
+
+    Returns:
+        Dict with mae, bias, n_matched, n_actuals, n_projected, details DataFrame.
+    """
+    from data_pipeline import NHLDataPipeline
+    from projections import NHLProjectionModel
+    import config as cfg
+
+    cfg.USE_DK_PER_TOI_PROJECTION = use_rate_based
+    if use_rate_based:
+        print("  (rate-based: USE_DK_PER_TOI_PROJECTION=True)")
+    pipeline = NHLDataPipeline()
+    data = pipeline.build_projection_dataset(
+        include_game_logs=False,
+        include_injuries=False,
+        include_advanced_stats=False,
+    )
+    data["schedule"] = pipeline.fetch_schedule(date)
+    model = NHLProjectionModel()
+    projections = model.generate_projections(data, target_date=date, filter_injuries=False)
+    skater_proj = projections.get("skaters")
+    if skater_proj is None or skater_proj.empty:
+        return {"error": "No skater projections", "mae": None, "bias": None, "n_matched": 0}
+
+    backtester = NHLBacktester()
+    actuals_df = fetch_skaters_actuals_for_date(backtester.client, date)
+    if actuals_df.empty:
+        return {"error": "No actual skater results for date", "mae": None, "bias": None, "n_matched": 0}
+
+    def match_skater(row_act):
+        last = row_act["last_name"]
+        team = row_act["team"]
+        cand = skater_proj[
+            (skater_proj["team"] == team)
+            & (skater_proj["name"].str.endswith(" " + last, na=False))
+        ]
+        if len(cand) == 1:
+            return cand.index[0]
+        if len(cand) > 1:
+            for idx, r in cand.iterrows():
+                if r["name"].split()[-1] == last:
+                    return idx
+            return cand.index[0]
+        return None
+
+    actuals_df = actuals_df.copy()
+    actuals_df["proj_idx"] = actuals_df.apply(match_skater, axis=1)
+    matched = actuals_df.dropna(subset=["proj_idx"])
+    if matched.empty:
+        return {
+            "error": "No skaters matched between projections and actuals",
+            "mae": None,
+            "bias": None,
+            "n_matched": 0,
+            "n_actuals": len(actuals_df),
+            "n_projected": len(skater_proj),
+        }
+
+    proj_fpts = matched["proj_idx"].map(lambda i: skater_proj.loc[i, "projected_fpts"])
+    actual_fpts = matched["actual_fpts"].values
+    err = proj_fpts.values - actual_fpts
+    mae = float(np.abs(err).mean())
+    bias = float(err.mean())
+    details = matched[["name", "team", "actual_fpts"]].copy()
+    details["projected_fpts"] = proj_fpts.values
+    details["error"] = err
+
+    return {
+        "mae": mae,
+        "bias": bias,
+        "n_matched": len(matched),
+        "n_actuals": len(actuals_df),
+        "n_projected": len(skater_proj),
+        "details": details,
+    }
+
+
+def run_slate_skater_comparison(date: str = "2026-01-28") -> Dict:
+    """
+    Compare per-game vs rate-based skater projections for a slate date.
+    Runs run_slate_skater_backtest(date, use_rate_based=False) and
+    run_slate_skater_backtest(date, use_rate_based=True), returns both results.
+    """
+    per_game = run_slate_skater_backtest(date, use_rate_based=False)
+    rate_based = run_slate_skater_backtest(date, use_rate_based=True)
+    return {"per_game": per_game, "rate_based": rate_based}
+
+
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
     """
     Run full backtest pipeline.
@@ -977,8 +1135,45 @@ if __name__ == "__main__":
                         help='Run slate goalie backtest for date (YYYY-MM-DD, e.g. 2026-01-28)')
     parser.add_argument('--no-danger', action='store_true',
                         help='With --slate-date: disable opponent shot quality / save%% by type')
+    parser.add_argument('--skater-slate-date', type=str, default=None,
+                        help='Run slate skater backtest for date (YYYY-MM-DD)')
+    parser.add_argument('--skater-rate-based', action='store_true',
+                        help='With --skater-slate-date: use rate-based (dk_pts_per_60) projections')
+    parser.add_argument('--skater-compare', action='store_true',
+                        help='With --skater-slate-date: compare per-game vs rate-based MAE')
 
     args = parser.parse_args()
+
+    if args.skater_slate_date:
+        date = args.skater_slate_date
+        print("=" * 60)
+        print(f" SLATE SKATER BACKTEST — {date}")
+        print("=" * 60)
+        if args.skater_compare:
+            comp = run_slate_skater_comparison(date)
+            pg, rb = comp["per_game"], comp["rate_based"]
+            if pg.get("error"):
+                print(f"  Per-game: {pg['error']}")
+            else:
+                print(f"  Per-game:   MAE={pg['mae']:.2f}  bias={pg['bias']:+.2f}  n={pg['n_matched']}")
+            if rb.get("error"):
+                print(f"  Rate-based: {rb['error']}")
+            else:
+                print(f"  Rate-based: MAE={rb['mae']:.2f}  bias={rb['bias']:+.2f}  n={rb['n_matched']}")
+        else:
+            result = run_slate_skater_backtest(date, use_rate_based=args.skater_rate_based)
+            if result.get("error"):
+                print(f"  Error: {result['error']}")
+            else:
+                print(f"  Skater MAE:  {result['mae']:.2f} pts")
+                print(f"  Skater bias: {result['bias']:+.2f} pts")
+                print(f"  Matched:     {result['n_matched']} skaters")
+                if result.get("details") is not None and not result["details"].empty:
+                    print("\n  Sample (first 10):")
+                    for _, r in result["details"].head(10).iterrows():
+                        print(f"    {r['name']:<25} {r['team']}  proj={r['projected_fpts']:.1f}  actual={r['actual_fpts']:.1f}  err={r['error']:+.1f}")
+        print("=" * 60)
+        sys.exit(0)
 
     if args.slate_date:
         print("=" * 60)

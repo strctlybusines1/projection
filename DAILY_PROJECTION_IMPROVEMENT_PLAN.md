@@ -247,6 +247,7 @@ The edge is identifying WHY these teams exceeded expectations - not their Vegas 
 - Opponent goalie situation (backup, recent struggles, back-to-back)
 - Team's recent scoring vs their season average (mean regression)
 - Special teams matchup (PP% vs opponent PK%)
+- **Penalties volume**: Penalties taken and penalties allowed per team—direct drivers of PP/PK opportunity and why matchups matter (see 5a below).
 - Pace/style matchup (fast team vs slow defensive team)
 - Home/away splits and rest advantages
 - Line combination changes (new lines not priced in)
@@ -262,6 +263,11 @@ The edge is identifying WHY these teams exceeded expectations - not their Vegas 
 - Elite PP vs bad PK (or vice versa)
 - PP% hot streaks (unsustainable but exploitable short-term)
 - Track: Recent PP/PK performance + matchup
+
+**5a. Penalties: Why Matchups Matter (Volume Drivers)**
+- **Penalties taken** (per team, per 60 or per game): Drives how much PK time your team sees and how much PP time the *opponent* gets. High penalties taken = more PK time for your goalie/skaters, fewer 5v5 minutes.
+- **Penalties allowed / drawn** (opponent’s penalties taken): Drives how much PP time *your* team gets. When your opponent takes a lot of penalties, your PP1 gets more opportunities → matchup boost for your PP skaters and a tougher environment for the opposing goalie.
+- **Use in projections**: Expected PP/PK TOI and matchup strength should incorporate both sides—e.g. PP1 skater vs team that takes many penalties (more expected PP time); goalie vs team that draws many penalties (more PK, harder slate). Track: team penalties taken/60, opponent penalties taken/60 (or PIM/60, minor penalties/60 from NST or box-score source).
 
 **6. Rest & Schedule**
 - Teams off rest vs back-to-back opponents
@@ -312,6 +318,7 @@ Then rank games by Ceiling_Score to identify where to concentrate stacks.
 - [ ] Build line combination tracker (daily scrape of team lines)
 - [ ] Create power play unit tracker
 - [ ] Develop correlation matrix from historical logs
+- [ ] **Team penalty stats**: Penalties taken and penalties allowed (or drawn) per team (per 60 or per game) for matchup/expected PP-PK TOI (see 5a; NST or box-score source).
 - [ ] Add Vegas lines integration (implied totals, spreads)
   - *Manual entry for now until free/cheap API found*
   - Track: Team implied totals, game totals, spreads

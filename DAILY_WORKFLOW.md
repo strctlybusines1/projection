@@ -185,6 +185,7 @@ Check these signals for each game:
 3. **Special Teams Edge**
    - [ ] Elite PP vs weak PK matchup?
    - [ ] PP hot streak (unsustainable but exploitable)?
+   - [ ] **Penalties volume**: Opponent takes a lot of penalties (boost your PP1); your team takes a lot (more PK, tougher for goalie). Matchups matter partly because of penalties taken/allowed.
 
 4. **Rest & Schedule**
    - [ ] Team off rest vs back-to-back opponent?
