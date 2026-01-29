@@ -9,6 +9,18 @@
   --text-bright: #f0f6fc;
   --accent: #58a6ff;
   --accent-soft: rgba(88, 166, 255, 0.15);
+  --blue: #58a6ff;
+  --blue-soft: rgba(88, 166, 255, 0.12);
+  --blue-border: rgba(88, 166, 255, 0.25);
+  --purple: #bc8cff;
+  --purple-soft: rgba(188, 140, 255, 0.12);
+  --purple-border: rgba(188, 140, 255, 0.25);
+  --green: #3fb950;
+  --green-soft: rgba(63, 185, 80, 0.12);
+  --green-border: rgba(63, 185, 80, 0.25);
+  --orange: #f0883e;
+  --orange-soft: rgba(240, 136, 62, 0.12);
+  --orange-border: rgba(240, 136, 62, 0.25);
   --border: #30363d;
   --radius: 12px;
   --radius-sm: 8px;
@@ -58,6 +70,16 @@ h2 {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-card);
 }
+
+.section.blue  { border-color: var(--blue-border);   background: linear-gradient(135deg, var(--blue-soft), var(--bg-card) 60%); }
+.section.purple { border-color: var(--purple-border); background: linear-gradient(135deg, var(--purple-soft), var(--bg-card) 60%); }
+.section.green  { border-color: var(--green-border);  background: linear-gradient(135deg, var(--green-soft), var(--bg-card) 60%); }
+.section.orange { border-color: var(--orange-border);  background: linear-gradient(135deg, var(--orange-soft), var(--bg-card) 60%); }
+
+.section.blue h2  { color: var(--blue); }
+.section.purple h2 { color: var(--purple); }
+.section.green h2  { color: var(--green); }
+.section.orange h2 { color: var(--orange); }
 
 table {
   width: 100%;
@@ -141,6 +163,16 @@ tr:hover {
   color: var(--accent);
   font-variant-numeric: tabular-nums;
 }
+
+.mae-card.blue   { border-color: var(--blue-border);   background: var(--blue-soft); }
+.mae-card.purple { border-color: var(--purple-border); background: var(--purple-soft); }
+.mae-card.green  { border-color: var(--green-border);  background: var(--green-soft); }
+.mae-card.orange { border-color: var(--orange-border);  background: var(--orange-soft); }
+
+.mae-card.blue .mae-value   { color: var(--blue); }
+.mae-card.purple .mae-value { color: var(--purple); }
+.mae-card.green .mae-value  { color: var(--green); }
+.mae-card.orange .mae-value { color: var(--orange); }
 
 .error, .loading {
   color: var(--text-muted);

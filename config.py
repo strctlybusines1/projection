@@ -89,6 +89,11 @@ CONTEST_PAYOUT_PRESETS = {
         "top_10_pct_share": 0.45,
         "min_cash_pct": 0.22,
     },
+    "small_se_gpp": {
+        "first_place_pct": 0.10,
+        "top_10_pct_share": 0.33,
+        "min_cash_pct": 0.67,
+    },
 }
 
 # NHL API Configuration

@@ -47,6 +47,8 @@ class ContestProfile:
     first_place_pct: Optional[float] = None
     top_10_pct_share: Optional[float] = None
     min_cash_pct: Optional[float] = None
+    prize_pool_override: Optional[float] = None
+    min_cash_entries: Optional[int] = None
 
     def get_payout_curve(self) -> Dict[str, float]:
         """Return first_place_pct, top_10_pct_share, min_cash_pct (from preset or overrides)."""
@@ -59,7 +61,15 @@ class ContestProfile:
 
     @property
     def prize_pool(self) -> float:
+        if self.prize_pool_override is not None:
+            return self.prize_pool_override
         return self.entry_fee * self.field_size
+
+    def get_min_cash_count(self) -> int:
+        """Number of entries in the min-cash tier (paid positions excluding top 10)."""
+        if self.min_cash_entries is not None:
+            return max(1, self.min_cash_entries - 10)
+        return max(1, int(self.field_size * 0.2))
 
 
 @dataclass
@@ -200,7 +210,7 @@ def contest_ev_score(
     pool = profile.prize_pool
     first_place = pool * curve["first_place_pct"]
     top10_avg = (pool * curve["top_10_pct_share"]) / 10.0
-    min_cash_avg = (pool * curve["min_cash_pct"]) / max(1, int(profile.field_size * 0.2))
+    min_cash_avg = (pool * curve["min_cash_pct"]) / profile.get_min_cash_count()
     ev = p_top1 * first_place + (p_top10 - p_top1) * top10_avg + (p_min - p_top10) * min_cash_avg
     return max(0.0, ev)
 

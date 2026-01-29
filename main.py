@@ -715,7 +715,11 @@ def main():
                         help='Total contest entries (field size)')
     parser.add_argument('--contest-payout', type=str, default=None,
                         choices=list(PAYOUT_PRESETS.keys()),
-                        help='Payout preset: top_heavy_gpp, flat, high_dollar_single')
+                        help='Payout preset: top_heavy_gpp, flat, high_dollar_single, small_se_gpp')
+    parser.add_argument('--contest-prize-pool', type=float, default=None,
+                        help='Actual prize pool ($) — overrides entry_fee * field_size (accounts for rake)')
+    parser.add_argument('--contest-min-cash-entries', type=int, default=None,
+                        help='Total number of paid entries (min-cash and above)')
 
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
@@ -869,6 +873,8 @@ def main():
             max_entries=args.contest_max_entries if args.contest_max_entries is not None else 1,
             field_size=args.contest_field_size if args.contest_field_size is not None else 10000,
             payout_preset=args.contest_payout or "top_heavy_gpp",
+            prize_pool_override=args.contest_prize_pool,
+            min_cash_entries=args.contest_min_cash_entries,
         )
         rec = recommend_leverage(contest_profile)
         print_leverage_recommendation(contest_profile, rec)
