@@ -1,0 +1,137 @@
+/* NHL DFS Dashboard - dark theme, light accents */
+:root {
+  --bg: #0f1419;
+  --bg-card: #1a1a2e;
+  --bg-panel: #252538;
+  --text: #e0e0e0;
+  --text-bright: #fff;
+  --accent: #7dd3fc;
+  --accent-dim: #a5f3fc;
+  --border: #2d2d44;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  margin: 0;
+  padding: 1rem 1.5rem;
+  line-height: 1.4;
+}
+
+h1 {
+  color: var(--text-bright);
+  font-size: 1.5rem;
+  margin: 0 0 1rem 0;
+}
+
+h2 {
+  color: var(--accent-dim);
+  font-size: 1.1rem;
+  margin: 1.5rem 0 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25rem;
+}
+
+.section {
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+}
+
+th {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+tr:hover {
+  background: var(--bg-panel);
+}
+
+.num {
+  text-align: right;
+}
+
+.accent {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.source {
+  font-size: 0.8rem;
+  color: var(--text);
+  opacity: 0.85;
+  margin-top: 0.25rem;
+}
+
+.error, .loading {
+  color: var(--accent);
+  font-style: italic;
+}
+
+#lines-select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.lines-team {
+  margin-top: 0.75rem;
+}
+
+.lines-team h3 {
+  color: var(--accent-dim);
+  font-size: 1rem;
+  margin: 0 0 0.25rem 0;
+}
+
+.lines-team ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.85rem;
+}
+
+.totals-line {
+  font-weight: 600;
+  color: var(--accent);
+  margin-top: 0.5rem;
+}
+
+.filter-bar {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.filter-bar label {
+  margin-right: 0.5rem;
+}
+
+.filter-bar select {
+  background: var(--bg-panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem;
+}

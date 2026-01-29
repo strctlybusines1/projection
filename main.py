@@ -729,6 +729,17 @@ def main():
         lines_data = scraper.get_multiple_teams(slate_teams)
         stack_builder = StackBuilder(lines_data)
 
+        # Persist lines for dashboard (daily_projections/lines_{date}.json)
+        out_dir = project_dir / DAILY_PROJECTIONS_DIR
+        out_dir.mkdir(parents=True, exist_ok=True)
+        lines_path = out_dir / f"lines_{target_date.replace('-', '_')}.json"
+        try:
+            import json
+            with open(lines_path, "w", encoding="utf-8") as f:
+                json.dump(lines_data, f, indent=0)
+        except Exception as e:
+            print(f"  Note: could not write lines to {lines_path}: {e}")
+
         # Show line update timestamps
         print_line_update_status(stack_builder)
 
@@ -824,7 +835,7 @@ def main():
 
     export_cols = ['name', 'team', 'position', 'salary', 'projected_fpts',
                    'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling',
-                   'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score']
+                   'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score', 'dk_id']
     export_cols = [c for c in export_cols if c in player_pool.columns]
     player_pool.sort_values('projected_fpts', ascending=False)[export_cols].to_csv(auto_export_path, index=False)
     print(f"\nProjections + ownership exported to: {auto_export_path}")

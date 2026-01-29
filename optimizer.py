@@ -154,7 +154,7 @@ class NHLLineupOptimizer:
         lineups = []
         used_lineup_hashes = set()
         attempts = 0
-        max_attempts = n_lineups * 10
+        max_attempts = n_lineups * 200
 
         while len(lineups) < n_lineups and attempts < max_attempts:
             attempts += 1
@@ -327,10 +327,18 @@ class NHLLineupOptimizer:
         primary_target = min(PREFERRED_PRIMARY_STACK_SIZE, max_from_team - team_counts.get(primary_team, 0))
         primary_added = 0
 
+        # Minimum salary reserved per remaining spot (cheapest skaters ~$2,500)
+        MIN_FILL_SALARY = 2500
+
         for _, player in primary_skaters.iterrows():
             if primary_added >= primary_target:
                 break
             if can_add_player(player):
+                # Check salary feasibility: can we still fill remaining spots?
+                spots_after = 9 - len(lineup) - 1  # spots left after adding this player
+                budget_after = remaining_salary - player['salary']
+                if budget_after < spots_after * MIN_FILL_SALARY:
+                    continue  # Skip expensive player, try cheaper option
                 pos = player['norm_position']
                 slot = self._get_available_slot(pos, lineup)
                 if slot:
@@ -354,6 +362,10 @@ class NHLLineupOptimizer:
                 if secondary_added >= secondary_target:
                     break
                 if can_add_player(player):
+                    spots_after = 9 - len(lineup) - 1
+                    budget_after = remaining_salary - player['salary']
+                    if budget_after < spots_after * MIN_FILL_SALARY:
+                        continue
                     pos = player['norm_position']
                     slot = self._get_available_slot(pos, lineup)
                     if slot:

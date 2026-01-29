@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NHL DFS Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <h1>NHL DFS Dashboard</h1>
+
+  <section class="section" id="odds-section">
+    <h2>Current Odds</h2>
+    <div id="odds-source" class="source"></div>
+    <div id="odds-content"></div>
+  </section>
+
+  <section class="section" id="projections-section">
+    <h2>Projections & Ownership</h2>
+    <div class="filter-bar">
+      <label>Type:</label>
+      <select id="filter-type">
+        <option value="all">All</option>
+        <option value="skater">Skaters</option>
+        <option value="goalie">Goalies</option>
+      </select>
+      <label>Sort:</label>
+      <select id="sort-by">
+        <option value="projected_fpts">Proj</option>
+        <option value="value">Value</option>
+        <option value="predicted_ownership">Own%</option>
+      </select>
+    </div>
+    <div id="projections-content"></div>
+  </section>
+
+  <section class="section" id="lines-section">
+    <h2>Lines by Team</h2>
+    <select id="lines-select">
+      <option value="">Select team...</option>
+    </select>
+    <div id="lines-content"></div>
+  </section>
+
+  <section class="section" id="lineup-section">
+    <h2>Suggested Lineup</h2>
+    <div id="lineup-totals" class="totals-line"></div>
+    <div id="lineup-content"></div>
+  </section>
+
+  <script>
+    function el(id) { return document.getElementById(id); }
+
+    async function fetchJson(path) {
+      const r = await fetch(path);
+      if (!r.ok) throw new Error(r.statusText);
+      return r.json();
+    }
+
+    function renderOdds(data) {
+      const wrap = el('odds-content');
+      const src = el('odds-source');
+      if (data.error && !data.games?.length) {
+        wrap.innerHTML = '<p class="error">' + (data.error || 'No odds data.') + '</p>';
+        src.textContent = '';
+        return;
+      }
+      src.textContent = 'Source: ' + (data.source === 'api' ? 'The Odds API' : data.source === 'vegas_csv' ? 'Vegas CSV' : data.source || '') + '.';
+      if (!data.games || data.games.length === 0) {
+        wrap.innerHTML = '<p class="loading">No games.</p>';
+        return;
+      }
+      let html = '<table><thead><tr><th>Matchup</th><th class="num">Total</th><th class="num">Away ML</th><th class="num">Home ML</th><th class="num">Spread</th></tr></thead><tbody>';
+      data.games.forEach(function(g) {
+        const spread = g.spread_away != null ? (g.spread_away > 0 ? '+' + g.spread_away : g.spread_away) : '—';
+        html += '<tr><td>' + (g.matchup || '') + '</td><td class="num accent">' + (g.game_total != null ? g.game_total : '—') + '</td><td class="num">' + (g.away_ml != null ? g.away_ml : '—') + '</td><td class="num">' + (g.home_ml != null ? g.home_ml : '—') + '</td><td class="num">' + spread + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+    }
+
+    function renderProjections(data) {
+      const wrap = el('projections-content');
+      if (data.error && !data.projections?.length) {
+        wrap.innerHTML = '<p class="error">' + (data.error || 'No projections.') + '</p>';
+        return;
+      }
+      const list = data.projections || [];
+      const typeFilter = el('filter-type').value;
+      const sortBy = el('sort-by').value;
+      let filtered = typeFilter === 'all' ? list : list.filter(function(p) { return p.player_type === typeFilter; });
+      filtered = filtered.slice().sort(function(a, b) {
+        const va = a[sortBy];
+        const vb = b[sortBy];
+        if (va == null && vb == null) return 0;
+        if (va == null) return 1;
+        if (vb == null) return -1;
+        return Number(vb) - Number(va);
+      });
+      let html = '<table><thead><tr><th>Name</th><th>Team</th><th>Pos</th><th class="num">Salary</th><th class="num">Proj</th><th class="num">Value</th><th class="num">Own%</th><th>Tier</th></tr></thead><tbody>';
+      filtered.slice(0, 80).forEach(function(p) {
+        const own = p.predicted_ownership != null ? (Number(p.predicted_ownership).toFixed(1) + '%') : '—';
+        html += '<tr><td>' + (p.name || '') + '</td><td>' + (p.team || '') + '</td><td>' + (p.position || '') + '</td><td class="num">' + (p.salary != null ? '$' + Number(p.salary).toLocaleString() : '—') + '</td><td class="num accent">' + (p.projected_fpts != null ? Number(p.projected_fpts).toFixed(1) : '—') + '</td><td class="num">' + (p.value != null ? Number(p.value).toFixed(2) : '—') + '</td><td class="num">' + own + '</td><td>' + (p.ownership_tier || '') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+    }
+
+    function renderLines(data) {
+      const wrap = el('lines-content');
+      const sel = el('lines-select');
+      if (data.error && !Object.keys(data.lines || {}).length) {
+        wrap.innerHTML = '<p class="error">' + (data.error || 'No lines. Run main.py with --stacks.') + '</p>';
+        sel.innerHTML = '<option value="">Select team...</option>';
+        return;
+      }
+      const teams = Object.keys(data.lines || {}).sort();
+      sel.innerHTML = '<option value="">Select team...</option>' + teams.map(function(t) { return '<option value="' + t + '">' + t + '</option>'; }).join('');
+      sel.onchange = function() {
+        const team = sel.value;
+        if (!team) { wrap.innerHTML = ''; return; }
+        const teamData = data.lines[team];
+        if (!teamData || teamData.error) {
+          wrap.innerHTML = '<p class="loading">No data for ' + team + '.</p>';
+          return;
+        }
+        let html = '<div class="lines-team"><h3>Forward lines</h3><ul>';
+        (teamData.forward_lines || []).forEach(function(line) {
+          const players = (line.players || []).join(', ');
+          html += '<li>Line ' + (line.line || '') + ': ' + players + '</li>';
+        });
+        html += '</ul><h3>Defense pairs</h3><ul>';
+        (teamData.defense_pairs || []).forEach(function(pair) {
+          const players = (pair.players || []).join(', ');
+          html += '<li>Pair ' + (pair.pair || '') + ': ' + players + '</li>';
+        });
+        html += '</ul><h3>PP units</h3><ul>';
+        (teamData.pp_units || []).forEach(function(pp) {
+          const players = (pp.players || []).join(', ');
+          html += '<li>PP' + (pp.unit || '') + ': ' + players + '</li>';
+        });
+        html += '</ul>';
+        if (teamData.starting_goalie) html += '<p><strong>Starter:</strong> ' + teamData.starting_goalie + '</p>';
+        html += '</div>';
+        wrap.innerHTML = html;
+      };
+      wrap.innerHTML = '<p class="loading">Select a team above.</p>';
+    }
+
+    function renderLineup(data) {
+      const wrap = el('lineup-content');
+      const tot = el('lineup-totals');
+      if (data.error && !data.lineup?.length) {
+        tot.textContent = '';
+        wrap.innerHTML = '<p class="error">' + (data.error || 'No lineup.') + '</p>';
+        return;
+      }
+      const lineup = data.lineup || [];
+      const totals = data.totals || {};
+      tot.textContent = 'Total salary: $' + (totals.salary != null ? Number(totals.salary).toLocaleString() : '0') + '  |  Total projected: ' + (totals.projected_fpts != null ? Number(totals.projected_fpts).toFixed(1) : '0') + ' pts';
+      let html = '<table><thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>Pos</th><th class="num">Salary</th><th class="num">Proj</th><th class="num">Value</th><th class="num">Own%</th></tr></thead><tbody>';
+      lineup.forEach(function(p) {
+        const own = p.predicted_ownership != null ? (Number(p.predicted_ownership).toFixed(1) + '%') : '—';
+        html += '<tr><td>' + (p.slot || '') + '</td><td>' + (p.name || p.id || '—') + '</td><td>' + (p.team || '') + '</td><td>' + (p.position || '') + '</td><td class="num">' + (p.salary != null ? '$' + Number(p.salary).toLocaleString() : '—') + '</td><td class="num accent">' + (p.projected_fpts != null ? Number(p.projected_fpts).toFixed(1) : '—') + '</td><td class="num">' + (p.value != null ? Number(p.value).toFixed(2) : '—') + '</td><td class="num">' + own + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+    }
+
+    let projectionsCache = null;
+    el('filter-type').onchange = function() { if (projectionsCache) renderProjections(projectionsCache); };
+    el('sort-by').onchange = function() { if (projectionsCache) renderProjections(projectionsCache); };
+
+    async function load() {
+      try {
+        const [odds, projections, lines, lineup] = await Promise.all([
+          fetchJson('/api/odds'),
+          fetchJson('/api/projections'),
+          fetchJson('/api/lines'),
+          fetchJson('/api/lineup')
+        ]);
+        renderOdds(odds);
+        projectionsCache = projections;
+        renderProjections(projections);
+        renderLines(lines);
+        renderLineup(lineup);
+      } catch (e) {
+        el('odds-content').innerHTML = '<p class="error">Failed to load: ' + e.message + '</p>';
+      }
+    }
+
+    load();
+  </script>
+</body>
+</html>

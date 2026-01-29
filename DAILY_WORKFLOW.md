@@ -93,6 +93,7 @@
 | `ownership.py` | Ownership prediction | `OwnershipModel.predict_ownership()` |
 | `optimizer.py` | Lineup optimizer | `NHLLineupOptimizer.optimize_lineup()` |
 | `contest_roi.py` | Contest leverage & EV | `ContestProfile`, `recommend_leverage()`, `contest_ev_score()` |
+| `dashboard/server.py` | Local dashboard | Flask app: odds, projections, lines, lineup at http://127.0.0.1:5000 |
 | `main.py` | CLI entry point | `main()` - orchestrates everything |
 | `backtest.py` | Backtesting | `NHLBacktester.run_backtest()` |
 
@@ -391,6 +392,18 @@ python main.py --lineups 3 --stacks
 # Contest-specific: leverage recommendation + lineups ranked by EV
 python main.py --lineups 5 --stacks --contest-entry-fee 5 --contest-max-entries 1 --contest-field-size 10000 --contest-payout top_heavy_gpp
 ```
+
+### Local Dashboard
+View odds, projections, ownership, lines, and suggested lineup in one page:
+
+```bash
+cd projection
+python dashboard/server.py
+```
+
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000). For live odds (no manual Vegas CSV), set `ODDS_API_KEY` in `projection/.env` (see [the-odds-api.com](https://the-odds-api.com) for a free key). Otherwise the dashboard uses the latest Vegas CSV in **vegas/**.
+
+Data shown: latest **daily_projections/** file (projections + ownership), latest **\*_lineups.csv** (suggested lineup), latest **lines_*.json** (written when you run `main.py --stacks`), and odds from the API or Vegas CSV.
 
 ### Testing Individual Components
 ```bash
