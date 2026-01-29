@@ -6,6 +6,7 @@ Odds from The Odds API (if ODDS_API_KEY set) or latest Vegas CSV. Load .env from
 """
 
 import os
+import sys
 import json
 import time
 from pathlib import Path
@@ -13,6 +14,7 @@ from pathlib import Path
 # Project root = projection/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 os.chdir(PROJECT_ROOT)
+sys.path.insert(0, str(PROJECT_ROOT))
 
 # Load .env from projection/ so ODDS_API_KEY is available
 try:
@@ -89,7 +91,7 @@ def _latest_vegas_path():
 
 
 def _fetch_odds_api():
-    key = os.environ.get("ODDS_API_KEY")
+    key = (os.environ.get("ODDS_API_KEY") or "").strip()
     if not key:
         return None, "no_key"
     url = (
@@ -209,11 +211,14 @@ def api_odds():
         _odds_cache = {"source": "api", "games": normalized, "updated": now}
         _odds_cache_expires = now + ODDS_CACHE_MINUTES * 60
         return jsonify(_odds_cache)
-    # Fallback to Vegas CSV
+    # Fallback to Vegas CSV; include api_error so the UI can show why API wasn't used
     path = _latest_vegas_path()
     if path:
         normalized = _normalize_vegas_csv(path)
-        _odds_cache = {"source": "vegas_csv", "games": normalized, "updated": now}
+        payload = {"source": "vegas_csv", "games": normalized, "updated": now}
+        if err:
+            payload["api_error"] = err
+        _odds_cache = payload
         _odds_cache_expires = now + 60  # cache 1 min for CSV
         return jsonify(_odds_cache)
     return jsonify({"source": "none", "games": [], "error": err or "No Vegas file or API key"})
