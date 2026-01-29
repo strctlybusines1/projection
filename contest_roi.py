@@ -135,7 +135,7 @@ def recommend_leverage(profile: ContestProfile) -> LeverageRecommendation:
 
     return LeverageRecommendation(
         target_ownership_low=target_low,
-        target_ownership_high=target_ownership_high,
+        target_ownership_high=target_high,
         leverage_tier=tier,
         entry_allocation=entry_allocation if max_ent > 1 else None,
         summary=summary.strip(),

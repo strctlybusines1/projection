@@ -10,13 +10,15 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from tqdm import tqdm
 from datetime import datetime
+from pathlib import Path
+import json
 import warnings
 warnings.filterwarnings('ignore')
 
 from nhl_api import NHLAPIClient
 from config import (
     CURRENT_SEASON, SKATER_SCORING, SKATER_BONUSES,
-    GOALIE_SCORING, GOALIE_BONUSES
+    GOALIE_SCORING, GOALIE_BONUSES, BACKTESTS_DIR
 )
 
 # TabPFN import (optional - will gracefully handle if not installed)
@@ -26,6 +28,49 @@ try:
 except ImportError:
     TABPFN_AVAILABLE = False
     print("TabPFN not installed. Install with: pip install tabpfn")
+
+# Project root (projection/) for writing latest_mae.json
+_BACKTEST_PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def _latest_mae_path() -> Path:
+    """Path to backtests/latest_mae.json for dashboard."""
+    return _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR / "latest_mae.json"
+
+
+def _write_latest_mae(
+    skater_mae: Optional[float] = None,
+    goalie_mae: Optional[float] = None,
+) -> None:
+    """
+    Update backtests/latest_mae.json with current MAE values.
+    Merges with existing file so full backtest updates skater, slate goalie updates goalie.
+    overall_mae = average of present skater_mae and goalie_mae, or the single value.
+    """
+    path = _latest_mae_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = {}
+    if path.exists():
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    if skater_mae is not None:
+        existing["skater_mae"] = round(skater_mae, 2)
+    if goalie_mae is not None:
+        existing["goalie_mae"] = round(goalie_mae, 2)
+    sk = existing.get("skater_mae")
+    gk = existing.get("goalie_mae")
+    if sk is not None and gk is not None:
+        existing["overall_mae"] = round((sk + gk) / 2.0, 2)
+    elif sk is not None:
+        existing["overall_mae"] = sk
+    elif gk is not None:
+        existing["overall_mae"] = gk
+    existing["updated"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(existing, f, indent=2)
 
 
 class NHLBacktester:
@@ -1118,6 +1163,10 @@ def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, incl
 
     backtester.print_model_comparison(comparison)
 
+    # Persist MAE for dashboard
+    if "metrics" in results and results["metrics"].get("mae") is not None:
+        _write_latest_mae(skater_mae=results["metrics"]["mae"], goalie_mae=None)
+
     return results, comparison, game_logs
 
 
@@ -1165,6 +1214,8 @@ if __name__ == "__main__":
             if result.get("error"):
                 print(f"  Error: {result['error']}")
             else:
+                if result.get("mae") is not None:
+                    _write_latest_mae(skater_mae=result["mae"], goalie_mae=None)
                 print(f"  Skater MAE:  {result['mae']:.2f} pts")
                 print(f"  Skater bias: {result['bias']:+.2f} pts")
                 print(f"  Matched:     {result['n_matched']} skaters")
@@ -1183,6 +1234,8 @@ if __name__ == "__main__":
         if result.get("error"):
             print(f"  Error: {result['error']}")
         else:
+            if result.get("mae") is not None:
+                _write_latest_mae(skater_mae=None, goalie_mae=result["mae"])
             print(f"  Goalie MAE:  {result['mae']:.2f} pts")
             print(f"  Goalie bias: {result['bias']:+.2f} pts (positive = over-projected)")
             print(f"  Matched:     {result['n_matched']} goalies (of {result['n_actuals']} actuals, {result['n_projected']} projected)")

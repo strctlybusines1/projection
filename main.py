@@ -13,9 +13,11 @@ Usage:
 """
 
 import argparse
+import os
 import pandas as pd
 import numpy as np
 import re
+import requests
 from datetime import datetime
 from pathlib import Path
 import sys
@@ -389,101 +391,205 @@ def print_confirmed_goalies(stack_builder: StackBuilder, projections_df: pd.Data
             print(f"  {team:<5} {goalie_name:<25} (not in DK pool)")
 
 
-def print_vegas_ranking(vegas_path: str):
+def _ml_to_implied_team_total(home_ml, away_ml, game_total):
+    """Derive per-team implied totals from game total + moneylines.
+
+    Convert American moneylines to implied win probabilities, normalize
+    to remove the vig, then multiply each side's probability by the
+    game total.  Returns (away_tt, home_tt) rounded to 1 decimal, or
+    (None, None) when any input is missing.
     """
-    Print Vegas game total ranking from CSV file.
+    if home_ml is None or away_ml is None or game_total is None:
+        return None, None
+
+    def _ml_to_prob(ml):
+        ml = float(ml)
+        if ml > 0:
+            return 100.0 / (ml + 100.0)
+        else:
+            return (-ml) / (-ml + 100.0)
+
+    home_prob = _ml_to_prob(home_ml)
+    away_prob = _ml_to_prob(away_ml)
+    total_prob = home_prob + away_prob  # > 1 due to vig
+    home_fair = home_prob / total_prob
+    away_fair = away_prob / total_prob
+    home_tt = round(home_fair * game_total, 1)
+    away_tt = round(away_fair * game_total, 1)
+    return away_tt, home_tt
+
+
+def _fetch_odds_api():
+    """Fetch NHL odds from The Odds API.  Returns (games_list, error_string)."""
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path(__file__).resolve().parent / ".env")
+    except ImportError:
+        pass
+
+    key = (os.environ.get("ODDS_API_KEY") or "").strip()
+    if not key:
+        return None, "ODDS_API_KEY not set in .env"
+    url = (
+        "https://api.the-odds-api.com/v4/sports/icehockey_nhl/odds"
+        "?regions=us&markets=h2h,spreads,totals&oddsFormat=american&apiKey=" + key
+    )
+    try:
+        r = requests.get(url, timeout=10)
+        r.raise_for_status()
+        events = r.json()
+    except Exception as e:
+        return None, str(e)
+
+    games = []
+    for ev in events:
+        home = ev.get("home_team", "")
+        away = ev.get("away_team", "")
+        game_total = None
+        home_ml = away_ml = None
+        spread_home = spread_away = None
+        for bm in ev.get("bookmakers", [])[:1]:
+            for m in bm.get("markets", []):
+                if m.get("key") == "totals" and m.get("outcomes"):
+                    for o in m["outcomes"]:
+                        if o.get("name") == "Over":
+                            game_total = o.get("point")
+                            break
+                elif m.get("key") == "h2h" and m.get("outcomes"):
+                    for o in m["outcomes"]:
+                        if o.get("name") == home:
+                            home_ml = o.get("price")
+                        elif o.get("name") == away:
+                            away_ml = o.get("price")
+                elif m.get("key") == "spreads" and m.get("outcomes"):
+                    for o in m["outcomes"]:
+                        if o.get("name") == home:
+                            spread_home = o.get("point")
+                        elif o.get("name") == away:
+                            spread_away = o.get("point")
+        away_tt, home_tt = _ml_to_implied_team_total(home_ml, away_ml, game_total)
+        games.append({
+            "matchup": f"{away} @ {home}",
+            "game_total": game_total,
+            "away_team_total": away_tt,
+            "home_team_total": home_tt,
+            "home_ml": home_ml,
+            "away_ml": away_ml,
+            "spread_home": spread_home,
+            "spread_away": spread_away,
+        })
+    games.sort(key=lambda x: (x["game_total"] is None, -(x["game_total"] or 0)))
+    return games, None
+
+
+def print_vegas_ranking(vegas_path: str = None):
+    """
+    Print Vegas game total ranking with derived team totals.
+
+    Fetches live odds from The Odds API (if ODDS_API_KEY is set).
+    Falls back to a CSV path if the API is unavailable and vegas_path
+    is provided.
 
     Ranks games by game_total descending and labels:
     - PRIMARY TARGET for highest total
     - SECONDARY for 2nd highest
     - TERTIARY for 3rd highest
-
-    Based on Jan 26 backtest: ANA@EDM (7.0 total) produced 158.3 pts from top 5,
-    BOS@NYR (6.5 total) only 94.4. Vegas total is a top signal.
     """
     print(f"\n{'=' * 80}")
     print(" VEGAS GAME RANKING (by Game Total)")
     print(f"{'=' * 80}")
 
-    try:
-        vegas_df = pd.read_csv(vegas_path)
-    except FileNotFoundError:
-        print(f"  Vegas file not found: {vegas_path}")
-        return
-    except Exception as e:
-        print(f"  Error loading Vegas file: {e}")
-        return
+    games, api_err = _fetch_odds_api()
 
-    if vegas_df.empty:
-        print("  No Vegas data available")
-        return
+    if games is None and vegas_path:
+        # Fallback to CSV
+        print(f"  (API unavailable: {api_err} — using CSV fallback)")
+        games = _load_vegas_csv(vegas_path)
 
-    # Identify the game total column (handle variations)
-    total_col = None
-    for candidate in ['game_total', 'total', 'Total', 'Game Total', 'over_under', 'OU']:
-        if candidate in vegas_df.columns:
-            total_col = candidate
-            break
-
-    if total_col is None:
-        print(f"  No game total column found. Columns: {list(vegas_df.columns)}")
+    if not games:
+        msg = api_err or "No Vegas data available"
+        print(f"  {msg}")
         return
 
-    # Sort by game total descending
-    vegas_df = vegas_df.sort_values(total_col, ascending=False).reset_index(drop=True)
+    if api_err is None:
+        print("  Source: The Odds API (live)")
+    print()
 
-    # Identify matchup column
-    matchup_col = None
-    for candidate in ['matchup', 'game', 'Game', 'teams', 'Teams']:
-        if candidate in vegas_df.columns:
-            matchup_col = candidate
-            break
-
-    # If no matchup column, try to build from home/away
-    if matchup_col is None:
-        home_col = None
-        away_col = None
-        for h in ['home', 'Home', 'home_team', 'HomeTeam']:
-            if h in vegas_df.columns:
-                home_col = h
-                break
-        for a in ['away', 'Away', 'away_team', 'AwayTeam']:
-            if a in vegas_df.columns:
-                away_col = a
-                break
-        if home_col and away_col:
-            vegas_df['_matchup'] = vegas_df[away_col].astype(str) + ' @ ' + vegas_df[home_col].astype(str)
-            matchup_col = '_matchup'
-
-    # Identify spread column
-    spread_col = None
-    for candidate in ['spread', 'Spread', 'line', 'Line']:
-        if candidate in vegas_df.columns:
-            spread_col = candidate
-            break
-
-    # Identify moneyline column
-    ml_col = None
-    for candidate in ['moneyline', 'ml', 'Moneyline', 'ML', 'home_ml']:
-        if candidate in vegas_df.columns:
-            ml_col = candidate
-            break
-
-    # Labels for top 3
     labels = ['PRIMARY TARGET', 'SECONDARY', 'TERTIARY']
 
-    for i, (_, row) in enumerate(vegas_df.iterrows()):
+    for i, g in enumerate(games):
         label = labels[i] if i < len(labels) else ''
-        matchup = row.get(matchup_col, f"Game {i+1}") if matchup_col else f"Game {i+1}"
-        total = row[total_col]
-        spread = f"  Spread: {row[spread_col]}" if spread_col and pd.notna(row.get(spread_col)) else ""
-        ml = f"  ML: {row[ml_col]}" if ml_col and pd.notna(row.get(ml_col)) else ""
+        matchup = g.get("matchup", f"Game {i+1}")
+        total = g.get("game_total", "—")
+        away_tt = g.get("away_team_total")
+        home_tt = g.get("home_team_total")
+
+        spread_val = g.get("spread_away")
+        spread = f"  Spread: {spread_val}" if spread_val is not None else ""
+        ml_val = g.get("away_ml")
+        ml = f"  ML: {ml_val}" if ml_val is not None else ""
+
+        tt_str = ""
+        if away_tt is not None and home_tt is not None:
+            # Extract team abbreviations from "Away Team @ Home Team"
+            parts = matchup.split(" @ ")
+            away_label = parts[0].strip().split()[-1] if parts else "Away"
+            home_label = parts[1].strip().split()[-1] if len(parts) > 1 else "Home"
+            tt_str = f"  ({away_label} {away_tt} / {home_label} {home_tt})"
 
         if label:
             print(f"\n  >>> {label} <<<")
-        print(f"  {matchup:<30} Total: {total}{spread}{ml}")
+        print(f"  {matchup:<40} Total: {total}{tt_str}{spread}{ml}")
 
     print()
+
+
+def _load_vegas_csv(vegas_path: str):
+    """Load a Vegas CSV as fallback and return the same list-of-dicts shape."""
+    try:
+        df = pd.read_csv(vegas_path)
+    except Exception:
+        return []
+    if df.empty or "team" not in df.columns or "opp" not in df.columns:
+        return []
+    total_col = None
+    for c in ["game_total", "total", "Total"]:
+        if c in df.columns:
+            total_col = c
+            break
+    if not total_col:
+        return []
+
+    grouped = {}
+    for _, row in df.iterrows():
+        t, o = str(row["team"]).strip(), str(row["opp"]).strip()
+        key = tuple(sorted([t, o]))
+        if key not in grouped:
+            grouped[key] = {"away": key[0], "home": key[1], "rows": []}
+        grouped[key]["rows"].append(row)
+
+    games = []
+    for key, g in grouped.items():
+        rows = g["rows"]
+        away, home = g["away"], g["home"]
+        away_row = next((r for r in rows if r["team"] == away), None)
+        home_row = next((r for r in rows if r["team"] == home), None)
+        game_total = float(away_row[total_col]) if away_row is not None and pd.notna(away_row.get(total_col)) else None
+        away_ml = int(away_row["moneyline"]) if away_row is not None and pd.notna(away_row.get("moneyline")) else None
+        home_ml = int(home_row["moneyline"]) if home_row is not None and pd.notna(home_row.get("moneyline")) else None
+        spread_away = float(away_row["spread"]) if away_row is not None and pd.notna(away_row.get("spread")) else None
+        away_tt, home_tt = _ml_to_implied_team_total(home_ml, away_ml, game_total)
+        games.append({
+            "matchup": f"{away} @ {home}",
+            "game_total": game_total,
+            "away_team_total": away_tt,
+            "home_team_total": home_tt,
+            "home_ml": home_ml,
+            "away_ml": away_ml,
+            "spread_away": spread_away,
+        })
+    games.sort(key=lambda x: (x["game_total"] is None, -(x["game_total"] or 0)))
+    return games
 
 
 def print_lineup(lineup: pd.DataFrame):
@@ -547,42 +653,26 @@ def export_lineup_for_dk(lineup: pd.DataFrame, output_path: str):
     """
     Export lineup in DraftKings CSV upload format.
 
-    DK format requires columns: C, C, W, W, W, D, D, G, UTIL
+    DK format requires columns in order: C, C, W, W, W, D, D, G, UTIL
     with player IDs or names.
     """
-    # Map roster slots to DK positions
-    slot_to_dk = {
-        'C1': 'C', 'C2': 'C',
-        'W1': 'W', 'W2': 'W', 'W3': 'W',
-        'D1': 'D', 'D2': 'D',
-        'G': 'G',
-        'UTIL': 'UTIL'
-    }
-
-    # Build DK format row
-    dk_row = {}
+    # DK column order and corresponding roster_slot names from optimizer
+    dk_slots = ['C1', 'C2', 'W1', 'W2', 'W3', 'D1', 'D2', 'G', 'UTIL']
+    slot_to_player = {}
     for _, player in lineup.iterrows():
         slot = player.get('roster_slot', '')
-        dk_pos = slot_to_dk.get(slot, slot)
+        if slot:
+            slot_to_player[slot] = player
 
-        # Handle duplicate positions (C, C, W, W, W)
-        pos_key = dk_pos
-        counter = 1
-        while pos_key in dk_row:
-            counter += 1
-            pos_key = f"{dk_pos}_{counter}"
+    # Build one row in exact DK order: C, C, W, W, W, D, D, G, UTIL
+    row = []
+    for slot in dk_slots:
+        player = slot_to_player.get(slot)
+        val = player.get('dk_id', player['name']) if player is not None else ''
+        row.append(val)
 
-        # Use DK ID if available, otherwise name
-        player_id = player.get('dk_id', player['name'])
-        dk_row[pos_key] = player_id
-
-    # Create DataFrame in DK order
-    dk_order = ['C', 'C_2', 'W', 'W_2', 'W_3', 'D', 'D_2', 'G', 'UTIL']
-    dk_df = pd.DataFrame([dk_row])
-
-    # Rename columns to simple format
-    dk_df.columns = ['C', 'C', 'W', 'W', 'W', 'D', 'D', 'G', 'UTIL'][:len(dk_df.columns)]
-
+    dk_columns = ['C', 'C', 'W', 'W', 'W', 'D', 'D', 'G', 'UTIL']
+    dk_df = pd.DataFrame([row], columns=dk_columns)
     dk_df.to_csv(output_path, index=False)
     print(f"\nLineup exported to: {output_path}")
 
@@ -662,17 +752,16 @@ def main():
     # Get slate teams for filtering
     slate_teams = list(dk_salaries['team'].unique())
 
-    # Show Vegas game ranking if provided or auto-detect from vegas/
-    if args.vegas:
-        print_vegas_ranking(args.vegas)
-    else:
+    # Show Vegas game ranking — prefer Odds API, fall back to CSV
+    csv_fallback = args.vegas
+    if not csv_fallback:
         vegas_dir = project_dir / VEGAS_DIR
         if vegas_dir.exists():
             vegas_files = sorted(vegas_dir.glob('Vegas*.csv')) + sorted(vegas_dir.glob('VegasNHL*.csv'))
             vegas_files = list(dict.fromkeys(vegas_files))  # dedupe
             if vegas_files:
-                vegas_path = str(vegas_files[-1])  # Most recent
-                print_vegas_ranking(vegas_path)
+                csv_fallback = str(vegas_files[-1])
+    print_vegas_ranking(csv_fallback)
 
     # Fetch NHL data
     print("\nFetching NHL data...")

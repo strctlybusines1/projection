@@ -27,7 +27,7 @@ import pandas as pd
 import requests
 from flask import Flask, send_from_directory, jsonify
 
-from config import DAILY_PROJECTIONS_DIR, VEGAS_DIR
+from config import DAILY_PROJECTIONS_DIR, VEGAS_DIR, BACKTESTS_DIR
 
 app = Flask(__name__, static_folder="static", template_folder="templates")
 
@@ -43,6 +43,11 @@ def _projections_dir():
 
 def _vegas_dir():
     return PROJECT_ROOT / VEGAS_DIR
+
+
+def _latest_mae_path():
+    """Path to backtests/latest_mae.json."""
+    return PROJECT_ROOT / BACKTESTS_DIR / "latest_mae.json"
 
 
 def _latest_projections_path():
@@ -88,6 +93,34 @@ def _latest_vegas_path():
     if not files:
         return None
     return max(files, key=lambda f: f.stat().st_mtime)
+
+
+def _ml_to_implied_team_total(home_ml, away_ml, game_total):
+    """Derive per-team implied totals from game total + moneylines.
+
+    Convert American moneylines to implied win probabilities, normalize
+    to remove the vig, then multiply each side's probability by the
+    game total.  Returns (away_team_total, home_team_total) rounded to
+    one decimal place, or (None, None) when any input is missing.
+    """
+    if home_ml is None or away_ml is None or game_total is None:
+        return None, None
+
+    def _ml_to_prob(ml):
+        ml = float(ml)
+        if ml > 0:
+            return 100.0 / (ml + 100.0)
+        else:
+            return (-ml) / (-ml + 100.0)
+
+    home_prob = _ml_to_prob(home_ml)
+    away_prob = _ml_to_prob(away_ml)
+    total_prob = home_prob + away_prob  # > 1 due to vig
+    home_fair = home_prob / total_prob
+    away_fair = away_prob / total_prob
+    home_tt = round(home_fair * game_total, 1)
+    away_tt = round(away_fair * game_total, 1)
+    return away_tt, home_tt
 
 
 def _fetch_odds_api():
@@ -137,9 +170,12 @@ def _normalize_odds_api(events):
                             spread_home = o.get("point")
                         elif o.get("name") == away:
                             spread_away = o.get("point")
+        away_tt, home_tt = _ml_to_implied_team_total(home_ml, away_ml, game_total)
         out.append({
             "matchup": matchup,
             "game_total": game_total,
+            "away_team_total": away_tt,
+            "home_team_total": home_tt,
             "home_ml": home_ml,
             "away_ml": away_ml,
             "spread_home": spread_home,
@@ -186,9 +222,12 @@ def _normalize_vegas_csv(path):
         home_ml = int(home_row["moneyline"]) if home_row is not None and pd.notna(home_row.get("moneyline")) else None
         spread_away = float(away_row["spread"]) if away_row is not None and pd.notna(away_row.get("spread")) else None
         spread_home = float(home_row["spread"]) if home_row is not None and pd.notna(home_row.get("spread")) else None
+        away_tt, home_tt = _ml_to_implied_team_total(home_ml, away_ml, game_total)
         out.append({
             "matchup": f"{away} @ {home}",
             "game_total": game_total,
+            "away_team_total": away_tt,
+            "home_team_total": home_tt,
             "home_ml": home_ml,
             "away_ml": away_ml,
             "spread_home": spread_home,
@@ -197,6 +236,38 @@ def _normalize_vegas_csv(path):
         })
     out.sort(key=lambda x: (x["game_total"] is None, -(x["game_total"] or 0)))
     return out
+
+
+@app.route("/api/mae")
+def api_mae():
+    """Return latest overall, skater, and goalie MAE from backtests/latest_mae.json."""
+    path = _latest_mae_path()
+    if not path.exists():
+        return jsonify({
+            "overall_mae": None,
+            "skater_mae": None,
+            "goalie_mae": None,
+            "updated": None,
+            "error": "No MAE file. Run backtest.py (e.g. python backtest.py --players 75) or slate backtests.",
+        })
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return jsonify({
+            "overall_mae": data.get("overall_mae"),
+            "skater_mae": data.get("skater_mae"),
+            "goalie_mae": data.get("goalie_mae"),
+            "updated": data.get("updated"),
+            "error": None,
+        })
+    except (json.JSONDecodeError, OSError) as e:
+        return jsonify({
+            "overall_mae": None,
+            "skater_mae": None,
+            "goalie_mae": None,
+            "updated": None,
+            "error": str(e),
+        })
 
 
 @app.route("/api/odds")
@@ -247,9 +318,82 @@ def api_lines():
     return jsonify({"lines": data})
 
 
-def _slot_order(slot):
-    order = {"G": 0, "C": 1, "C2": 2, "W": 3, "W2": 4, "W3": 5, "D": 6, "D2": 7, "UTIL": 8}
-    return order.get(slot, 9)
+# DraftKings NHL Classic slot order: C, C, W, W, W, D, D, G, UTIL
+DK_SLOT_ORDER = ["C", "C", "W", "W", "W", "D", "D", "G", "UTIL"]
+
+
+def _position_to_slot_type(pos):
+    """Map projection position to slot type (C, W, D, G) for correct slot assignment."""
+    if pos is None or pd.isna(pos):
+        return None
+    p = str(pos).strip().upper()
+    if p == "G":
+        return "G"
+    if p == "C":
+        return "C"
+    if p in ("LW", "RW", "W", "L", "R"):
+        return "W"
+    if p == "D":
+        return "D"
+    return None
+
+
+def _assign_slots_by_position(lineup_out):
+    """
+    Reassign roster slots from each player's actual position so the goalie
+    gets G (not C) and every player is in the correct slot. Handles CSVs
+    that were exported with columns in the wrong order.
+    """
+    # Bucket by slot type from position
+    goalies = []
+    centers = []
+    wings = []
+    defense = []
+    other = []
+    for rec in lineup_out:
+        pos = rec.get("position")
+        slot_type = _position_to_slot_type(pos)
+        if slot_type == "G":
+            goalies.append(rec)
+        elif slot_type == "C":
+            centers.append(rec)
+        elif slot_type == "W":
+            wings.append(rec)
+        elif slot_type == "D":
+            defense.append(rec)
+        else:
+            other.append(rec)
+    # Assign slots: 1 G, 2 C, 3 W, 2 D, 1 UTIL (any skater)
+    out = []
+    idx = 0
+    for g in goalies[:1]:
+        g["slot"] = "G"
+        g["display_order"] = 7
+        out.append(g)
+    for c in centers[:2]:
+        c["slot"] = "C"
+        c["display_order"] = idx
+        idx += 1
+        out.append(c)
+    for w in wings[:3]:
+        w["slot"] = "W"
+        w["display_order"] = idx
+        idx += 1
+        out.append(w)
+    for d in defense[:2]:
+        d["slot"] = "D"
+        d["display_order"] = idx
+        idx += 1
+        out.append(d)
+    # UTIL = one remaining skater (C, W, or D)
+    util_pool = centers[2:] + wings[3:] + defense[2:] + other
+    for u in util_pool[:1]:
+        u["slot"] = "UTIL"
+        u["display_order"] = 8
+        out.append(u)
+    # Sort by display order: C, C, W, W, W, D, D, G, UTIL
+    out.sort(key=lambda x: (x.get("display_order", 9), x.get("name", "")))
+    return out
 
 
 @app.route("/api/lineup")
@@ -258,11 +402,9 @@ def api_lineup():
     proj_path = _latest_projections_path()
     if not lineup_path:
         return jsonify({"lineup": [], "totals": {}, "error": "No lineup file. Run main.py with --lineups 1."})
-    # Parse lineup CSV: one row, 9 columns C, C, W, W, W, D, D, G, UTIL (duplicate names possible)
     df_lineup = pd.read_csv(lineup_path)
     if df_lineup.empty:
         return jsonify({"lineup": [], "totals": {}})
-    slots = ["C", "C", "W", "W", "W", "D", "D", "G", "UTIL"]
     row = df_lineup.iloc[0]
     ncols = min(9, len(row))
     id_by_slot = []
@@ -272,8 +414,7 @@ def api_lineup():
             val = int(val) if pd.notna(val) and str(val).replace(".0", "").isdigit() else val
         except (ValueError, TypeError):
             pass
-        id_by_slot.append({"slot": slots[i], "id": val})
-    # Load projections and match by dk_id (if present) or leave id-only
+        id_by_slot.append({"slot": DK_SLOT_ORDER[i], "id": val})
     if not proj_path:
         return jsonify({"lineup": id_by_slot, "totals": {}, "error": "No projections file to enrich lineup."})
     proj = pd.read_csv(proj_path)
@@ -287,9 +428,9 @@ def api_lineup():
                 except (ValueError, TypeError):
                     id_to_proj[str(rid)] = r
     lineup_out = []
-    for s in id_by_slot:
+    for i, s in enumerate(id_by_slot):
         slot, pid = s["slot"], s["id"]
-        rec = {"slot": slot, "name": None, "team": None, "position": None, "salary": None, "projected_fpts": None, "value": None, "predicted_ownership": None}
+        rec = {"slot": slot, "name": None, "team": None, "position": None, "salary": None, "projected_fpts": None, "value": None, "predicted_ownership": None, "display_order": i}
         r = None
         if pid is not None:
             try:
@@ -311,7 +452,8 @@ def api_lineup():
                 rec["value"] = float(r["value"]) if pd.notna(r.get("value")) else None
                 rec["predicted_ownership"] = float(r["predicted_ownership"]) if pd.notna(r.get("predicted_ownership")) else None
         lineup_out.append(rec)
-    lineup_out.sort(key=lambda x: _slot_order(x["slot"]))
+    # Assign slots by actual position so goalie shows as G, not C (handles bad CSV column order)
+    lineup_out = _assign_slots_by_position(lineup_out)
     total_salary = sum(x["salary"] or 0 for x in lineup_out)
     total_proj = sum(x["projected_fpts"] or 0 for x in lineup_out)
     return jsonify({

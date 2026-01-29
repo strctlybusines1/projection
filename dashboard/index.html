@@ -4,49 +4,64 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>NHL DFS Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <h1>NHL DFS Dashboard</h1>
 
-  <section class="section" id="odds-section">
-    <h2>Current Odds</h2>
-    <div id="odds-source" class="source"></div>
-    <div id="odds-content"></div>
-  </section>
-
-  <section class="section" id="projections-section">
-    <h2>Projections & Ownership</h2>
-    <div class="filter-bar">
-      <label>Type:</label>
-      <select id="filter-type">
-        <option value="all">All</option>
-        <option value="skater">Skaters</option>
-        <option value="goalie">Goalies</option>
-      </select>
-      <label>Sort:</label>
-      <select id="sort-by">
-        <option value="projected_fpts">Proj</option>
-        <option value="value">Value</option>
-        <option value="predicted_ownership">Own%</option>
-      </select>
+  <section class="section mae-strip" id="mae-section">
+    <h2>Current MAE (pts)</h2>
+    <div id="mae-source" class="source"></div>
+    <div class="mae-cards">
+      <div class="mae-card"><span class="mae-label">Overall</span><span id="mae-overall" class="mae-value">—</span></div>
+      <div class="mae-card"><span class="mae-label">Skater</span><span id="mae-skater" class="mae-value">—</span></div>
+      <div class="mae-card"><span class="mae-label">Goalie</span><span id="mae-goalie" class="mae-value">—</span></div>
     </div>
-    <div id="projections-content"></div>
   </section>
 
-  <section class="section" id="lines-section">
-    <h2>Lines by Team</h2>
-    <select id="lines-select">
-      <option value="">Select team...</option>
-    </select>
-    <div id="lines-content"></div>
-  </section>
+  <div class="grid">
+    <section class="section" id="odds-section">
+      <h2>Current Odds</h2>
+      <div id="odds-source" class="source"></div>
+      <div id="odds-content"></div>
+    </section>
 
-  <section class="section" id="lineup-section">
-    <h2>Suggested Lineup</h2>
-    <div id="lineup-totals" class="totals-line"></div>
-    <div id="lineup-content"></div>
-  </section>
+    <section class="section" id="lineup-section">
+      <h2>Suggested Lineup</h2>
+      <div id="lineup-totals" class="totals-line"></div>
+      <div id="lineup-content"></div>
+    </section>
+
+    <section class="section full-width" id="projections-section">
+      <h2>Projections & Ownership</h2>
+      <div class="filter-bar">
+        <label>Type:</label>
+        <select id="filter-type">
+          <option value="all">All</option>
+          <option value="skater">Skaters</option>
+          <option value="goalie">Goalies</option>
+        </select>
+        <label>Sort:</label>
+        <select id="sort-by">
+          <option value="projected_fpts">Proj</option>
+          <option value="value">Value</option>
+          <option value="predicted_ownership">Own%</option>
+        </select>
+      </div>
+      <div id="projections-content"></div>
+    </section>
+
+    <section class="section full-width" id="lines-section">
+      <h2>Lines by Team</h2>
+      <select id="lines-select">
+        <option value="">Select team...</option>
+      </select>
+      <div id="lines-content"></div>
+    </section>
+  </div>
 
   <script>
     function el(id) { return document.getElementById(id); }
@@ -65,15 +80,19 @@
         src.textContent = '';
         return;
       }
-      src.textContent = 'Source: ' + (data.source === 'api' ? 'The Odds API' : data.source === 'vegas_csv' ? 'Vegas CSV' : data.source || '') + '.';
+      var sourceLabel = data.source === 'api' ? 'The Odds API' : (data.source === 'vegas_csv' || !data.source ? 'Vegas CSV' : data.source);
+      src.textContent = 'Odds source: ' + sourceLabel + '.';
+      if (data.api_error) src.textContent += ' (API failed: ' + data.api_error + ')';
       if (!data.games || data.games.length === 0) {
         wrap.innerHTML = '<p class="loading">No games.</p>';
         return;
       }
-      let html = '<table><thead><tr><th>Matchup</th><th class="num">Total</th><th class="num">Away ML</th><th class="num">Home ML</th><th class="num">Spread</th></tr></thead><tbody>';
+      let html = '<table><thead><tr><th>Matchup</th><th class="num">Total</th><th class="num">Away TT</th><th class="num">Home TT</th><th class="num">Away ML</th><th class="num">Home ML</th><th class="num">Spread</th></tr></thead><tbody>';
       data.games.forEach(function(g) {
         const spread = g.spread_away != null ? (g.spread_away > 0 ? '+' + g.spread_away : g.spread_away) : '—';
-        html += '<tr><td>' + (g.matchup || '') + '</td><td class="num accent">' + (g.game_total != null ? g.game_total : '—') + '</td><td class="num">' + (g.away_ml != null ? g.away_ml : '—') + '</td><td class="num">' + (g.home_ml != null ? g.home_ml : '—') + '</td><td class="num">' + spread + '</td></tr>';
+        const awayTT = g.away_team_total != null ? Number(g.away_team_total).toFixed(1) : '—';
+        const homeTT = g.home_team_total != null ? Number(g.home_team_total).toFixed(1) : '—';
+        html += '<tr><td>' + (g.matchup || '') + '</td><td class="num accent">' + (g.game_total != null ? g.game_total : '—') + '</td><td class="num">' + awayTT + '</td><td class="num">' + homeTT + '</td><td class="num">' + (g.away_ml != null ? g.away_ml : '—') + '</td><td class="num">' + (g.home_ml != null ? g.home_ml : '—') + '</td><td class="num">' + spread + '</td></tr>';
       });
       html += '</tbody></table>';
       wrap.innerHTML = html;
@@ -158,10 +177,17 @@
       const lineup = data.lineup || [];
       const totals = data.totals || {};
       tot.textContent = 'Total salary: $' + (totals.salary != null ? Number(totals.salary).toLocaleString() : '0') + '  |  Total projected: ' + (totals.projected_fpts != null ? Number(totals.projected_fpts).toFixed(1) : '0') + ' pts';
+      // Display order: C, C, W, W, W, D, D, G, UTIL
+      const ordered = lineup.slice().sort(function(a, b) {
+        const oa = a.display_order != null ? a.display_order : 9;
+        const ob = b.display_order != null ? b.display_order : 9;
+        return oa - ob;
+      });
       let html = '<table><thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>Pos</th><th class="num">Salary</th><th class="num">Proj</th><th class="num">Value</th><th class="num">Own%</th></tr></thead><tbody>';
-      lineup.forEach(function(p) {
+      ordered.forEach(function(p) {
         const own = p.predicted_ownership != null ? (Number(p.predicted_ownership).toFixed(1) + '%') : '—';
-        html += '<tr><td>' + (p.slot || '') + '</td><td>' + (p.name || p.id || '—') + '</td><td>' + (p.team || '') + '</td><td>' + (p.position || '') + '</td><td class="num">' + (p.salary != null ? '$' + Number(p.salary).toLocaleString() : '—') + '</td><td class="num accent">' + (p.projected_fpts != null ? Number(p.projected_fpts).toFixed(1) : '—') + '</td><td class="num">' + (p.value != null ? Number(p.value).toFixed(2) : '—') + '</td><td class="num">' + own + '</td></tr>';
+        // Pos = roster slot so Slot and Pos match (C, C, W, W, W, D, D, G, UTIL)
+        html += '<tr><td>' + (p.slot || '') + '</td><td>' + (p.name || p.id || '—') + '</td><td>' + (p.team || '') + '</td><td>' + (p.slot || '') + '</td><td class="num">' + (p.salary != null ? '$' + Number(p.salary).toLocaleString() : '—') + '</td><td class="num accent">' + (p.projected_fpts != null ? Number(p.projected_fpts).toFixed(1) : '—') + '</td><td class="num">' + (p.value != null ? Number(p.value).toFixed(2) : '—') + '</td><td class="num">' + own + '</td></tr>';
       });
       html += '</tbody></table>';
       wrap.innerHTML = html;
@@ -171,19 +197,31 @@
     el('filter-type').onchange = function() { if (projectionsCache) renderProjections(projectionsCache); };
     el('sort-by').onchange = function() { if (projectionsCache) renderProjections(projectionsCache); };
 
+    function renderMae(data) {
+      const src = el('mae-source');
+      el('mae-overall').textContent = data.overall_mae != null ? data.overall_mae.toFixed(2) : '—';
+      el('mae-skater').textContent = data.skater_mae != null ? data.skater_mae.toFixed(2) : '—';
+      el('mae-goalie').textContent = data.goalie_mae != null ? data.goalie_mae.toFixed(2) : '—';
+      if (data.error) src.textContent = data.error;
+      else if (data.updated) src.textContent = 'Updated: ' + data.updated;
+      else src.textContent = '';
+    }
+
     async function load() {
       try {
-        const [odds, projections, lines, lineup] = await Promise.all([
+        const [odds, projections, lines, lineup, mae] = await Promise.all([
           fetchJson('/api/odds'),
           fetchJson('/api/projections'),
           fetchJson('/api/lines'),
-          fetchJson('/api/lineup')
+          fetchJson('/api/lineup'),
+          fetchJson('/api/mae')
         ]);
         renderOdds(odds);
         projectionsCache = projections;
         renderProjections(projections);
         renderLines(lines);
         renderLineup(lineup);
+        renderMae(mae);
       } catch (e) {
         el('odds-content').innerHTML = '<p class="error">Failed to load: ' + e.message + '</p>';
       }
