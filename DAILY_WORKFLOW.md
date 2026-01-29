@@ -92,6 +92,7 @@
 | `lines.py` | Line combinations | `LinesScraper`, `StackBuilder` |
 | `ownership.py` | Ownership prediction | `OwnershipModel.predict_ownership()` |
 | `optimizer.py` | Lineup optimizer | `NHLLineupOptimizer.optimize_lineup()` |
+| `contest_roi.py` | Contest leverage & EV | `ContestProfile`, `recommend_leverage()`, `contest_ev_score()` |
 | `main.py` | CLI entry point | `main()` - orchestrates everything |
 | `backtest.py` | Backtesting | `NHLBacktester.run_backtest()` |
 
@@ -290,6 +291,42 @@ python main.py --lineups 20 --export projections.csv
 ```
 Projections and lineup exports are written to **daily_projections/** (filenames include date).
 
+#### Contest-Specific Workflow (Leverage & EV)
+
+To maximize long-term ROI for a **specific contest**, use contest-aware leverage and lineup ranking by expected payout:
+
+1. **Enter contest parameters**  
+   When running `main.py`, pass the contest you’re building for:
+   - `--contest-entry-fee` (e.g. 5, 360)
+   - `--contest-max-entries` (e.g. 1, 20, 150)
+   - `--contest-field-size` (e.g. 10000, 50000)
+   - `--contest-payout` preset: `top_heavy_gpp`, `flat`, or `high_dollar_single`
+
+2. **Get leverage recommendation**  
+   The run prints a **Contest Leverage Recommendation**: target total lineup ownership band (e.g. 35–50%), leverage tier (Conservative / Moderate / Aggressive), and for multi-entry an optional entry allocation (chalk / moderate / leverage).
+
+3. **Generate lineups**  
+   Use `--lineups N` as usual. The optimizer produces N candidate lineups with stacking rules unchanged.
+
+4. **Rank by EV**  
+   With contest params set, the tool scores each lineup by **contest expected value** (bucket model: projected points + total ownership → P(top 1%, top 10%, min-cash) × contest payouts). Lineups are **re-ordered by EV descending** and each lineup is printed with its Contest EV ($).
+
+5. **Select lineup(s)**  
+   - Single entry: take the **top lineup by EV**.
+   - Multi-entry: take the top K by EV; optionally respect the printed entry allocation (e.g. 8 chalk, 8 moderate, 4 leverage).
+
+**Example (single-entry $5 GPP, 10k field):**
+```bash
+python main.py --stacks --contest-entry-fee 5 --contest-max-entries 1 --contest-field-size 10000 --contest-payout top_heavy_gpp --lineups 5
+```
+
+**Example (20-max, custom field size):**
+```bash
+python main.py --lineups 20 --contest-entry-fee 5 --contest-max-entries 20 --contest-field-size 50000
+```
+
+Leverage-only (no lineups): run `python contest_roi.py --entry-fee 5 --max-entries 20 --field-size 10000 --payout top_heavy_gpp` to print only the recommendation.
+
 #### Step 9: Final Verification
 Before submitting:
 - [ ] Check Twitter for late scratches/line changes
@@ -350,6 +387,9 @@ python main.py --stacks --show-injuries
 
 # Generate 3 GPP lineups
 python main.py --lineups 3 --stacks
+
+# Contest-specific: leverage recommendation + lineups ranked by EV
+python main.py --lineups 5 --stacks --contest-entry-fee 5 --contest-max-entries 1 --contest-field-size 10000 --contest-payout top_heavy_gpp
 ```
 
 ### Testing Individual Components

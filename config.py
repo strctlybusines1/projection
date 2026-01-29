@@ -71,6 +71,26 @@ EXPECTED_TOI_BUMP_CAP = 0.15        # Cap TOI bump at 15%
 # When rate-based is on but expected_toi_minutes == toi_minutes (no situation TOI), scale base so comparison differs
 RATE_BASED_SAME_TOI_SCALE = 0.97    # 3% lower when data doesn't differentiate (backtest comparison)
 
+# Contest ROI: payout presets for leverage/EV (optional; contest_roi.py has its own if not set)
+# Share of prize pool: first place %, top 10% share, min-cash tier %
+CONTEST_PAYOUT_PRESETS = {
+    "top_heavy_gpp": {
+        "first_place_pct": 0.20,
+        "top_10_pct_share": 0.50,
+        "min_cash_pct": 0.20,
+    },
+    "flat": {
+        "first_place_pct": 0.05,
+        "top_10_pct_share": 0.15,
+        "min_cash_pct": 0.25,
+    },
+    "high_dollar_single": {
+        "first_place_pct": 0.15,
+        "top_10_pct_share": 0.45,
+        "min_cash_pct": 0.22,
+    },
+}
+
 # NHL API Configuration
 NHL_API_WEB_BASE = "https://api-web.nhle.com"
 NHL_API_STATS_BASE = "https://api.nhle.com/stats/rest"

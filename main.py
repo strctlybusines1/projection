@@ -33,6 +33,13 @@ from config import (
 )
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 from ownership import OwnershipModel, print_ownership_report
+from contest_roi import (
+    ContestProfile,
+    recommend_leverage,
+    score_lineups as contest_score_lineups,
+    print_leverage_recommendation,
+    PAYOUT_PRESETS,
+)
 
 
 def normalize_position(pos: str) -> str:
@@ -609,6 +616,17 @@ def main():
     parser.add_argument('--vegas', type=str, default=None,
                         help='Path to Vegas lines CSV file for game ranking')
 
+    # Contest ROI: leverage recommendation + lineup ranking by expected payout
+    parser.add_argument('--contest-entry-fee', type=float, default=None,
+                        help='Contest entry fee ($) for leverage/EV ranking')
+    parser.add_argument('--contest-max-entries', type=int, default=None,
+                        help='Max entries per user for this contest')
+    parser.add_argument('--contest-field-size', type=int, default=None,
+                        help='Total contest entries (field size)')
+    parser.add_argument('--contest-payout', type=str, default=None,
+                        choices=list(PAYOUT_PRESETS.keys()),
+                        help='Payout preset: top_heavy_gpp, flat, high_dollar_single')
+
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
@@ -743,6 +761,27 @@ def main():
     if len(goalies_merged) > 0:
         print_projections_table(goalies_merged, "TOP GOALIE PROJECTIONS", n=10)
 
+    # Contest profile for leverage + EV ranking (optional)
+    contest_profile = None
+    if any(x is not None for x in [args.contest_entry_fee, args.contest_max_entries, args.contest_field_size, args.contest_payout]):
+        contest_profile = ContestProfile(
+            entry_fee=args.contest_entry_fee if args.contest_entry_fee is not None else 5.0,
+            max_entries=args.contest_max_entries if args.contest_max_entries is not None else 1,
+            field_size=args.contest_field_size if args.contest_field_size is not None else 10000,
+            payout_preset=args.contest_payout or "top_heavy_gpp",
+        )
+        rec = recommend_leverage(contest_profile)
+        print_leverage_recommendation(contest_profile, rec)
+
+    # --- Run ownership model on player pool (before lineups when contest EV is used) ---
+    print("\nGenerating ownership projections...")
+    ownership_model = OwnershipModel()
+    if stack_builder:
+        confirmed = stack_builder.get_all_starting_goalies()
+        ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
+    player_pool = ownership_model.predict_ownership(player_pool)
+    print_ownership_report(player_pool)
+
     # Generate optimized lineup
     lineups = []
     if len(skaters_merged) > 0 and len(goalies_merged) > 0:
@@ -758,19 +797,23 @@ def main():
             stack_teams=[args.force_stack] if args.force_stack else None
         )
 
-        for i, lineup in enumerate(lineups):
-            if args.lineups > 1:
-                print(f"\n--- Lineup {i+1} ---")
-            print_lineup(lineup)
+        # Contest EV: score and re-rank lineups by expected payout
+        if contest_profile and lineups:
+            scored = contest_score_lineups(lineups, contest_profile, player_pool)
+            lineups = [lu for lu, _ in scored]
+            # Attach EV to each lineup for display (store as list of (lineup, ev))
+            lineup_ev_pairs = [(lu, ev) for lu, ev in scored]
+        else:
+            lineup_ev_pairs = [(lu, None) for lu in lineups]
 
-    # --- Run ownership model on player pool ---
-    print("\nGenerating ownership projections...")
-    ownership_model = OwnershipModel()
-    if stack_builder:
-        confirmed = stack_builder.get_all_starting_goalies()
-        ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
-    player_pool = ownership_model.predict_ownership(player_pool)
-    print_ownership_report(player_pool)
+        for i, (lineup, contest_ev) in enumerate(lineup_ev_pairs):
+            if args.lineups > 1:
+                ev_str = f" (Contest EV: ${contest_ev:.2f})" if contest_ev is not None else ""
+                print(f"\n--- Lineup {i+1}{ev_str} ---")
+            else:
+                if contest_ev is not None:
+                    print(f"\nContest EV: ${contest_ev:.2f}")
+            print_lineup(lineup)
 
     # --- Auto-export projections + ownership with timestamp ---
     date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')
