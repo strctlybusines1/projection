@@ -72,6 +72,109 @@ def _latest_lineup_path():
     return max(files, key=lambda f: f.stat().st_mtime)
 
 
+def _parse_slate_date_from_lineup_filename(path):
+    """Parse slate date YYYY-MM-DD from lineup filename like 01_29_26NHLprojections_20260129_132647_lineups.csv."""
+    try:
+        name = path.name
+        if "_lineups.csv" not in name:
+            return None
+        # MM_DD_YY at start (e.g. 01_29_26)
+        parts = name.split("NHLprojections_")
+        if not parts:
+            return None
+        prefix = parts[0]
+        if "_" not in prefix or len(prefix) < 8:
+            return None
+        mm, dd, yy = prefix.split("_")[:3]
+        yy_int = int(yy)
+        year = 2000 + yy_int if yy_int < 100 else yy_int
+        month, day = int(mm), int(dd)
+        from datetime import date
+        d = date(year, month, day)
+        return d.strftime("%Y-%m-%d")
+    except (ValueError, IndexError, TypeError):
+        return None
+
+
+def _last_night_lineup_path():
+    """Return (path, slate_date) for the most recent past-slate lineup file, or (None, None)."""
+    d = _projections_dir()
+    if not d.exists():
+        return None, None
+    from datetime import date
+    today = date.today().isoformat()
+    files = list(d.glob("*_lineups.csv"))
+    past = []
+    for f in files:
+        slate = _parse_slate_date_from_lineup_filename(f)
+        if slate and slate < today:
+            past.append((f, slate))
+    if not past:
+        return None, None
+    # Most recent slate date, then latest mtime
+    past.sort(key=lambda x: (x[1], x[0].stat().st_mtime), reverse=True)
+    return past[0][0], past[0][1]
+
+
+def _projections_path_for_slate_date(slate_date):
+    """Return path to a projections CSV for slate_date (YYYY-MM-DD), or None."""
+    try:
+        from datetime import datetime
+        dt = datetime.strptime(slate_date, "%Y-%m-%d")
+        prefix = dt.strftime("%m") + "_" + dt.strftime("%d") + "_" + dt.strftime("%y")
+    except ValueError:
+        return None
+    d = _projections_dir()
+    if not d.exists():
+        return None
+    files = [f for f in d.glob(f"*{prefix}*NHLprojections_*.csv") if "_lineups" not in f.name]
+    if not files:
+        return None
+    return max(files, key=lambda f: f.stat().st_mtime)
+
+
+def _backtest_xlsx_for_slate(slate_date):
+    """Find backtests/M.DD.YY_nhl_backtest.xlsx for a given YYYY-MM-DD slate date."""
+    try:
+        from datetime import datetime as _dt
+        dt = _dt.strptime(slate_date, "%Y-%m-%d")
+        # File format: 1.28.26_nhl_backtest.xlsx (no zero-padding on month)
+        tag = f"{dt.month}.{dt.day:02d}.{dt.strftime('%y')}"
+    except (ValueError, TypeError):
+        return None
+    bt_dir = PROJECT_ROOT / BACKTESTS_DIR
+    if not bt_dir.exists():
+        return None
+    candidate = bt_dir / f"{tag}_nhl_backtest.xlsx"
+    if candidate.exists():
+        return candidate
+    # Fallback: try zero-padded month
+    tag2 = f"{dt.month:02d}.{dt.day:02d}.{dt.strftime('%y')}"
+    candidate2 = bt_dir / f"{tag2}_nhl_backtest.xlsx"
+    return candidate2 if candidate2.exists() else None
+
+
+def _load_backtest_actuals(xlsx_path):
+    """Load the Projection sheet from a backtest xlsx and return a dict keyed by lowercase name.
+
+    Each value has keys: actual_fpts, actual_ownership (as percentage, e.g. 18.2).
+    """
+    try:
+        df = pd.read_excel(xlsx_path, sheet_name="Projection")
+    except Exception:
+        return {}
+    out = {}
+    for _, r in df.iterrows():
+        name = str(r.get("name", "")).strip()
+        if not name:
+            continue
+        actual = float(r["actual"]) if pd.notna(r.get("actual")) else None
+        own_raw = r.get("own")
+        own_pct = round(float(own_raw) * 100, 1) if pd.notna(own_raw) and own_raw != 0 else None
+        out[name.lower()] = {"actual_fpts": actual, "actual_ownership": own_pct}
+    return out
+
+
 def _latest_lines_path():
     """Latest lines_*.json or lines_{today}.json."""
     d = _projections_dir()
@@ -340,58 +443,77 @@ def _position_to_slot_type(pos):
 
 def _assign_slots_by_position(lineup_out):
     """
-    Reassign roster slots from each player's actual position so the goalie
-    gets G (not C) and every player is in the correct slot. Handles CSVs
-    that were exported with columns in the wrong order.
+    Reassign roster slots so the goalie gets G (not C) and skaters fill
+    C/W/D/UTIL correctly.  Handles CSVs where columns don't match DK slot
+    order and lineups with more of one position than there are natural slots
+    (e.g. 4 centers → 2C + overflow into W/UTIL).
     """
-    # Bucket by slot type from position
-    goalies = []
-    centers = []
-    wings = []
-    defense = []
-    other = []
+    # Separate goalie from skaters
+    goalie = None
+    skaters = []
     for rec in lineup_out:
-        pos = rec.get("position")
-        slot_type = _position_to_slot_type(pos)
-        if slot_type == "G":
-            goalies.append(rec)
-        elif slot_type == "C":
-            centers.append(rec)
-        elif slot_type == "W":
-            wings.append(rec)
-        elif slot_type == "D":
-            defense.append(rec)
+        if _position_to_slot_type(rec.get("position")) == "G" and goalie is None:
+            goalie = rec
         else:
-            other.append(rec)
-    # Assign slots: 1 G, 2 C, 3 W, 2 D, 1 UTIL (any skater)
+            skaters.append(rec)
+
+    # DK slot order for 8 skater slots: C, C, W, W, W, D, D, UTIL
+    SKATER_SLOTS = ["C", "C", "W", "W", "W", "D", "D", "UTIL"]
+
+    # Greedily assign: try to put each skater in its natural slot first
+    slot_counts = {"C": 0, "W": 0, "D": 0}
+    slot_limits = {"C": 2, "W": 3, "D": 2}
+    assigned = []
+    overflow = []
+
+    for sk in skaters:
+        st = _position_to_slot_type(sk.get("position"))
+        if st and st in slot_counts and slot_counts[st] < slot_limits[st]:
+            sk["slot"] = st
+            slot_counts[st] += 1
+            assigned.append(sk)
+        else:
+            overflow.append(sk)
+
+    # Fill remaining empty natural slots with overflow, then UTIL
+    for st in ["C", "W", "D"]:
+        while slot_counts[st] < slot_limits[st] and overflow:
+            p = overflow.pop(0)
+            p["slot"] = st
+            slot_counts[st] += 1
+            assigned.append(p)
+
+    # First remaining overflow player becomes UTIL
+    if overflow:
+        overflow[0]["slot"] = "UTIL"
+        assigned.append(overflow.pop(0))
+
+    # Any further overflow (shouldn't happen with 8 skaters) gets appended
+    for p in overflow:
+        p["slot"] = "UTIL"
+        assigned.append(p)
+
+    # Build final list with display_order: C, C, W, W, W, D, D, G, UTIL
     out = []
     idx = 0
-    for g in goalies[:1]:
-        g["slot"] = "G"
-        g["display_order"] = 7
-        out.append(g)
-    for c in centers[:2]:
-        c["slot"] = "C"
-        c["display_order"] = idx
-        idx += 1
-        out.append(c)
-    for w in wings[:3]:
-        w["slot"] = "W"
-        w["display_order"] = idx
-        idx += 1
-        out.append(w)
-    for d in defense[:2]:
-        d["slot"] = "D"
-        d["display_order"] = idx
-        idx += 1
-        out.append(d)
-    # UTIL = one remaining skater (C, W, or D)
-    util_pool = centers[2:] + wings[3:] + defense[2:] + other
-    for u in util_pool[:1]:
-        u["slot"] = "UTIL"
-        u["display_order"] = 8
-        out.append(u)
-    # Sort by display order: C, C, W, W, W, D, D, G, UTIL
+    for slot_type in ["C", "W", "D"]:
+        for p in assigned:
+            if p["slot"] == slot_type:
+                p["display_order"] = idx
+                idx += 1
+                out.append(p)
+        assigned = [p for p in assigned if p not in out or p["slot"] != slot_type]
+
+    if goalie:
+        goalie["slot"] = "G"
+        goalie["display_order"] = 7
+        out.append(goalie)
+
+    for p in assigned:
+        if p not in out:
+            p["display_order"] = 8
+            out.append(p)
+
     out.sort(key=lambda x: (x.get("display_order", 9), x.get("name", "")))
     return out
 
@@ -459,6 +581,132 @@ def api_lineup():
     return jsonify({
         "lineup": lineup_out,
         "totals": {"salary": total_salary, "projected_fpts": total_proj},
+    })
+
+
+def _match_lineup_player_to_actual(rec, actuals_df):
+    """Match a lineup player (name, team) to actuals row; return actual_fpts or None."""
+    if actuals_df.empty or rec.get("name") is None or rec.get("team") is None:
+        return None
+    name = str(rec["name"]).strip()
+    team = str(rec["team"]).strip()
+    last_name = name.split()[-1] if name else ""
+    if not last_name:
+        return None
+    cand = actuals_df[(actuals_df["team"] == team) & (actuals_df["last_name"] == last_name)]
+    if len(cand) == 1:
+        return float(cand.iloc[0]["actual_fpts"])
+    if len(cand) > 1:
+        for _, row in cand.iterrows():
+            if row["name"] and name.endswith(" " + row["last_name"]):
+                return float(row["actual_fpts"])
+        return float(cand.iloc[0]["actual_fpts"])
+    return None
+
+
+def _dk_salary_path_for_slate(slate_date):
+    """Find daily_salaries/DKSalaries_M.DD.YY.csv for a YYYY-MM-DD slate date."""
+    try:
+        from datetime import datetime as _dt
+        dt = _dt.strptime(slate_date, "%Y-%m-%d")
+        tag = f"{dt.month}.{dt.day:02d}.{dt.strftime('%y')}"
+    except (ValueError, TypeError):
+        return None
+    sal_dir = PROJECT_ROOT / "daily_salaries"
+    if not sal_dir.exists():
+        return None
+    candidate = sal_dir / f"DKSalaries_{tag}.csv"
+    return candidate if candidate.exists() else None
+
+
+@app.route("/api/last_night_lineup")
+def api_last_night_lineup():
+    """Return last night's lineup with projections, actuals, and ownership from the backtest xlsx."""
+    lineup_path, slate_date = _last_night_lineup_path()
+    if not lineup_path or not slate_date:
+        return jsonify({
+            "date": None, "lineup": [], "totals": {},
+            "error": "No past-slate lineup file found.",
+        })
+
+    # Read lineup CSV (DK IDs)
+    df_lineup = pd.read_csv(lineup_path)
+    if df_lineup.empty:
+        return jsonify({"date": slate_date, "lineup": [], "totals": {}, "error": "Lineup file empty."})
+    row = df_lineup.iloc[0]
+    dk_ids = []
+    for i in range(min(9, len(row))):
+        val = row.iloc[i]
+        try:
+            dk_ids.append(int(val) if pd.notna(val) and str(val).replace(".0", "").isdigit() else None)
+        except (ValueError, TypeError):
+            dk_ids.append(None)
+
+    # Resolve DK IDs to names via salary file
+    id_to_name = {}
+    sal_path = _dk_salary_path_for_slate(slate_date)
+    if sal_path:
+        try:
+            dk_sal = pd.read_csv(sal_path)
+            if "ID" in dk_sal.columns and "Name" in dk_sal.columns:
+                for _, sr in dk_sal.iterrows():
+                    if pd.notna(sr["ID"]):
+                        id_to_name[int(sr["ID"])] = str(sr["Name"]).strip()
+        except Exception:
+            pass
+
+    # Load backtest xlsx for actuals + ownership (primary source)
+    xlsx_path = _backtest_xlsx_for_slate(slate_date)
+    bt_data = {}  # keyed by lowercase name
+    if xlsx_path:
+        bt_data = _load_backtest_actuals(xlsx_path)
+        # Also load full projection data from the xlsx Projection sheet
+        try:
+            bt_proj = pd.read_excel(xlsx_path, sheet_name="Projection")
+            for _, r in bt_proj.iterrows():
+                name = str(r.get("name", "")).strip()
+                if not name:
+                    continue
+                key = name.lower()
+                if key not in bt_data:
+                    bt_data[key] = {}
+                bt_data[key]["team"] = r.get("team")
+                bt_data[key]["position"] = r.get("position")
+                bt_data[key]["salary"] = float(r["salary"]) if pd.notna(r.get("salary")) else None
+                bt_data[key]["projected_fpts"] = float(r["projected_fpts"]) if pd.notna(r.get("projected_fpts")) else None
+        except Exception:
+            pass
+
+    # Build lineup records
+    lineup_out = []
+    for i, dk_id in enumerate(dk_ids):
+        rec = {
+            "slot": DK_SLOT_ORDER[i] if i < len(DK_SLOT_ORDER) else "UTIL",
+            "name": None, "team": None, "position": None, "salary": None,
+            "projected_fpts": None, "predicted_ownership": None,
+            "actual_fpts": None, "actual_ownership": None,
+            "display_order": i,
+        }
+        name = id_to_name.get(dk_id) if dk_id else None
+        if name:
+            rec["name"] = name
+            entry = bt_data.get(name.lower(), {})
+            rec["team"] = entry.get("team")
+            rec["position"] = entry.get("position")
+            rec["salary"] = entry.get("salary")
+            rec["projected_fpts"] = entry.get("projected_fpts")
+            rec["actual_fpts"] = entry.get("actual_fpts")
+            rec["actual_ownership"] = entry.get("actual_ownership")
+        lineup_out.append(rec)
+
+    lineup_out = _assign_slots_by_position(lineup_out)
+    total_proj = sum(x["projected_fpts"] or 0 for x in lineup_out)
+    total_actual = sum(x["actual_fpts"] or 0 for x in lineup_out)
+    return jsonify({
+        "date": slate_date,
+        "lineup": lineup_out,
+        "totals": {"projected_fpts": total_proj, "actual_fpts": total_actual},
+        "error": None,
     })
 
 

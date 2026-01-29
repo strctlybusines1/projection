@@ -61,6 +61,13 @@
       </select>
       <div id="lines-content"></div>
     </section>
+
+    <section class="section full-width" id="last-night-section">
+      <h2>Last night's lineup</h2>
+      <div id="last-night-source" class="source"></div>
+      <div id="last-night-totals" class="totals-line"></div>
+      <div id="last-night-content"></div>
+    </section>
   </div>
 
   <script>
@@ -166,6 +173,38 @@
       wrap.innerHTML = '<p class="loading">Select a team above.</p>';
     }
 
+    function renderLastNightLineup(data) {
+      const wrap = el('last-night-content');
+      const src = el('last-night-source');
+      const tot = el('last-night-totals');
+      if (data.error && !data.lineup?.length) {
+        tot.textContent = '';
+        src.textContent = data.error || '';
+        wrap.innerHTML = '<p class="error">' + (data.error || 'No last night lineup.') + '</p>';
+        return;
+      }
+      const lineup = data.lineup || [];
+      const date = data.date || '';
+      const totals = data.totals || {};
+      src.textContent = date ? 'Slate date: ' + date + '.' : '';
+      tot.textContent = 'Proj total: ' + (totals.projected_fpts != null ? Number(totals.projected_fpts).toFixed(1) : '—') + ' pts  |  Actual total: ' + (totals.actual_fpts != null ? Number(totals.actual_fpts).toFixed(1) : '—') + ' pts';
+      const ordered = lineup.slice().sort(function(a, b) {
+        const oa = a.display_order != null ? a.display_order : 9;
+        const ob = b.display_order != null ? b.display_order : 9;
+        return oa - ob;
+      });
+      let html = '<table><thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>Pos</th><th class="num">Proj</th><th class="num">Own%</th><th class="num">Actual</th><th class="num">Act Own%</th></tr></thead><tbody>';
+      ordered.forEach(function(p) {
+        const own = p.predicted_ownership != null ? (Number(p.predicted_ownership).toFixed(1) + '%') : '—';
+        const actOwn = p.actual_ownership != null ? (Number(p.actual_ownership).toFixed(1) + '%') : '—';
+        const proj = p.projected_fpts != null ? Number(p.projected_fpts).toFixed(1) : '—';
+        const actual = p.actual_fpts != null ? Number(p.actual_fpts).toFixed(1) : '—';
+        html += '<tr><td>' + (p.slot || '') + '</td><td>' + (p.name || '—') + '</td><td>' + (p.team || '') + '</td><td>' + (p.slot || '') + '</td><td class="num">' + proj + '</td><td class="num">' + own + '</td><td class="num accent">' + actual + '</td><td class="num">' + actOwn + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+    }
+
     function renderLineup(data) {
       const wrap = el('lineup-content');
       const tot = el('lineup-totals');
@@ -209,12 +248,13 @@
 
     async function load() {
       try {
-        const [odds, projections, lines, lineup, mae] = await Promise.all([
+        const [odds, projections, lines, lineup, mae, lastNight] = await Promise.all([
           fetchJson('/api/odds'),
           fetchJson('/api/projections'),
           fetchJson('/api/lines'),
           fetchJson('/api/lineup'),
-          fetchJson('/api/mae')
+          fetchJson('/api/mae'),
+          fetchJson('/api/last_night_lineup')
         ]);
         renderOdds(odds);
         projectionsCache = projections;
@@ -222,6 +262,7 @@
         renderLines(lines);
         renderLineup(lineup);
         renderMae(mae);
+        renderLastNightLineup(lastNight);
       } catch (e) {
         el('odds-content').innerHTML = '<p class="error">Failed to load: ' + e.message + '</p>';
       }
