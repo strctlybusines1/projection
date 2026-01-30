@@ -173,7 +173,8 @@ class NHLLineupOptimizer:
             if mode == 'gpp':
                 lineup = self._build_gpp_lineup(
                     df, max_from_team, min_stack_size,
-                    stack_teams, secondary_stack_team, force_players
+                    stack_teams, secondary_stack_team, force_players,
+                    randomness=randomness
                 )
             else:
                 lineup = self._build_cash_lineup(df, max_from_team, force_players)
@@ -206,7 +207,8 @@ class NHLLineupOptimizer:
                           min_stack_size: int,
                           stack_teams: List[str] = None,
                           secondary_stack_team: str = None,
-                          force_players: List[str] = None) -> Optional[pd.DataFrame]:
+                          force_players: List[str] = None,
+                          randomness: float = 0.0) -> Optional[pd.DataFrame]:
         """
         Build GPP lineup with enforced stacking strategy.
 
@@ -226,7 +228,8 @@ class NHLLineupOptimizer:
         else:
             # Choose from top 3 teams with some randomness
             top_teams = team_proj.head(5).index.tolist()
-            weights = [0.4, 0.25, 0.15, 0.12, 0.08][:len(top_teams)]
+            weights = np.array([0.4, 0.25, 0.15, 0.12, 0.08][:len(top_teams)])
+            weights = weights / weights.sum()  # Normalize in case fewer than 5 teams
             primary_team = np.random.choice(top_teams, p=weights)
 
         # Select secondary stack team
@@ -313,53 +316,52 @@ class NHLLineupOptimizer:
                 # Remove opponent players from consideration
                 df = df[df['team'].str.upper() != goalie_opponent.upper()]
 
-        # Step 2: Build primary stack (target 4-5 players)
-        primary_players = df[df['team'] == primary_team].copy()
-        primary_skaters = primary_players[primary_players['norm_position'] != 'G']
-
-        # Apply linemate boosts if we have stack builder
-        if self.stack_builder:
-            primary_skaters = self._apply_linemate_boosts(primary_skaters, primary_team)
-
-        primary_skaters = primary_skaters.sort_values('adj_projection', ascending=False)
-
-        # Add primary stack players (target PREFERRED_PRIMARY_STACK_SIZE)
-        primary_target = min(PREFERRED_PRIMARY_STACK_SIZE, max_from_team - team_counts.get(primary_team, 0))
-        primary_added = 0
+        # Stack cache: avoid repeated fuzzy matching across primary/secondary lookups
+        _stack_cache = {}
 
         # Minimum salary reserved per remaining spot (cheapest skaters ~$2,500)
         MIN_FILL_SALARY = 2500
 
-        for _, player in primary_skaters.iterrows():
-            if primary_added >= primary_target:
-                break
-            if can_add_player(player):
-                # Check salary feasibility: can we still fill remaining spots?
-                spots_after = 9 - len(lineup) - 1  # spots left after adding this player
-                budget_after = remaining_salary - player['salary']
-                if budget_after < spots_after * MIN_FILL_SALARY:
-                    continue  # Skip expensive player, try cheaper option
-                pos = player['norm_position']
-                slot = self._get_available_slot(pos, lineup)
-                if slot:
-                    add_player(player, slot)
-                    primary_added += 1
+        # Step 2: Build primary stack (target 4-5 players) using line correlation
+        primary_target = min(PREFERRED_PRIMARY_STACK_SIZE, max_from_team - team_counts.get(primary_team, 0))
+        primary_added = 0
 
-        # Step 3: Build secondary stack (target 2-3 players)
-        if secondary_team:
-            secondary_players = df[df['team'] == secondary_team].copy()
-            secondary_skaters = secondary_players[secondary_players['norm_position'] != 'G']
+        # Try correlated stack players first (PP1 > Line1+D1 > Line1)
+        correlated_names = self._get_correlated_stack_players(
+            primary_team, df, primary_target, 'primary', randomness, _stack_cache
+        )
+
+        if correlated_names:
+            for name in correlated_names:
+                if primary_added >= primary_target:
+                    break
+                match = df[df['name'] == name]
+                if match.empty:
+                    continue
+                player = match.iloc[0]
+                if can_add_player(player):
+                    spots_after = 9 - len(lineup) - 1
+                    budget_after = remaining_salary - player['salary']
+                    if budget_after < spots_after * MIN_FILL_SALARY:
+                        continue
+                    pos = player['norm_position']
+                    slot = self._get_available_slot(pos, lineup)
+                    if slot:
+                        add_player(player, slot)
+                        primary_added += 1
+
+        # Fallback: fill remaining primary slots with top projected skaters from team
+        if primary_added < primary_target:
+            primary_players = df[df['team'] == primary_team].copy()
+            primary_skaters = primary_players[primary_players['norm_position'] != 'G']
 
             if self.stack_builder:
-                secondary_skaters = self._apply_linemate_boosts(secondary_skaters, secondary_team)
+                primary_skaters = self._apply_linemate_boosts(primary_skaters, primary_team)
 
-            secondary_skaters = secondary_skaters.sort_values('adj_projection', ascending=False)
+            primary_skaters = primary_skaters.sort_values('adj_projection', ascending=False)
 
-            secondary_target = PREFERRED_SECONDARY_STACK_SIZE
-            secondary_added = 0
-
-            for _, player in secondary_skaters.iterrows():
-                if secondary_added >= secondary_target:
+            for _, player in primary_skaters.iterrows():
+                if primary_added >= primary_target:
                     break
                 if can_add_player(player):
                     spots_after = 9 - len(lineup) - 1
@@ -370,7 +372,60 @@ class NHLLineupOptimizer:
                     slot = self._get_available_slot(pos, lineup)
                     if slot:
                         add_player(player, slot)
-                        secondary_added += 1
+                        primary_added += 1
+
+        # Step 3: Build secondary stack (target 2-3 players) using line correlation
+        if secondary_team:
+            secondary_target = PREFERRED_SECONDARY_STACK_SIZE
+            secondary_added = 0
+
+            # Try correlated stack players first (Line1 > Line2 > PP1)
+            correlated_names = self._get_correlated_stack_players(
+                secondary_team, df, secondary_target, 'secondary', randomness, _stack_cache
+            )
+
+            if correlated_names:
+                for name in correlated_names:
+                    if secondary_added >= secondary_target:
+                        break
+                    match = df[df['name'] == name]
+                    if match.empty:
+                        continue
+                    player = match.iloc[0]
+                    if can_add_player(player):
+                        spots_after = 9 - len(lineup) - 1
+                        budget_after = remaining_salary - player['salary']
+                        if budget_after < spots_after * MIN_FILL_SALARY:
+                            continue
+                        pos = player['norm_position']
+                        slot = self._get_available_slot(pos, lineup)
+                        if slot:
+                            add_player(player, slot)
+                            secondary_added += 1
+
+            # Fallback: fill remaining secondary slots with top projected skaters from team
+            if secondary_added < secondary_target:
+                secondary_players = df[df['team'] == secondary_team].copy()
+                secondary_skaters = secondary_players[secondary_players['norm_position'] != 'G']
+
+                if self.stack_builder:
+                    secondary_skaters = self._apply_linemate_boosts(secondary_skaters, secondary_team)
+
+                secondary_skaters = secondary_skaters.sort_values('adj_projection', ascending=False)
+
+                for _, player in secondary_skaters.iterrows():
+                    if secondary_added >= secondary_target:
+                        break
+                    if can_add_player(player):
+                        spots_after = 9 - len(lineup) - 1
+                        budget_after = remaining_salary - player['salary']
+                        if budget_after < spots_after * MIN_FILL_SALARY:
+                            continue
+                        pos = player['norm_position']
+                        slot = self._get_available_slot(pos, lineup)
+                        if slot:
+                            add_player(player, slot)
+                            secondary_added += 1
 
         # Step 4: Fill remaining positions with best available
         remaining_spots = 9 - len(lineup)
@@ -590,6 +645,107 @@ class NHLLineupOptimizer:
         df['adj_projection'] = df['adj_projection'] * df['linemate_boost']
 
         return df
+
+    def _get_correlated_stack_players(self, team: str, player_pool_df: pd.DataFrame,
+                                       target_size: int, stack_preference: str = 'primary',
+                                       randomness: float = 0.0,
+                                       stack_cache: dict = None) -> Optional[List[str]]:
+        """
+        Select players from actual line/PP combinations for correlated stacking.
+
+        Args:
+            team: Team abbreviation
+            player_pool_df: DataFrame with player pool (must have 'name', 'adj_projection', 'norm_position')
+            target_size: Number of players to return
+            stack_preference: 'primary' (PP1 > Line1+D1 > Line1) or 'secondary' (Line1 > Line2 > PP1)
+            randomness: If > 0, occasionally shuffles stack priority order
+            stack_cache: Optional dict to cache get_best_stacks() results per team
+
+        Returns:
+            List of player names from the best matching stack, or None if unavailable
+        """
+        if not self.stack_builder:
+            return None
+
+        # Check cache first
+        if stack_cache is not None and team in stack_cache:
+            stacks = stack_cache[team]
+        else:
+            stacks = self.stack_builder.get_best_stacks(team, player_pool_df)
+            if stack_cache is not None:
+                stack_cache[team] = stacks
+
+        if not stacks:
+            return None
+
+        # Build lookup by stack type
+        stack_by_type = {}
+        for s in stacks:
+            stack_by_type[s['type']] = s
+
+        # Define priority order based on preference
+        if stack_preference == 'primary':
+            priority = ['PP1', 'Line1+D1', 'Line1']
+        else:  # secondary
+            priority = ['Line1', 'Line2', 'PP1']
+
+        # With randomness > 0, occasionally shuffle the priority order
+        if randomness > 0 and np.random.random() < randomness:
+            np.random.shuffle(priority)
+
+        # Try each stack type in priority order
+        for stack_type in priority:
+            stack = stack_by_type.get(stack_type)
+            if not stack:
+                continue
+
+            matched_players = stack.get('matched_players', [])
+            if not matched_players:
+                # Fall back to raw player names with fuzzy matching
+                from lines import find_player_match
+                pool_names = player_pool_df['name'].tolist()
+                matched_players = []
+                for p in stack.get('players', []):
+                    match = find_player_match(p, pool_names)
+                    if match:
+                        matched_players.append(match)
+
+            if len(matched_players) < target_size:
+                # Not enough matched players from this stack type, try next
+                continue
+
+            # Sort matched players by adj_projection and return top target_size
+            matched_df = player_pool_df[player_pool_df['name'].isin(matched_players)].copy()
+            matched_df = matched_df.sort_values('adj_projection', ascending=False)
+            return matched_df['name'].head(target_size).tolist()
+
+        # No stack type had enough matched players
+        # Try returning partial from best available stack (most matched players)
+        best_stack = None
+        best_count = 0
+        for stack_type in priority:
+            stack = stack_by_type.get(stack_type)
+            if not stack:
+                continue
+            matched_players = stack.get('matched_players', [])
+            if not matched_players:
+                from lines import find_player_match
+                pool_names = player_pool_df['name'].tolist()
+                matched_players = []
+                for p in stack.get('players', []):
+                    match = find_player_match(p, pool_names)
+                    if match:
+                        matched_players.append(match)
+            if len(matched_players) > best_count:
+                best_count = len(matched_players)
+                best_stack = matched_players
+
+        if best_stack and len(best_stack) >= 2:
+            matched_df = player_pool_df[player_pool_df['name'].isin(best_stack)].copy()
+            matched_df = matched_df.sort_values('adj_projection', ascending=False)
+            return matched_df['name'].head(target_size).tolist()
+
+        return None
 
     def _get_available_slot(self, position: str, lineup: List[Dict]) -> Optional[str]:
         """Get the next available roster slot for a position."""

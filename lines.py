@@ -436,6 +436,41 @@ class StackBuilder:
 
                 stacks.append(stack)
 
+        # Line1+D1 composite stack (3F from Line1 + 2D from D-pair 1 = 5 players)
+        line1_data = None
+        d1_data = None
+        for line in data.get('forward_lines', []):
+            if line.get('line') == 1:
+                line1_data = line
+                break
+        for pair in data.get('defense_pairs', []):
+            if pair.get('pair') == 1:
+                d1_data = pair
+                break
+
+        if line1_data and d1_data:
+            combo_players = line1_data.get('players', []) + d1_data.get('players', [])
+            stack = {
+                'type': 'Line1+D1',
+                'team': team,
+                'players': combo_players,
+                'correlation': 0.75,  # Blended: Line1 0.85 + D1-Line1 cross ~0.50
+            }
+
+            if projections_df is not None and not projections_df.empty:
+                matched = []
+                for p in combo_players:
+                    match = find_player_match(p, projections_df['name'].tolist())
+                    if match:
+                        matched.append(match)
+
+                if matched:
+                    proj_sum = projections_df[projections_df['name'].isin(matched)]['projected_fpts'].sum()
+                    stack['projected_total'] = proj_sum
+                    stack['matched_players'] = matched
+
+            stacks.append(stack)
+
         # Line 2 stack
         for line in data.get('forward_lines', []):
             if line.get('line') == 2:
@@ -446,6 +481,19 @@ class StackBuilder:
                     'players': players,
                     'correlation': 0.70,
                 }
+
+                if projections_df is not None and not projections_df.empty:
+                    matched = []
+                    for p in players:
+                        match = find_player_match(p, projections_df['name'].tolist())
+                        if match:
+                            matched.append(match)
+
+                    if matched:
+                        proj_sum = projections_df[projections_df['name'].isin(matched)]['projected_fpts'].sum()
+                        stack['projected_total'] = proj_sum
+                        stack['matched_players'] = matched
+
                 stacks.append(stack)
 
         return stacks
