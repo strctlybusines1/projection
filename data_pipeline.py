@@ -145,6 +145,22 @@ class NHLDataPipeline:
     # ==================== Recent Game Scoring ====================
 
     @staticmethod
+    def _parse_toi_minutes(toi_str) -> Optional[float]:
+        """Convert TOI string "MM:SS" to float minutes (e.g. "20:15" -> 20.25).
+
+        Returns None if the string is missing or unparseable.
+        """
+        if not toi_str or not isinstance(toi_str, str):
+            return None
+        try:
+            parts = toi_str.split(':')
+            minutes = int(parts[0])
+            seconds = int(parts[1]) if len(parts) > 1 else 0
+            return minutes + seconds / 60.0
+        except (ValueError, IndexError):
+            return None
+
+    @staticmethod
     def _calculate_game_dk_fpts(game: Dict) -> float:
         """Calculate DraftKings fantasy points from a single game log entry.
 
@@ -187,6 +203,7 @@ class NHLDataPipeline:
                 'last_1_game_fpts': float,
                 'last_3_avg_fpts': float,
                 'last_5_avg_fpts': float,
+                'last_3_avg_toi_min': float or None,  # avg TOI in minutes over last 3 games
             }
         """
         results = {}
@@ -203,6 +220,16 @@ class NHLDataPipeline:
                 # Games are returned most-recent first; compute DK FPTS for each
                 fpts_list = [self._calculate_game_dk_fpts(g) for g in games[:5]]
 
+                # Parse TOI from last 3 games (Feature 6)
+                toi_values = []
+                for g in games[:3]:
+                    toi_min = self._parse_toi_minutes(g.get('toi'))
+                    if toi_min is not None:
+                        toi_values.append(toi_min)
+                last_3_avg_toi = (
+                    sum(toi_values) / len(toi_values) if toi_values else None
+                )
+
                 results[pid] = {
                     'last_1_game_fpts': fpts_list[0] if len(fpts_list) >= 1 else 0.0,
                     'last_3_avg_fpts': (
@@ -213,6 +240,7 @@ class NHLDataPipeline:
                         sum(fpts_list[:5]) / min(5, len(fpts_list))
                         if fpts_list else 0.0
                     ),
+                    'last_3_avg_toi_min': last_3_avg_toi,
                 }
             except Exception as e:
                 # Skip individual failures silently to avoid spamming output

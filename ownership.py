@@ -79,6 +79,13 @@ class OwnershipConfig:
     recency_warm_boost: float = 1.15     # last_3_avg > 10
     recency_cold_penalty: float = 0.7    # last_3_avg < 5
 
+    # TOI surge multipliers (Feature 6) — interaction with role
+    toi_surge_role_boost: float = 1.5    # TOI surge (>2min) + Line1 + PP1
+    toi_surge_pp1_boost: float = 1.25   # TOI surge + PP1 only
+    toi_surge_line1_boost: float = 1.15  # TOI surge + Line1 only
+    toi_surge_solo_boost: float = 1.1    # TOI surge alone (weak signal)
+    toi_drop_penalty: float = 0.85       # TOI drop (>2min below avg) = demotion
+
     # Composite multiplier safety cap
     composite_cap: float = 5.0    # max composite multiplier
     composite_floor: float = 0.1  # min composite multiplier
@@ -100,6 +107,7 @@ class OwnershipModel:
         self.injury_data = None
         self.target_date = None
         self.recent_scores = None
+        self.toi_surge_map = None
 
     def set_lines_data(self, lines_data: Dict, confirmed_goalies: Dict = None):
         """Set line combination data for PP1/Line1 boosts."""
@@ -133,6 +141,14 @@ class OwnershipModel:
             }
         """
         self.recent_scores = recent_scores or {}
+
+    def set_toi_surge_data(self, toi_surge_map: Dict[str, float]):
+        """Set per-player TOI delta (recent avg minus season avg, in minutes).
+
+        Args:
+            toi_surge_map: player name -> TOI delta in minutes (positive = surge)
+        """
+        self.toi_surge_map = toi_surge_map or {}
 
     def _get_base_ownership(self, salary: float) -> float:
         """Get base ownership from salary curve."""
@@ -332,14 +348,18 @@ class OwnershipModel:
             # 2. Position/role multipliers
             multiplier = 1.0
 
+            # Cache role checks for reuse in TOI surge (Feature 6)
+            is_pp1 = self._is_pp1(name, team)
+            is_line1 = self._is_line1(name, team)
+
             # PP1 boost (biggest ownership driver)
-            if self._is_pp1(name, team):
+            if is_pp1:
                 multiplier *= self.config.pp1_boost
             elif self._is_pp2(name, team):
                 multiplier *= self.config.pp2_boost
 
             # Line 1 boost
-            if self._is_line1(name, team):
+            if is_line1:
                 multiplier *= self.config.line1_boost
 
             # 3. Goalie confirmation (critical)
@@ -439,6 +459,21 @@ class OwnershipModel:
                 elif last_3 < 5:
                     recency_mult = min(recency_mult, self.config.recency_cold_penalty)
                 multiplier *= recency_mult
+
+            # 12. TOI surge (Feature 6) — interaction with role
+            if self.toi_surge_map:
+                toi_delta = self.toi_surge_map.get(name, 0)
+                if toi_delta > 2.0:  # 2+ minute surge
+                    if is_pp1 and is_line1:
+                        multiplier *= self.config.toi_surge_role_boost      # 1.5x
+                    elif is_pp1:
+                        multiplier *= self.config.toi_surge_pp1_boost       # 1.25x
+                    elif is_line1:
+                        multiplier *= self.config.toi_surge_line1_boost     # 1.15x
+                    else:
+                        multiplier *= self.config.toi_surge_solo_boost      # 1.1x
+                elif toi_delta < -2.0:  # 2+ minute drop
+                    multiplier *= self.config.toi_drop_penalty              # 0.85x
 
             # Apply composite multiplier cap (safety)
             multiplier = max(self.config.composite_floor,

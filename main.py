@@ -976,6 +976,23 @@ def main():
     if recent_scores:
         ownership_model.set_recent_scores(recent_scores)
 
+    # Feature 6: TOI surge map (player name -> delta in minutes)
+    toi_surge_map = {}
+    if recent_scores and 'toi_per_game' in player_pool.columns:
+        for _, row in player_pool.iterrows():
+            pid = row.get('player_id')
+            if pid and pid in recent_scores:
+                recent_toi = recent_scores[pid].get('last_3_avg_toi_min')
+                season_toi = row.get('toi_per_game')
+                if recent_toi and season_toi and season_toi > 0:
+                    # season toi may be in seconds (>100) or minutes
+                    season_min = season_toi / 60.0 if season_toi > 100 else season_toi
+                    toi_surge_map[row['name']] = recent_toi - season_min
+
+    if toi_surge_map:
+        ownership_model.set_toi_surge_data(toi_surge_map)
+        print(f"  TOI surge data set for {len(toi_surge_map)} players")
+
     player_pool = ownership_model.predict_ownership(player_pool)
     print_ownership_report(player_pool)
 
