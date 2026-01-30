@@ -495,6 +495,9 @@ def print_vegas_ranking(vegas_path: str = None):
     - PRIMARY TARGET for highest total
     - SECONDARY for 2nd highest
     - TERTIARY for 3rd highest
+
+    Returns:
+        List of game dicts (same as get_vegas_games) for reuse by caller.
     """
     print(f"\n{'=' * 80}")
     print(" VEGAS GAME RANKING (by Game Total)")
@@ -510,7 +513,7 @@ def print_vegas_ranking(vegas_path: str = None):
     if not games:
         msg = api_err or "No Vegas data available"
         print(f"  {msg}")
-        return
+        return []
 
     if api_err is None:
         print("  Source: The Odds API (live)")
@@ -543,6 +546,7 @@ def print_vegas_ranking(vegas_path: str = None):
         print(f"  {matchup:<40} Total: {total}{tt_str}{spread}{ml}")
 
     print()
+    return games or []
 
 
 def _load_vegas_csv(vegas_path: str):
@@ -824,10 +828,9 @@ def main():
             vegas_files = list(dict.fromkeys(vegas_files))  # dedupe
             if vegas_files:
                 csv_fallback = str(vegas_files[-1])
-    print_vegas_ranking(csv_fallback)
+    vegas_games = print_vegas_ranking(csv_fallback)
 
-    # Capture Vegas data for ownership model (Feature 1)
-    vegas_games = get_vegas_games(csv_fallback)
+    # Build Vegas team total map for ownership model (Feature 1)
     team_totals, team_game_totals = build_team_total_map(vegas_games)
     if team_totals:
         print(f"  Vegas team totals mapped for {len(team_totals)} teams")
