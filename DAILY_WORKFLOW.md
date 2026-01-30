@@ -460,13 +460,14 @@ python backtest.py --players 75
 | 35+ Saves Bonus | +3.0 |
 
 ### Bias Corrections (projections.py)
-| Position | Correction |
-|----------|------------|
-| C | 0.97 (-3%) |
-| L/LW | 0.96 (-4%) |
-| R/RW | 1.01 (+1%) |
-| D | 0.95 (-5%) |
-| G | 1.05 (+5%) |
+| Position | Correction | Note |
+|----------|------------|------|
+| C | 0.95 (-5%) | Over-projected by ~1.58 pts |
+| L/LW/R/RW/W | 0.94 (-6%) | Over-projected by ~1.85 pts |
+| D | 0.93 (-7%) | Over-projected by ~1.14 pts |
+| G | 0.93 (-7%) | Over-projected by ~2.40 pts |
+
+*Global bias correction (0.97) also applies to skaters on top of position correction.*
 
 ---
 
@@ -514,19 +515,29 @@ config.py (no dependencies)
 
 ## Current Model Performance
 
-### Projection Accuracy (as of 1/24/26)
+### Projection Accuracy (as of 1/29/26)
 | Metric | Skaters | Goalies | Overall |
 |--------|---------|---------|---------|
-| MAE | 4.78 | 5.28 | 4.81 |
-| Correlation | 0.354 | 0.310 | 0.372 |
-| Bias | +1.71 | -1.78 | +1.55 |
+| MAE | 4.93 | 6.48 | 5.01 |
+| Correlation | 0.406 | 0.305 | 0.406 |
+| Bias | -1.52 | -2.40 | -1.57 |
 
-### Ownership Accuracy (as of 1/24/26)
+*Negative bias = model over-projects (predicts higher than actual)*
+
+### Ownership Accuracy (as of 1/29/26)
 | Metric | Value |
 |--------|-------|
-| MAE | 2.16% |
-| Correlation | 0.607 |
-| Bias | -0.27% |
+| MAE | 1.14% |
+| Correlation | 0.541 |
+| Bias | -0.04% |
+
+### Season-Long Backtest (top 75 skaters)
+| Model | MAE | Corr |
+|-------|-----|------|
+| TabPFN (pooled) | **6.97** | 0.108 |
+| 10-game avg | 7.11 | 0.166 |
+| 5-game avg | 7.44 | 0.113 |
+| 3-game avg | 7.76 | 0.099 |
 
 ---
 
@@ -544,4 +555,4 @@ config.py (no dependencies)
 
 ---
 
-*Last Updated: January 26, 2026*
+*Last Updated: January 30, 2026*

@@ -492,21 +492,33 @@ W | Eetu Luostarinen | 7.1 | Punt play
 
 *Kept from original plan but de-prioritized for GPP focus*
 
-### Current Baseline (2-day sample: 1/22-1/23/26)
-- Overall MAE: 4.88 pts
-- Skater MAE: 4.84 pts
-- Goalie MAE: 5.75 pts
-- Correlation: 0.370
+### Current Baseline (1/29/26 slate, 644 players)
+- Overall MAE: 5.01 pts
+- Skater MAE: 4.93 pts (C: 5.19, W: 5.38, D: 4.23)
+- Goalie MAE: 6.48 pts
+- Correlation: 0.406
+- Bias: -1.57 (over-projection)
+- Our model beats FantasyCruncher (MAE 5.01 vs 5.25, Corr 0.406 vs 0.345)
 
-### Bias Corrections (Apply if needed)
+### Season-Long Backtest (top 75 skaters)
+- TabPFN (pooled): MAE 6.97 — **best model** after retraining with cross-player pooling
+- 10-game avg: MAE 7.11
+- 5-game avg: MAE 7.44
+
+### Bias Corrections (Applied 1/30/26)
 
 ```python
+# Global: 0.97 applied to all skaters
 POSITION_BIAS_CORRECTION = {
-    'C': 0.96,   # Centers over-projected by ~1.28 pts
-    'L': 0.95,   # Left wings over-projected by ~1.65 pts
-    'R': 1.01,   # Right wings slightly under-projected
-    'D': 0.94,   # Defensemen over-projected by ~1.56 pts
+    'C': 0.95,   # Centers over-projected by ~1.58 pts
+    'L': 0.94,   # Wings over-projected by ~1.85 pts
+    'LW': 0.94,
+    'R': 0.94,   # Corrected — was 1.01, now matches wing data
+    'RW': 0.94,
+    'W': 0.94,
+    'D': 0.93,   # Defensemen over-projected by ~1.14 pts
 }
+GOALIE_BIAS_CORRECTION = 0.93  # Was 1.05 — flipped after 1/29 data showed -2.40 bias
 ```
 
 ### Floor/Ceiling Calibration
@@ -904,8 +916,8 @@ The system prioritized BOS@NYR (6.5 total) over ANA@EDM (7.0 total) due to injur
 
 ---
 
-*Last Updated: January 27, 2026*
-*Framework based on contest analysis from January 22-26, 2026*
+*Last Updated: January 30, 2026*
+*Framework based on contest analysis from January 22-29, 2026*
 
 ---
 

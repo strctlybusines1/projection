@@ -20,26 +20,26 @@ from config import (
 from features import FeatureEngineer
 
 # ==================== Backtest-Derived Bias Corrections ====================
-# Based on backtest data from 1/22-1/23/26 (445 predictions)
-# Overall skater bias: +1.04 pts (over-projection)
-# Overall goalie bias: -0.86 pts (under-projection)
+# Updated from 1/29/26 backtest (644 predictions, full slate)
+# Overall skater bias: -1.57 pts (over-projection across all positions)
+# Overall goalie bias: -2.40 pts (over-projection, was previously boosted wrong)
 
 GLOBAL_BIAS_CORRECTION = 0.97  # 3% reduction to combat over-projection
 
 # Position-specific bias corrections (skaters)
-# Derived from MAE and bias analysis by position
+# Derived from MAE and bias analysis by position (1/29/26 backtest)
 POSITION_BIAS_CORRECTION = {
-    'C': 0.97,   # Centers over-projected by ~1.28 pts
-    'L': 0.96,   # Left wings over-projected by ~1.65 pts
-    'LW': 0.96,  # Left wings (alternate code)
-    'R': 1.01,   # Right wings slightly under-projected (-0.47 pts)
-    'RW': 1.01,  # Right wings (alternate code)
-    'W': 0.985,  # Generic wing (average of L and R)
-    'D': 0.95,   # Defensemen over-projected by ~1.56 pts
+    'C': 0.95,   # Centers over-projected by ~1.58 pts
+    'L': 0.94,   # Left wings over-projected by ~1.85 pts
+    'LW': 0.94,  # Left wings (alternate code)
+    'R': 0.94,   # Right wings over-projected (previously under, corrected with more data)
+    'RW': 0.94,  # Right wings (alternate code)
+    'W': 0.94,   # Generic wing
+    'D': 0.93,   # Defensemen over-projected by ~1.14 pts
 }
 
-# Goalie bias correction (they're under-projected by ~0.86 pts)
-GOALIE_BIAS_CORRECTION = 1.05  # 5% boost
+# Goalie bias correction (over-projected by ~2.40 pts on 1/29)
+GOALIE_BIAS_CORRECTION = 0.93  # 7% reduction
 
 # Floor multiplier (reduced from 0.4 - 30.5% were below floor)
 FLOOR_MULTIPLIER = 0.25
@@ -60,8 +60,8 @@ class NHLProjectionModel:
         """Initialize TabPFN models (lazy loading)."""
         if not self._models_initialized:
             print("Initializing TabPFN models...")
-            self.skater_model = TabPFNRegressor()
-            self.goalie_model = TabPFNRegressor()
+            self.skater_model = TabPFNRegressor(ignore_pretraining_limits=True)
+            self.goalie_model = TabPFNRegressor(ignore_pretraining_limits=True)
             self._models_initialized = True
             print("Models initialized.")
 
@@ -248,7 +248,7 @@ class NHLProjectionModel:
             expected_pts *= 1.03
 
         # ==================== Backtest Bias Correction ====================
-        # Goalies are under-projected by ~0.86 pts on average
+        # Goalies are over-projected by ~2.40 pts (1/29/26 backtest)
         expected_pts *= GOALIE_BIAS_CORRECTION
 
         # ==================== Goalie Quality Tier ====================

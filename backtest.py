@@ -402,6 +402,7 @@ class NHLBacktester:
         - Games played (experience)
         - Home/away indicator
         - Days rest
+        - Player identity: season average, position encoding
         """
         df = self.prepare_backtest_data(game_logs, player_type)
 
@@ -439,6 +440,17 @@ class NHLBacktester:
         # Trend (recent vs longer term)
         df['trend'] = df['fpts_avg_3'] - df['fpts_avg_10']
 
+        # Player identity features for pooled training
+        # Season expanding average (all prior games for this player)
+        df['season_avg_fpts'] = df.groupby('player_id')['actual_fpts'].transform(
+            lambda x: x.shift(1).expanding(min_periods=1).mean()
+        )
+
+        # Season expanding std
+        df['season_std_fpts'] = df.groupby('player_id')['actual_fpts'].transform(
+            lambda x: x.shift(1).expanding(min_periods=2).std()
+        )
+
         if player_type == 'skater':
             # Shot trend
             if 'shots_avg_3' in df.columns and 'shots_avg_10' in df.columns:
@@ -448,6 +460,18 @@ class NHLBacktester:
             if 'goals_avg_3' in df.columns and 'goals_avg_10' in df.columns:
                 df['goals_trend'] = df['goals_avg_3'] - df['goals_avg_10']
 
+            # Season goal rate
+            if 'goals' in df.columns:
+                df['season_goals_pg'] = df.groupby('player_id')['goals'].transform(
+                    lambda x: x.shift(1).expanding(min_periods=1).mean()
+                )
+
+            # Season shots rate
+            if 'shots' in df.columns:
+                df['season_shots_pg'] = df.groupby('player_id')['shots'].transform(
+                    lambda x: x.shift(1).expanding(min_periods=1).mean()
+                )
+
         return df
 
     def run_tabpfn_backtest(self, game_logs: pd.DataFrame,
@@ -455,11 +479,14 @@ class NHLBacktester:
                              train_games: int = 15,
                              player_type: str = 'skater') -> Dict:
         """
-        Run backtest using TabPFN model.
+        Run backtest using TabPFN model with pooled cross-player training.
 
-        Uses expanding window approach:
-        - For each prediction, train on all prior games
-        - TabPFN handles small sample sizes well
+        Key improvement: trains ONE model on ALL players' data instead of
+        per-player models with only 15 samples each. Player identity is
+        captured via season averages and position features.
+
+        Uses time-based split: first `train_games` per player form the
+        training pool, remaining games are test predictions.
         """
         if not TABPFN_AVAILABLE:
             return {'error': 'TabPFN not installed'}
@@ -469,11 +496,12 @@ class NHLBacktester:
         if df.empty:
             return {'error': 'No data to backtest'}
 
-        # Define feature columns
+        # Define feature columns — includes player identity features
         feature_cols = [
             'fpts_avg_3', 'fpts_avg_5', 'fpts_avg_10',
             'fpts_std_5', 'fpts_std_10',
             'fpts_max_10', 'fpts_min_10',
+            'season_avg_fpts', 'season_std_fpts',
             'games_played', 'is_home', 'days_rest', 'trend'
         ]
 
@@ -482,6 +510,7 @@ class NHLBacktester:
                 'goals_avg_3', 'goals_avg_5', 'goals_avg_10',
                 'assists_avg_3', 'assists_avg_5', 'assists_avg_10',
                 'shots_avg_3', 'shots_avg_5', 'shots_avg_10',
+                'season_goals_pg', 'season_shots_pg',
             ])
             if 'shots_trend' in df.columns:
                 feature_cols.append('shots_trend')
@@ -496,64 +525,63 @@ class NHLBacktester:
         valid_players = player_game_counts[player_game_counts >= min_games].index
         df = df[df['player_id'].isin(valid_players)]
 
-        print(f"\nRunning TabPFN backtest on {len(valid_players)} players")
-        print(f"Using {len(feature_cols)} features")
+        print(f"\nRunning TabPFN pooled backtest on {len(valid_players)} players")
+        print(f"Using {len(feature_cols)} features (with player identity)")
 
-        all_predictions = []
+        # Sort by date within each player for proper time-based split
+        df = df.sort_values(['player_id', 'gameDate'])
 
-        # Process all players together for TabPFN (it handles multi-player well)
-        # Use time-based split: first 60% train, last 40% test
-        df = df.sort_values('gameDate')
+        # Build pooled train/test sets from all players
+        train_frames = []
+        test_frames = []
 
-        for player_id in tqdm(valid_players, desc="TabPFN Backtest"):
+        for player_id in valid_players:
             player_df = df[df['player_id'] == player_id].copy()
 
             if len(player_df) < min_games:
                 continue
 
-            # Train on first train_games, test on rest
-            train_df = player_df.iloc[:train_games]
-            test_df = player_df.iloc[train_games:]
+            train_frames.append(player_df.iloc[:train_games])
+            test_frames.append(player_df.iloc[train_games:])
 
-            if len(test_df) == 0:
-                continue
+        if not train_frames or not test_frames:
+            return {'error': 'No valid train/test data'}
 
-            # Prepare features
-            X_train = train_df[feature_cols].fillna(0)
-            y_train = train_df['actual_fpts'].values
+        train_pool = pd.concat(train_frames, ignore_index=True)
+        test_pool = pd.concat(test_frames, ignore_index=True)
 
-            X_test = test_df[feature_cols].fillna(0)
-            y_test = test_df['actual_fpts'].values
+        print(f"  Training pool: {len(train_pool)} games from {len(train_frames)} players")
+        print(f"  Test pool: {len(test_pool)} games")
 
-            # Handle any remaining issues
-            X_train = X_train.replace([np.inf, -np.inf], 0)
-            X_test = X_test.replace([np.inf, -np.inf], 0)
+        # Prepare feature matrices
+        X_train = train_pool[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+        y_train = train_pool['actual_fpts'].values
 
-            try:
-                # Train TabPFN
-                model = TabPFNRegressor()
-                model.fit(X_train.values, y_train)
+        X_test = test_pool[feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
 
-                # Predict
-                predictions = model.predict(X_test.values)
+        try:
+            model = TabPFNRegressor(ignore_pretraining_limits=True)
+            print("  Training pooled TabPFN model...")
+            model.fit(X_train.values, y_train)
 
-                # Store results
-                test_df = test_df.copy()
-                test_df['predicted_fpts'] = predictions
-                test_df['error'] = test_df['predicted_fpts'] - test_df['actual_fpts']
-                test_df['abs_error'] = test_df['error'].abs()
-                test_df['squared_error'] = test_df['error'] ** 2
+            # Predict in batches if test set is large
+            batch_size = 5000
+            all_preds = []
+            for i in range(0, len(X_test), batch_size):
+                batch = X_test.iloc[i:i + batch_size]
+                preds = model.predict(batch.values)
+                all_preds.extend(preds)
 
-                all_predictions.append(test_df)
+            test_pool = test_pool.copy()
+            test_pool['predicted_fpts'] = all_preds
+            test_pool['error'] = test_pool['predicted_fpts'] - test_pool['actual_fpts']
+            test_pool['abs_error'] = test_pool['error'].abs()
+            test_pool['squared_error'] = test_pool['error'] ** 2
 
-            except Exception as e:
-                print(f"Error for player {player_id}: {e}")
-                continue
+        except Exception as e:
+            return {'error': f'TabPFN training failed: {e}'}
 
-        if not all_predictions:
-            return {'error': 'No successful predictions'}
-
-        all_results = pd.concat(all_predictions, ignore_index=True)
+        all_results = test_pool
 
         # Calculate metrics
         metrics = {
@@ -576,7 +604,7 @@ class NHLBacktester:
             'metrics': metrics,
             'results': all_results,
             'player_type': player_type,
-            'model': 'TabPFN',
+            'model': 'TabPFN_pooled',
             'features': feature_cols
         }
 
@@ -682,7 +710,7 @@ class NHLBacktester:
                 y_test = test_df['actual_fpts'].values
 
                 try:
-                    model = TabPFNRegressor()
+                    model = TabPFNRegressor(ignore_pretraining_limits=True)
                     model.fit(X_train.values, y_train)
                     predictions = model.predict(X_test.values)
 

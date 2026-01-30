@@ -32,6 +32,7 @@ from config import (
     DAILY_SALARIES_DIR,
     VEGAS_DIR,
     DAILY_PROJECTIONS_DIR,
+    TEAM_FULL_NAME_TO_ABBREV,
 )
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 from ownership import OwnershipModel, print_ownership_report
@@ -592,6 +593,60 @@ def _load_vegas_csv(vegas_path: str):
     return games
 
 
+def get_vegas_games(vegas_csv_path: str = None):
+    """Fetch Vegas game data (API first, CSV fallback). Returns list of game dicts."""
+    games, _ = _fetch_odds_api()
+    if games is None and vegas_csv_path:
+        games = _load_vegas_csv(vegas_csv_path)
+    return games or []
+
+
+def build_team_total_map(games):
+    """Build team_abbrev -> implied_total and team_abbrev -> game_total dicts.
+
+    The Odds API returns full team names in 'matchup' (e.g. 'Boston Bruins @ ...').
+    We parse these and map to standard NHL abbreviations.
+
+    Returns:
+        (team_totals, team_game_totals) tuple of dicts
+    """
+    # Build case-insensitive full-name lookup
+    name_to_abbrev = {k.upper(): v for k, v in TEAM_FULL_NAME_TO_ABBREV.items()}
+
+    team_totals = {}       # team_abbrev -> implied team total
+    team_game_totals = {}  # team_abbrev -> game total
+
+    for game in games:
+        matchup = game.get('matchup', '')
+        game_total = game.get('game_total')
+        away_tt = game.get('away_team_total')
+        home_tt = game.get('home_team_total')
+
+        # Parse "Away Team @ Home Team"
+        parts = matchup.split(' @ ')
+        if len(parts) != 2:
+            continue
+        away_name = parts[0].strip().upper()
+        home_name = parts[1].strip().upper()
+
+        away_abbrev = name_to_abbrev.get(away_name)
+        home_abbrev = name_to_abbrev.get(home_name)
+
+        if away_abbrev and away_tt is not None:
+            team_totals[away_abbrev] = away_tt
+        if home_abbrev and home_tt is not None:
+            team_totals[home_abbrev] = home_tt
+
+        # Store game total for both teams
+        if game_total is not None:
+            if away_abbrev:
+                team_game_totals[away_abbrev] = game_total
+            if home_abbrev:
+                team_game_totals[home_abbrev] = game_total
+
+    return team_totals, team_game_totals
+
+
 def print_lineup(lineup: pd.DataFrame):
     """Print optimized lineup."""
     print(f"\n{'=' * 80}")
@@ -725,6 +780,10 @@ def main():
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
 
+    # Recent game scoring
+    parser.add_argument('--no-recent-scores', action='store_true',
+                        help='Skip fetching individual recent game scores (faster)')
+
     args = parser.parse_args()
 
     # Determine date
@@ -766,6 +825,12 @@ def main():
             if vegas_files:
                 csv_fallback = str(vegas_files[-1])
     print_vegas_ranking(csv_fallback)
+
+    # Capture Vegas data for ownership model (Feature 1)
+    vegas_games = get_vegas_games(csv_fallback)
+    team_totals, team_game_totals = build_team_total_map(vegas_games)
+    if team_totals:
+        print(f"  Vegas team totals mapped for {len(team_totals)} teams")
 
     # Fetch NHL data
     print("\nFetching NHL data...")
@@ -879,12 +944,35 @@ def main():
         rec = recommend_leverage(contest_profile)
         print_leverage_recommendation(contest_profile, rec)
 
+    # --- Fetch recent game scores for ownership model (Feature 5) ---
+    recent_scores = {}
+    if not args.no_recent_scores and 'player_id' in player_pool.columns:
+        player_ids = player_pool['player_id'].dropna().unique().tolist()
+        # Convert to int (player_id may be float after merge)
+        player_ids = [int(pid) for pid in player_ids if pd.notna(pid)]
+        if player_ids:
+            print("\nFetching recent game scores for ownership model...")
+            recent_scores = pipeline.fetch_recent_game_scores(player_ids)
+
     # --- Run ownership model on player pool (before lineups when contest EV is used) ---
     print("\nGenerating ownership projections...")
     ownership_model = OwnershipModel()
     if stack_builder:
         confirmed = stack_builder.get_all_starting_goalies()
         ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
+
+    # Feature 1: Vegas implied team totals
+    if team_totals:
+        ownership_model.set_vegas_data(team_totals, team_game_totals)
+
+    # Feature 4: Return-from-injury buzz
+    if 'injuries' in data and not data['injuries'].empty:
+        ownership_model.set_injury_data(data['injuries'], target_date)
+
+    # Feature 5: Individual recent game scoring
+    if recent_scores:
+        ownership_model.set_recent_scores(recent_scores)
+
     player_pool = ownership_model.predict_ownership(player_pool)
     print_ownership_report(player_pool)
 

@@ -51,11 +51,37 @@ class OwnershipConfig:
     # Projection adjustments
     high_proj_boost: float = 1.3     # +30% for high projections (was 1.25)
 
-    # Recent performance
-    hot_streak_boost: float = 1.2    # +20% for hot players
-
     # Smash spot boost (high-value player in soft matchup)
     smash_spot_boost: float = 1.4    # +40% for smash spots (NEW)
+
+    # Vegas implied team total multipliers (Feature 1)
+    vegas_high_team_total_boost: float = 1.3     # implied_total >= 3.5
+    vegas_mid_team_total_boost: float = 1.15     # implied_total >= 3.0
+    vegas_low_team_total_penalty: float = 0.8    # implied_total < 2.5
+    vegas_high_game_total_boost: float = 1.15    # game_total >= 6.5
+
+    # DK average FPTS perceived value multipliers (Feature 2)
+    dk_value_elite_boost: float = 1.4   # dk_value_ratio > 4.0
+    dk_value_high_boost: float = 1.2    # dk_value_ratio > 3.0
+    dk_value_low_penalty: float = 0.8   # dk_value_ratio < 2.0
+
+    # Salary tier scarcity multipliers (Feature 3)
+    scarcity_only_option_boost: float = 1.3   # only high-value option in tier
+    scarcity_crowded_penalty: float = 0.85    # 3+ equally good options in tier
+
+    # Return-from-injury buzz multipliers (Feature 4)
+    injury_return_boost: float = 1.3    # IR player returning today
+    injury_dtd_boost: float = 1.1       # DTD player on the slate
+
+    # Individual recent game scoring multipliers (Feature 5)
+    recency_blowup_boost: float = 1.5    # last_1_game > 25 FPTS
+    recency_hot_boost: float = 1.3       # last_3_avg > 15
+    recency_warm_boost: float = 1.15     # last_3_avg > 10
+    recency_cold_penalty: float = 0.7    # last_3_avg < 5
+
+    # Composite multiplier safety cap
+    composite_cap: float = 5.0    # max composite multiplier
+    composite_floor: float = 0.1  # min composite multiplier
 
 
 class OwnershipModel:
@@ -69,11 +95,44 @@ class OwnershipModel:
         self.config = config or OwnershipConfig()
         self.lines_data = None
         self.confirmed_goalies = None
+        self.team_totals = None
+        self.team_game_totals = None
+        self.injury_data = None
+        self.target_date = None
+        self.recent_scores = None
 
     def set_lines_data(self, lines_data: Dict, confirmed_goalies: Dict = None):
         """Set line combination data for PP1/Line1 boosts."""
         self.lines_data = lines_data
         self.confirmed_goalies = confirmed_goalies or {}
+
+    def set_vegas_data(self, team_totals: Dict[str, float],
+                       team_game_totals: Dict[str, float]):
+        """Set Vegas implied team totals and game totals for ownership multipliers.
+
+        Args:
+            team_totals: team_abbrev -> implied team total (e.g. {'BOS': 3.4})
+            team_game_totals: team_abbrev -> game total (e.g. {'BOS': 6.5})
+        """
+        self.team_totals = team_totals or {}
+        self.team_game_totals = team_game_totals or {}
+
+    def set_injury_data(self, injuries: pd.DataFrame, target_date: str):
+        """Set injury data for return-from-injury buzz detection."""
+        self.injury_data = injuries
+        self.target_date = target_date
+
+    def set_recent_scores(self, recent_scores: Dict[int, Dict[str, float]]):
+        """Set individual recent game scoring data.
+
+        Args:
+            recent_scores: dict mapping player_id -> {
+                'last_1_game_fpts': float,
+                'last_3_avg_fpts': float,
+                'last_5_avg_fpts': float,
+            }
+        """
+        self.recent_scores = recent_scores or {}
 
     def _get_base_ownership(self, salary: float) -> float:
         """Get base ownership from salary curve."""
@@ -164,6 +223,78 @@ class OwnershipModel:
 
         return False
 
+    def _build_scarcity_map(self, df: pd.DataFrame) -> Dict[str, float]:
+        """Precompute salary tier scarcity multipliers.
+
+        Groups players into $500 salary buckets, counts high-value players
+        per bucket, and returns a dict mapping player name -> scarcity multiplier.
+        """
+        scarcity = {}
+        if 'value' not in df.columns:
+            return scarcity
+
+        median_value = df['value'].median()
+        df_tmp = df.copy()
+        df_tmp['salary_bucket'] = (df_tmp['salary'] // 500) * 500
+
+        for bucket, group in df_tmp.groupby('salary_bucket'):
+            high_value_players = group[group['value'] > median_value]
+            n_high = len(high_value_players)
+
+            for _, row in group.iterrows():
+                if row['value'] > median_value:
+                    if n_high == 1:
+                        scarcity[row['name']] = self.config.scarcity_only_option_boost
+                    elif n_high >= 3:
+                        scarcity[row['name']] = self.config.scarcity_crowded_penalty
+                    else:
+                        scarcity[row['name']] = 1.0
+                else:
+                    scarcity[row['name']] = 1.0
+
+        return scarcity
+
+    def _is_returning_from_injury(self, player_name: str, team: str) -> str:
+        """Check if player is returning from injury today.
+
+        Returns:
+            'IR_RETURN' if returning from IR today,
+            'DTD' if day-to-day on the slate,
+            '' otherwise
+        """
+        if self.injury_data is None or self.injury_data.empty or not self.target_date:
+            return ''
+
+        try:
+            target = pd.Timestamp(self.target_date)
+        except Exception:
+            return ''
+
+        player_lower = player_name.lower().strip()
+        for _, row in self.injury_data.iterrows():
+            inj_name = str(row.get('player_name', '')).lower().strip()
+            # Fuzzy name match: check last name or substring
+            player_last = player_lower.split()[-1] if player_lower else ''
+            inj_last = inj_name.split()[-1] if inj_name else ''
+            if not (player_lower in inj_name or inj_name in player_lower or
+                    (player_last and inj_last and player_last == inj_last)):
+                continue
+
+            status = row.get('injury_status', '')
+            return_date = row.get('return_date')
+
+            # IR player returning today
+            if status in ('IR', 'IR-LT', 'IR-NR') and pd.notna(return_date):
+                ret = pd.Timestamp(return_date)
+                if ret.date() == target.date():
+                    return 'IR_RETURN'
+
+            # DTD player on the slate
+            if status == 'DTD':
+                return 'DTD'
+
+        return ''
+
     def predict_ownership(self, player_pool: pd.DataFrame) -> pd.DataFrame:
         """
         Predict ownership for all players in the pool.
@@ -181,6 +312,9 @@ class OwnershipModel:
         pos_col = 'dk_pos' if 'dk_pos' in df.columns else 'position'
         pos_avg_proj = df.groupby(pos_col)['projected_fpts'].mean()
         pos_avg_value = df.groupby(pos_col)['value'].mean() if 'value' in df.columns else None
+
+        # Precompute salary tier scarcity (Feature 3)
+        scarcity_map = self._build_scarcity_map(df)
 
         ownership_predictions = []
 
@@ -250,6 +384,65 @@ class OwnershipModel:
             # Players in $3.5K-$5.5K range with high value get extra boost
             if 3500 <= salary <= 5500 and value > 3.0:
                 multiplier *= self.config.smash_spot_boost
+
+            # 7. Vegas implied team total (Feature 1)
+            if self.team_totals and team in self.team_totals:
+                implied_total = self.team_totals[team]
+                if implied_total >= 3.5:
+                    multiplier *= self.config.vegas_high_team_total_boost
+                elif implied_total >= 3.0:
+                    multiplier *= self.config.vegas_mid_team_total_boost
+                elif implied_total < 2.5:
+                    multiplier *= self.config.vegas_low_team_total_penalty
+            # Game total boost (all players in high-scoring games)
+            if self.team_game_totals and team in self.team_game_totals:
+                game_total = self.team_game_totals[team]
+                if game_total is not None and game_total >= 6.5:
+                    multiplier *= self.config.vegas_high_game_total_boost
+
+            # 8. DK average FPTS perceived value (Feature 2)
+            dk_avg = row.get('dk_avg_fpts', 0)
+            if dk_avg and salary > 0:
+                dk_value_ratio = dk_avg / (salary / 1000)
+                if dk_value_ratio > 4.0:
+                    multiplier *= self.config.dk_value_elite_boost
+                elif dk_value_ratio > 3.0:
+                    multiplier *= self.config.dk_value_high_boost
+                elif dk_value_ratio < 2.0:
+                    multiplier *= self.config.dk_value_low_penalty
+
+            # 9. Salary tier scarcity (Feature 3)
+            if name in scarcity_map:
+                multiplier *= scarcity_map[name]
+
+            # 10. Return-from-injury buzz (Feature 4)
+            injury_status = self._is_returning_from_injury(name, team)
+            if injury_status == 'IR_RETURN':
+                multiplier *= self.config.injury_return_boost
+            elif injury_status == 'DTD':
+                multiplier *= self.config.injury_dtd_boost
+
+            # 11. Individual recent game scoring (Feature 5)
+            player_id = row.get('player_id')
+            if self.recent_scores and player_id and player_id in self.recent_scores:
+                scores = self.recent_scores[player_id]
+                last_1 = scores.get('last_1_game_fpts', 0)
+                last_3 = scores.get('last_3_avg_fpts', 0)
+                # Use max of applicable boosts (not multiplicative within category)
+                recency_mult = 1.0
+                if last_1 > 25:
+                    recency_mult = max(recency_mult, self.config.recency_blowup_boost)
+                if last_3 > 15:
+                    recency_mult = max(recency_mult, self.config.recency_hot_boost)
+                elif last_3 > 10:
+                    recency_mult = max(recency_mult, self.config.recency_warm_boost)
+                elif last_3 < 5:
+                    recency_mult = min(recency_mult, self.config.recency_cold_penalty)
+                multiplier *= recency_mult
+
+            # Apply composite multiplier cap (safety)
+            multiplier = max(self.config.composite_floor,
+                             min(self.config.composite_cap, multiplier))
 
             # Calculate final ownership
             predicted_own = base_own * multiplier

@@ -142,6 +142,88 @@ class NHLDataPipeline:
         df = pd.DataFrame(all_logs)
         return df
 
+    # ==================== Recent Game Scoring ====================
+
+    @staticmethod
+    def _calculate_game_dk_fpts(game: Dict) -> float:
+        """Calculate DraftKings fantasy points from a single game log entry.
+
+        Uses the NHL API game log fields (camelCase keys).
+        """
+        goals = game.get('goals', 0) or 0
+        assists = game.get('assists', 0) or 0
+        shots = game.get('shots', 0) or 0
+        blocks = game.get('blockedShots', 0) or 0
+        sh_goals = game.get('shorthandedGoals', 0) or 0
+        sh_assists = game.get('shorthandedAssists', 0) or 0
+
+        pts = 0.0
+        pts += goals * 8.5
+        pts += assists * 5.0
+        pts += shots * 1.5
+        pts += blocks * 1.3
+        pts += (sh_goals + sh_assists) * 2.0
+
+        # Bonuses
+        if goals >= 3:
+            pts += 3.0  # hat trick
+        if shots >= 5:
+            pts += 3.0  # 5+ shots
+        if blocks >= 3:
+            pts += 3.0  # 3+ blocks
+        if (goals + assists) >= 3:
+            pts += 3.0  # 3+ points
+
+        return pts
+
+    def fetch_recent_game_scores(self, player_ids: List[int]) -> Dict[int, Dict[str, float]]:
+        """Fetch recent game DK fantasy scores for players.
+
+        Args:
+            player_ids: List of NHL player IDs
+
+        Returns:
+            Dict mapping player_id -> {
+                'last_1_game_fpts': float,
+                'last_3_avg_fpts': float,
+                'last_5_avg_fpts': float,
+            }
+        """
+        results = {}
+        print(f"Fetching recent game scores for {len(player_ids)} players...")
+
+        for pid in tqdm(player_ids, desc="Recent scores"):
+            try:
+                log = self.client.get_player_game_log_current(pid)
+                games = log.get('gameLog', [])
+
+                if not games:
+                    continue
+
+                # Games are returned most-recent first; compute DK FPTS for each
+                fpts_list = [self._calculate_game_dk_fpts(g) for g in games[:5]]
+
+                results[pid] = {
+                    'last_1_game_fpts': fpts_list[0] if len(fpts_list) >= 1 else 0.0,
+                    'last_3_avg_fpts': (
+                        sum(fpts_list[:3]) / min(3, len(fpts_list))
+                        if fpts_list else 0.0
+                    ),
+                    'last_5_avg_fpts': (
+                        sum(fpts_list[:5]) / min(5, len(fpts_list))
+                        if fpts_list else 0.0
+                    ),
+                }
+            except Exception as e:
+                # Skip individual failures silently to avoid spamming output
+                continue
+
+            # Rate limit to avoid overwhelming NHL API
+            time.sleep(0.3)
+
+        print(f"  Fetched recent scores for {len(results)} players")
+        return results
+
     # ==================== Goalie Data ====================
 
     def fetch_all_goalie_stats(self, season: str = CURRENT_SEASON) -> pd.DataFrame:
