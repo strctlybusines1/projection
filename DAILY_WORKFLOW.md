@@ -4,19 +4,19 @@
 ## System Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           DATA SOURCES                                       │
-├─────────────────┬─────────────────┬─────────────────┬───────────────────────┤
-│   NHL API       │   MoneyPuck     │ Natural Stat    │   DailyFaceoff        │
-│   (nhl_api.py)  │   (scrapers.py) │ Trick           │   (lines.py)          │
-│                 │                 │ (scrapers.py)   │                       │
-│ • Player stats  │ • Injuries      │ • xG/60         │ • Line combos         │
-│ • Schedule      │ • Return dates  │ • Corsi/Fenwick │ • PP units            │
-│ • Team stats    │                 │ • PDO           │ • Confirmed goalies   │
-│ • Game logs     │                 │ • Recent form   │                       │
-└────────┬────────┴────────┬────────┴────────┬────────┴───────────┬───────────┘
-         │                 │                 │                     │
-         └─────────────────┴─────────────────┴─────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    DATA SOURCES                                          │
+├─────────────────┬─────────────────┬─────────────────┬──────────────────┬─────────────────┤
+│   NHL API       │   MoneyPuck     │ Natural Stat    │   DailyFaceoff   │  The Odds API   │
+│   (nhl_api.py)  │   (scrapers.py) │ Trick           │   (lines.py)     │  (main.py)      │
+│                 │                 │ (scrapers.py)   │                  │                 │
+│ • Player stats  │ • Injuries      │ • xG/60         │ • Line combos    │ • Moneylines    │
+│ • Schedule      │ • Return dates  │ • Corsi/Fenwick │ • PP units       │ • Spreads       │
+│ • Team stats    │                 │ • PDO           │ • Confirmed      │ • Game totals   │
+│ • Game logs     │                 │ • Recent form   │   goalies        │ • Implied totals│
+└────────┬────────┴────────┬────────┴────────┬────────┴────────┬─────────┴────────┬────────┘
+         │                 │                 │                  │                  │
+         └─────────────────┴─────────────────┴──────────────────┴──────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -53,7 +53,7 @@
 │  • Salary-based curve         │     │  • GPP mode (stacking)                 │
 │  • PP1/Line1 boosts           │     │  • Cash mode (consistency)             │
 │  • Goalie confirmation        │     │  • Salary cap: $50,000                 │
-│  • Value adjustments          │     │  • Roster: 2C, 3W, 2D, 1G, 1UTIL       │
+│  • Vegas total multipliers    │     │  • Roster: 2C, 3W, 2D, 1G, 1UTIL       │
 │  • 900% total normalization   │     │  • Team correlation boosts             │
 └───────────────────────────────┘     └───────────────────────────────────────┘
                     │                                   │
@@ -63,6 +63,7 @@
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           MAIN CLI (main.py)                                 │
 │  • Command-line interface                                                    │
+│  • Fetches Vegas odds (Odds API → CSV fallback)                             │
 │  • Loads DK salaries, merges with projections                               │
 │  • Formats output, exports CSV                                              │
 └─────────────────────────────────────────────────────────────────────────────┘
@@ -83,19 +84,20 @@
 
 | File | Purpose | Key Classes/Functions |
 |------|---------|----------------------|
-| `config.py` | Constants & settings | DK scoring rules, API URLs, thresholds |
+| `config.py` | Constants & settings | DK scoring rules, API URLs, thresholds, `VEGAS_DIR` |
 | `nhl_api.py` | NHL API client | `NHLAPIClient` - fetches stats, schedule |
 | `scrapers.py` | External scrapers | `MoneyPuckClient` (injuries), `NaturalStatTrickScraper` (xG) |
 | `data_pipeline.py` | Data orchestration | `NHLDataPipeline.build_projection_dataset()` |
 | `features.py` | Feature engineering | `FeatureEngineer.engineer_skater_features()` |
 | `projections.py` | Projection model | `NHLProjectionModel.generate_projections()` |
 | `lines.py` | Line combinations | `LinesScraper`, `StackBuilder` |
-| `ownership.py` | Ownership prediction | `OwnershipModel.predict_ownership()` |
+| `ownership.py` | Ownership prediction | `OwnershipModel.predict_ownership()`, `set_vegas_data()` |
 | `optimizer.py` | Lineup optimizer | `NHLLineupOptimizer.optimize_lineup()` |
 | `contest_roi.py` | Contest leverage & EV | `ContestProfile`, `recommend_leverage()`, `contest_ev_score()` |
-| `dashboard/server.py` | Local dashboard | Flask app: odds, projections, lines, lineup at http://127.0.0.1:5000 |
-| `main.py` | CLI entry point | `main()` - orchestrates everything |
+| `dashboard/server.py` | Local dashboard | Flask app with live odds, projections, lines at http://127.0.0.1:5000 |
+| `main.py` | CLI entry point | `main()`, `_fetch_odds_api()`, `build_team_total_map()` |
 | `backtest.py` | Backtesting | `NHLBacktester.run_backtest()` |
+| `.env` | API keys | `ODDS_API_KEY` for The Odds API |
 
 ### Data folders
 
@@ -104,7 +106,7 @@ All paths are relative to the `projection/` folder. The code looks in these dire
 | Folder | Purpose |
 |--------|---------|
 | **daily_salaries/** | DK salary CSVs per slate (e.g. `DKSalaries_M.DD.YY.csv`) |
-| **vegas/** | Vegas lines per slate (e.g. `VegasNHL_M.DD.YY.csv`) |
+| **vegas/** | Vegas lines CSV fallback (e.g. `VegasNHL_M.DD.YY.csv`). Used when Odds API is unavailable. |
 | **backtests/** | xlsx backtest workbooks (e.g. `1.26.26_nhl_backtest.xlsx`) |
 | **contests/** | DK contest result CSVs (e.g. `$5main_NHL_M.DD.YY.csv`) |
 | **daily_projections/** | Generated projection and lineup CSVs (dates in filenames) |
@@ -144,14 +146,26 @@ python lines.py
 - [ ] Confirmed goalies identified (usually ~5pm ET)
 - [ ] No postponed games (remove affected players)
 - [ ] PP1 unit assignments noted
+- [ ] Vegas odds available (Odds API or CSV fallback)
 
-#### Step 2: Download Vegas Lines
-Save as `VegasNHL_M.DD.YY.csv` in the **vegas/** folder.
+#### Step 2: Vegas Lines (Auto-Fetched)
+
+Vegas data is fetched **automatically** when you run `main.py`. No manual download needed if the Odds API key is configured.
+
+**How it works:**
+1. **Primary: Odds API** — `main.py` calls [the-odds-api.com](https://the-odds-api.com) using the key in `projection/.env` (`ODDS_API_KEY`). Fetches live moneylines, spreads, and game totals. Implied team totals are derived by converting moneylines to win probabilities (vig-removed) and multiplying by the game total.
+2. **Fallback: Vegas CSV** — If the API is unavailable or no key is set, the system auto-detects the most recent `VegasNHL_*.csv` in the **vegas/** folder.
+3. **Manual override** — Use `--vegas <path>` to force a specific CSV file.
+
+**Output:** `main.py` prints a **Vegas Game Ranking** showing each game sorted by total, with implied team totals, moneylines, and spreads. Games are labeled PRIMARY / SECONDARY / TERTIARY by total.
 
 **Key Vegas Metrics:**
 - Team implied totals (3.5+ = high scoring environment)
 - Game totals (6.5+ = shootout potential)
 - Line movement (sharp money indicators)
+
+**Fallback only — manual CSV download:**
+If the Odds API is down, save lines as `VegasNHL_M.DD.YY.csv` in the **vegas/** folder. CSV format: `team,opp,moneyline,spread,handicap_spread,game_total,game_total_over,game_total_under` with two rows per game (one per side).
 
 #### Step 3: Download DraftKings Salary File
 1. Go to DraftKings → NHL → Select contest
@@ -235,6 +249,7 @@ python main.py --stacks --show-injuries
 # Full options:
 #   --date YYYY-MM-DD    : Specific date (default: today)
 #   --salaries FILE      : Specific salary file
+#   --vegas FILE         : Use specific Vegas CSV (overrides Odds API)
 #   --stacks             : Show stacking recommendations
 #   --show-injuries      : Display injury report
 #   --include-dtd        : Include day-to-day players
@@ -245,12 +260,13 @@ python main.py --stacks --show-injuries
 
 #### Step 7: Review Output Against Your Thesis
 The system outputs:
-1. **Injury Report** - Who's out, who's DTD
-2. **Line Combinations** - Current lines from DailyFaceoff
-3. **Confirmed Goalies** - Which goalies are starting
-4. **Top Projections** - Highest projected players
-5. **Value Plays** - Best pts/$ plays
-6. **Stacking Recommendations** - Best correlated groups
+1. **Vegas Game Ranking** - Games sorted by total, implied team totals, moneylines (auto-fetched from Odds API or CSV)
+2. **Injury Report** - Who's out, who's DTD
+3. **Line Combinations** - Current lines from DailyFaceoff
+4. **Confirmed Goalies** - Which goalies are starting
+5. **Top Projections** - Highest projected players
+6. **Value Plays** - Best pts/$ plays
+7. **Stacking Recommendations** - Best correlated groups
 
 **Cross-check with your thesis:**
 - Does the optimizer's stack align with your conviction?
@@ -401,9 +417,9 @@ cd projection
 python dashboard/server.py
 ```
 
-Open [http://127.0.0.1:5000](http://127.0.0.1:5000). For live odds (no manual Vegas CSV), set `ODDS_API_KEY` in `projection/.env` (see [the-odds-api.com](https://the-odds-api.com) for a free key). Otherwise the dashboard uses the latest Vegas CSV in **vegas/**.
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000). The dashboard uses the same odds flow as `main.py`: Odds API first (cached 12 min), Vegas CSV fallback. Requires `ODDS_API_KEY` in `projection/.env`.
 
-Data shown: latest **daily_projections/** file (projections + ownership), latest **\*_lineups.csv** (suggested lineup), latest **lines_*.json** (written when you run `main.py --stacks`), and odds from the API or Vegas CSV.
+Data shown: live odds with implied team totals, latest **daily_projections/** file (projections + ownership), latest **\*_lineups.csv** (suggested lineup), and latest **lines_*.json** (written when you run `main.py --stacks`).
 
 ### Testing Individual Components
 ```bash
@@ -492,6 +508,12 @@ python backtest.py --players 75
 - Check if lines data was fetched (confirmed goalies)
 - Update multipliers in `ownership.py`
 
+### "No Vegas odds available" or stale odds
+- Verify `ODDS_API_KEY` is set in `projection/.env`
+- Check API quota at [the-odds-api.com](https://the-odds-api.com) (free tier = 500 requests/month)
+- Fallback: manually save a CSV as `VegasNHL_M.DD.YY.csv` in **vegas/** or pass `--vegas <path>`
+- Dashboard caches API data for 12 minutes — refresh after that window
+
 ---
 
 ## File Dependencies
@@ -505,9 +527,9 @@ config.py (no dependencies)
     ├──▶ features.py ──▶ config.py
     ├──▶ projections.py ──▶ config.py, features.py
     ├──▶ lines.py ──▶ config.py
-    ├──▶ ownership.py
+    ├──▶ ownership.py ──▶ receives Vegas data via set_vegas_data()
     ├──▶ optimizer.py ──▶ config.py, lines.py
-    ├──▶ main.py ──▶ ALL FILES
+    ├──▶ main.py ──▶ ALL FILES + Odds API (.env) + Vegas CSV fallback
     └──▶ backtest.py ──▶ nhl_api.py, config.py
 ```
 
