@@ -93,6 +93,13 @@ All relative to `projection/`:
 - **Stack correlation flow**: `StackBuilder` stores correlation values (PP1: 0.95, Line1: 0.85, Line1+D1: 0.75, Line2: 0.70). The optimizer's `_get_correlated_stack_players()` picks from these actual line groupings rather than arbitrary top-N.
 - **Ownership normalization** targets ~900% total (9 roster spots × ~100% each). The `_normalize_ownership()` method in `ownership.py` scales raw predictions to hit this target.
 
+## Known Gotchas
+
+- **Salary merge column whitelist**: `merge_projections_with_salaries()` in `main.py` uses an explicit `merge_cols` list. Any column from DK salary data that downstream code needs (e.g., `game_info` for goalie-opponent exclusion) **must be manually added** to this list or it gets silently dropped during the pandas merge. This caused a bug where `_get_opponent_team()` always returned `None` because `Game Info` wasn't preserved.
+- **Weight normalization for `np.random.choice`**: When building a probability array for team selection, the weights array must be normalized (`weights / weights.sum()`) because the pool may have fewer teams than the hardcoded weight list expects. Without this, `np.random.choice` raises `ValueError: probabilities do not sum to 1`.
+- **Stale salary files**: The optimizer's `__main__` test block loads the latest file from `daily_salaries/`. If the most recent salary file is old, few players will match today's slate — the optimizer silently produces zero lineups when `min_teams` isn't met. Always verify the salary file date matches the target slate.
+- **Fuzzy match false positives**: Name matching at 0.85 threshold can occasionally match wrong players (e.g., two players with similar surnames on different teams). Stack-building code should verify team membership after fuzzy matching when possible.
+
 ## Environment Setup
 
 Requires `.env` file in `projection/` with:
