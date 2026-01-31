@@ -783,6 +783,10 @@ def main():
     parser.add_argument('--contest-min-cash-entries', type=int, default=None,
                         help='Total number of paid entries (min-cash and above)')
 
+    # Simulator
+    parser.add_argument('--simulate', action='store_true',
+                        help='Run optimal lineup simulator (team-pair frequency analysis)')
+
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
@@ -998,6 +1002,20 @@ def main():
 
     player_pool = ownership_model.predict_ownership(player_pool)
     print_ownership_report(player_pool)
+
+    # --- Run simulator if requested ---
+    if args.simulate:
+        from simulator import OptimalLineupSimulator
+        simulator = OptimalLineupSimulator(player_pool, dk_salaries)
+        sim_results = simulator.run()
+        simulator.print_results(sim_results)
+        # Auto-export
+        sim_out_dir = project_dir / DAILY_PROJECTIONS_DIR
+        sim_out_dir.mkdir(parents=True, exist_ok=True)
+        sim_date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')
+        sim_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        sim_path = str(sim_out_dir / f"{sim_date_str}NHLsimulator_{sim_timestamp}.csv")
+        simulator.export_results(sim_results, sim_path)
 
     # Generate optimized lineup
     lineups = []
