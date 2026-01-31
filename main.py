@@ -132,6 +132,9 @@ def merge_projections_with_salaries(projections: pd.DataFrame,
     merge_cols = ['name_clean', 'salary', 'dk_position', 'dk_id', 'dk_avg_fpts']
     if 'dk_pos' in sal.columns:
         merge_cols.append('dk_pos')
+    if 'Game Info' in sal.columns:
+        sal = sal.rename(columns={'Game Info': 'game_info'})
+        merge_cols.append('game_info')
 
     merged = proj.merge(
         sal[merge_cols],
