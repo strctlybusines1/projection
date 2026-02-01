@@ -187,8 +187,9 @@ class NHLLineupOptimizer:
                     if max_stack < min_stack_size:
                         continue  # Reject lineup without sufficient stack
 
-                # Validate minimum teams
-                if lineup['team'].nunique() < min_teams:
+                # Validate minimum teams (skaters only — goalie doesn't count)
+                skaters = lineup[lineup['roster_slot'] != 'G']
+                if skaters['team'].nunique() < min_teams:
                     continue
 
                 # Check for duplicate lineups
