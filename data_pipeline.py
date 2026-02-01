@@ -15,6 +15,8 @@ from config import (
     CURRENT_SEASON, NHL_TEAMS, calculate_skater_fantasy_points,
     calculate_goalie_fantasy_points, INJURY_STATUSES_EXCLUDE,
     NST_RECENT_FORM_GAMES, TEAM_DANGER_CSV_DIR, TEAM_DANGER_CSV,
+    GOALIE_SCORING, GOALIE_BONUSES,
+    SIMULATION_DEFAULT_STD, SIMULATION_MIN_GAMES_FOR_STD,
 )
 from danger_stats import load_team_danger_stats
 
@@ -191,6 +193,114 @@ class NHLDataPipeline:
             pts += 3.0  # 3+ points
 
         return pts
+
+    @staticmethod
+    def _calculate_goalie_game_dk_fpts(game: Dict) -> float:
+        """Calculate DraftKings fantasy points for a goalie from a single game log entry.
+
+        Uses NHL API game log fields (camelCase keys).
+        Mirrors backtest.py goalie scoring logic.
+        """
+        saves = game.get('saves', 0) or game.get('savesAgainst', 0) or 0
+        goals_against = game.get('goalsAgainst', 0) or 0
+        decision = game.get('decision', '')
+
+        is_win = decision == 'W'
+        is_otl = decision == 'O'
+        is_shutout = goals_against == 0 and is_win
+
+        pts = (
+            saves * GOALIE_SCORING['save'] +
+            goals_against * GOALIE_SCORING['goal_against']
+        )
+
+        if is_win:
+            pts += GOALIE_SCORING['win']
+        if is_otl:
+            pts += GOALIE_SCORING['overtime_loss']
+        if is_shutout:
+            pts += GOALIE_SCORING['shutout_bonus']
+        if saves >= 35:
+            pts += GOALIE_BONUSES['thirty_five_plus_saves']
+
+        return pts
+
+    def compute_player_fpts_std_dev(
+        self,
+        player_ids: List[int],
+        player_types: Dict[int, str],
+        season: str = CURRENT_SEASON,
+        min_games: int = SIMULATION_MIN_GAMES_FOR_STD,
+    ) -> Dict[int, Dict]:
+        """Compute per-player fantasy points standard deviation from game logs.
+
+        Args:
+            player_ids: List of NHL player IDs
+            player_types: Dict mapping player_id -> 'skater' or 'goalie'
+            season: Season in YYYYYYYY format
+            min_games: Minimum games required to use player-specific std dev
+
+        Returns:
+            Dict mapping player_id -> {
+                'mean_fpts': float,
+                'std_fpts': float,
+                'n_games': int,
+                'used_default': bool,
+            }
+        """
+        results = {}
+        print(f"Computing per-player std dev for {len(player_ids)} players...")
+
+        for pid in tqdm(player_ids, desc="Std dev"):
+            try:
+                log = self.client.get_player_game_log(pid, season)
+                games = log.get('gameLog', [])
+
+                if not games:
+                    ptype = player_types.get(pid, 'skater')
+                    results[pid] = {
+                        'mean_fpts': 0.0,
+                        'std_fpts': SIMULATION_DEFAULT_STD.get(ptype, 5.5),
+                        'n_games': 0,
+                        'used_default': True,
+                    }
+                    continue
+
+                ptype = player_types.get(pid, 'skater')
+                if ptype == 'goalie':
+                    fpts_list = [self._calculate_goalie_game_dk_fpts(g) for g in games]
+                else:
+                    fpts_list = [self._calculate_game_dk_fpts(g) for g in games]
+
+                n_games = len(fpts_list)
+                mean_fpts = float(np.mean(fpts_list))
+
+                if n_games >= min_games:
+                    std_fpts = float(np.std(fpts_list, ddof=1))
+                    used_default = False
+                else:
+                    std_fpts = SIMULATION_DEFAULT_STD.get(ptype, 5.5)
+                    used_default = True
+
+                results[pid] = {
+                    'mean_fpts': mean_fpts,
+                    'std_fpts': std_fpts,
+                    'n_games': n_games,
+                    'used_default': used_default,
+                }
+            except Exception:
+                ptype = player_types.get(pid, 'skater')
+                results[pid] = {
+                    'mean_fpts': 0.0,
+                    'std_fpts': SIMULATION_DEFAULT_STD.get(ptype, 5.5),
+                    'n_games': 0,
+                    'used_default': True,
+                }
+                continue
+
+        print(f"  Computed std dev for {len(results)} players "
+              f"({sum(1 for v in results.values() if not v['used_default'])} with actual data)")
+        return results
 
     def fetch_recent_game_scores(self, player_ids: List[int]) -> Dict[int, Dict[str, float]]:
         """Fetch recent game DK fantasy scores for players.

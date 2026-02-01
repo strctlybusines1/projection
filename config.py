@@ -117,6 +117,10 @@ NHL_TEAMS = [
     "VGK", "WSH", "WPG"
 ]
 
+# ==================== Monte Carlo Simulation Configuration ====================
+SIMULATION_DEFAULT_STD = {'skater': 5.5, 'goalie': 7.5}  # Fallback std dev for players with few games
+SIMULATION_MIN_GAMES_FOR_STD = 5  # Minimum games needed to use player-specific std dev
+
 # ==================== MoneyPuck Configuration ====================
 MONEYPUCK_INJURIES_URL = "https://moneypuck.com/moneypuck/playerData/playerNews/current_injuries.csv"
 

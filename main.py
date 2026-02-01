@@ -804,6 +804,8 @@ def main():
     # Simulator
     parser.add_argument('--simulate', action='store_true',
                         help='Run optimal lineup simulator (team-pair frequency analysis)')
+    parser.add_argument('--sim-iterations', type=int, default=0,
+                        help='Monte Carlo iterations for simulator (0=deterministic, recommended=100)')
 
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
@@ -1024,7 +1026,29 @@ def main():
     # --- Run simulator if requested ---
     if args.simulate:
         from simulator import OptimalLineupSimulator
-        simulator = OptimalLineupSimulator(player_pool, dk_salaries)
+        sim_iterations = args.sim_iterations
+
+        std_dev_data = None
+        if sim_iterations > 0 and 'player_id' in player_pool.columns:
+            # Build player_type map from pool
+            player_type_map = {}
+            for _, row in player_pool.iterrows():
+                pid = row.get('player_id')
+                if pid and pd.notna(pid):
+                    ptype = row.get('player_type', 'skater')
+                    player_type_map[int(pid)] = ptype
+
+            player_ids = [int(pid) for pid in player_pool['player_id'].dropna().unique()]
+            print(f"\nFetching game logs for Monte Carlo std dev ({len(player_ids)} players)...")
+            std_dev_data = pipeline.compute_player_fpts_std_dev(
+                player_ids, player_type_map
+            )
+
+        simulator = OptimalLineupSimulator(
+            player_pool, dk_salaries,
+            std_dev_data=std_dev_data,
+            n_iterations=sim_iterations,
+        )
         sim_results = simulator.run()
         simulator.print_results(sim_results)
         # Auto-export
@@ -1032,7 +1056,8 @@ def main():
         sim_out_dir.mkdir(parents=True, exist_ok=True)
         sim_date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')
         sim_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-        sim_path = str(sim_out_dir / f"{sim_date_str}NHLsimulator_{sim_timestamp}.csv")
+        mode_tag = f"mc{sim_iterations}" if sim_iterations > 0 else "det"
+        sim_path = str(sim_out_dir / f"{sim_date_str}NHLsimulator_{mode_tag}_{sim_timestamp}.csv")
         simulator.export_results(sim_results, sim_path)
 
     # Generate optimized lineup
