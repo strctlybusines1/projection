@@ -56,6 +56,7 @@ External APIs → data_pipeline.py → features.py → projections.py
 - **lines.py** — `LinesScraper` scrapes DailyFaceoff for line combos/PP units/confirmed goalies. `StackBuilder` builds correlation data and `get_best_stacks()` returns PP1/Line1/Line1+D1/Line2 groupings with projection matching.
 - **ownership.py** — `OwnershipModel.predict_ownership()` uses salary curve, PP1/Line1 role boosts, Vegas totals, goalie confirmation, recent scoring, and TOI surge signals. Normalizes to ~900% total.
 - **optimizer.py** — `NHLLineupOptimizer` builds lineups under DK constraints ($50k cap, 2C/3W/2D/1G/1UTIL). GPP mode uses `_get_correlated_stack_players()` to select from actual line/PP combos (PP1 > Line1+D1 > Line1 for primary, Line1 > Line2 > PP1 for secondary) with fallback to top-N-by-projection.
+- **simulator.py** — `OptimalLineupSimulator` iterates all valid (team_A, team_B) ordered pairs, builds the best 4-3-1-1 lineup for each, and counts player appearance frequency. Supports deterministic mode (fixed projections) and Monte Carlo mode (samples from `N(projected, std)` each iteration). Computes per-position baseline probability accounting for UTIL slot asymmetry (C/W eligible, D excluded) and a `lift` column (actual_pct / baseline_pct) for context. Run via `python main.py --simulate` or `--simulate --sim-iterations N`.
 - **contest_roi.py** — Leverage recommendations and contest EV scoring based on payout structure.
 - **backtest.py** — Compares projections to actual scores. Outputs MAE/RMSE/correlation by position. Filters TOI=0 scratches/DNPs from error metrics. Results feed bias corrections in `projections.py`.
 - **config.py** — Central configuration: DK scoring rules, API URLs, bias corrections, GPP optimizer settings, signal weights.
@@ -88,7 +89,7 @@ All relative to `projection/`:
 
 - **Name matching** between data sources uses fuzzy matching (`difflib.SequenceMatcher` at 0.85 threshold) throughout `lines.py` and `main.py`. The `find_player_match()` and `fuzzy_match()` functions in `lines.py` are the canonical implementations.
 - **Bias corrections** in `projections.py` are derived from backtest results. Constants live in `projections.py` itself (`GLOBAL_BIAS_CORRECTION`, `POSITION_BIAS_CORRECTION`, `GOALIE_BIAS_CORRECTION`). Update these when backtest metrics shift. Current values are from a 6-backtest combined analysis (1,642 skater + 87 goalie observations).
-- **Position normalization**: LW/RW/R/L all map to `W`. C/W and W/C map to `C`. LD/RD map to `D`. This happens in `optimizer.py._normalize_position()`.
+- **Position normalization**: LW/RW/R/L all map to `W`. C/W and W/C map to `C`. LD/RD map to `D`. This happens in `optimizer.py._normalize_position()` and `simulator.py._normalise_pos()`.
 - **Goalie opponent exclusion**: The optimizer removes all skaters from the goalie's opponent team (negative correlation — if opponent scores, goalie loses points).
 - **Stack correlation flow**: `StackBuilder` stores correlation values (PP1: 0.95, Line1: 0.85, Line1+D1: 0.75, Line2: 0.70). The optimizer's `_get_correlated_stack_players()` picks from these actual line groupings rather than arbitrary top-N.
 - **Ownership normalization** targets ~900% total (9 roster spots × ~100% each). The `_normalize_ownership()` method in `ownership.py` scales raw predictions to hit this target.
@@ -99,6 +100,21 @@ All relative to `projection/`:
 - **Weight normalization for `np.random.choice`**: When building a probability array for team selection, the weights array must be normalized (`weights / weights.sum()`) because the pool may have fewer teams than the hardcoded weight list expects. Without this, `np.random.choice` raises `ValueError: probabilities do not sum to 1`.
 - **Stale salary files**: The optimizer's `__main__` test block loads the latest file from `daily_salaries/`. If the most recent salary file is old, few players will match today's slate — the optimizer silently produces zero lineups when `min_teams` isn't met. Always verify the salary file date matches the target slate.
 - **Fuzzy match false positives**: Name matching at 0.85 threshold can occasionally match wrong players (e.g., two players with similar surnames on different teams). Stack-building code should verify team membership after fuzzy matching when possible.
+
+## Simulator Baseline & Lift
+
+The simulator's `_compute_baselines()` calculates per-position baseline probability — the chance a random player at that position would appear in a lineup if selection were uniform. This accounts for the UTIL slot asymmetry (C/W only, D excluded) by splitting the UTIL share proportionally by pool size:
+
+```
+effective_C_slots = 2 + N_C / (N_C + N_W)
+effective_W_slots = 3 + N_W / (N_C + N_W)
+effective_D_slots = 2
+effective_G_slots = 1
+baseline_pct(pos) = effective_slots / pool_size * 100
+lift = actual_pct / baseline_pct
+```
+
+A lift of 1.0x means random-level selection. Values well below 1.0x indicate a player is only appearing due to salary/position constraints rather than projection strength. The baseline header and lift column appear in both terminal output and CSV exports.
 
 ## Projection Calibration (updated 2/1/26)
 

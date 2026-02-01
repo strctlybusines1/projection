@@ -1,6 +1,11 @@
 """
 Optimal Lineup Simulator — exhaustive team-pair frequency analysis.
 
+Supports two modes:
+  - Deterministic (n_iterations=0): Uses fixed projected_fpts (original behavior).
+  - Monte Carlo (n_iterations>=1): Samples from N(projected_fpts, std_fpts) each
+    iteration, producing realistic exposure rates that account for game-to-game variance.
+
 Iterates all valid (team_A, team_B) pairs on a slate, builds the best
 4-3-1-1 lineup for each pair, and counts how often each player lands in
 an optimal lineup.
@@ -28,13 +33,26 @@ class OptimalLineupSimulator:
     MIN_GOALIE_SALARY = 2_500
     MIN_FILL_SALARY = 2_500
     TOP_N_PER_TEAM = 12
+    MC_TOP_N_PER_TEAM = 8  # Reduced pool in MC mode for speed
 
     # ------------------------------------------------------------------ #
     #  Init
     # ------------------------------------------------------------------ #
-    def __init__(self, player_pool: pd.DataFrame, dk_salaries: pd.DataFrame):
+    def __init__(
+        self,
+        player_pool: pd.DataFrame,
+        dk_salaries: pd.DataFrame,
+        std_dev_data: Optional[Dict[int, Dict]] = None,
+        n_iterations: int = 0,
+    ):
         pool = player_pool.copy()
         dk = dk_salaries.copy()
+        self._n_iterations = n_iterations
+        self._std_dev_data = std_dev_data or {}
+
+        # Use smaller pool in MC mode for performance
+        if n_iterations > 0:
+            self.TOP_N_PER_TEAM = self.MC_TOP_N_PER_TEAM
 
         # --- position normalisation ----------------------------------- #
         pool['sim_pos'] = pool['position'].apply(self._normalise_pos)
@@ -53,24 +71,91 @@ class OptimalLineupSimulator:
                 if opp:
                     self.opponent_map[team] = opp
 
-        # --- split skaters / goalies, pre-sort by projection ---------- #
+        # --- store full pool for MC re-sampling ----------------------- #
+        self._pool = pool
+
+        # --- build std_fpts lookup by player name --------------------- #
+        self._std_by_name: Dict[str, float] = {}
+        if std_dev_data and 'player_id' in pool.columns:
+            for _, row in pool.iterrows():
+                pid = row.get('player_id')
+                if pid and pid in std_dev_data:
+                    self._std_by_name[row['name']] = std_dev_data[pid]['std_fpts']
+
+        # --- initial sort using projected_fpts (deterministic base) --- #
+        self._build_pools('projected_fpts')
+
+    def _build_pools(self, fpts_col: str):
+        """Split pool into skaters/goalies sorted by fpts_col, index by team."""
+        pool = self._pool
+
         self.skaters = (
             pool[pool['sim_pos'].isin(['C', 'W', 'D'])]
-            .sort_values('projected_fpts', ascending=False)
+            .sort_values(fpts_col, ascending=False)
             .reset_index(drop=True)
         )
         self.goalies = (
             pool[pool['sim_pos'] == 'G']
-            .sort_values('projected_fpts', ascending=False)
+            .sort_values(fpts_col, ascending=False)
             .reset_index(drop=True)
         )
 
-        # --- index skaters by team ------------------------------------ #
         self.skaters_by_team: Dict[str, pd.DataFrame] = {}
         for team, grp in self.skaters.groupby('team'):
             self.skaters_by_team[team] = grp.head(self.TOP_N_PER_TEAM).reset_index(drop=True)
 
         self.all_teams = sorted(self.skaters['team'].unique())
+
+    # ------------------------------------------------------------------ #
+    #  Monte Carlo sampling
+    # ------------------------------------------------------------------ #
+    def _sample_projections(self):
+        """Draw sampled_fpts = max(N(projected, std), 0) for all players, rebuild pools."""
+        pool = self._pool
+        projected = pool['projected_fpts'].values.copy()
+        std = np.array([
+            self._std_by_name.get(name, 5.5)
+            for name in pool['name'].values
+        ])
+        sampled = np.maximum(np.random.normal(projected, std), 0.0)
+        pool = pool.copy()
+        pool['sampled_fpts'] = sampled
+        self._pool = pool
+        self._build_pools('sampled_fpts')
+
+    # ------------------------------------------------------------------ #
+    #  Baseline probability per position
+    # ------------------------------------------------------------------ #
+    def _compute_baselines(self) -> Dict[str, float]:
+        """
+        Baseline probability that a random player at each position appears
+        in an optimal lineup, accounting for UTIL slot (C/W only, D excluded).
+
+        effective_C_slots = 2 + N_C / (N_C + N_W)
+        effective_W_slots = 3 + N_W / (N_C + N_W)
+        effective_D_slots = 2
+        effective_G_slots = 1
+
+        baseline_pct(pos) = effective_slots / pool_size * 100
+        """
+        n_c = len(self._pool[self._pool['sim_pos'] == 'C'])
+        n_w = len(self._pool[self._pool['sim_pos'] == 'W'])
+        n_d = len(self._pool[self._pool['sim_pos'] == 'D'])
+        n_g = len(self._pool[self._pool['sim_pos'] == 'G'])
+
+        self._pool_counts = {'C': n_c, 'W': n_w, 'D': n_d, 'G': n_g}
+
+        cw_total = n_c + n_w
+        util_c = n_c / cw_total if cw_total > 0 else 0.5
+        util_w = n_w / cw_total if cw_total > 0 else 0.5
+
+        baselines = {}
+        baselines['C'] = round((2 + util_c) / n_c * 100, 1) if n_c > 0 else 0.0
+        baselines['W'] = round((3 + util_w) / n_w * 100, 1) if n_w > 0 else 0.0
+        baselines['D'] = round(2 / n_d * 100, 1) if n_d > 0 else 0.0
+        baselines['G'] = round(1 / n_g * 100, 1) if n_g > 0 else 0.0
+
+        return baselines
 
     # ------------------------------------------------------------------ #
     #  Helpers
@@ -126,7 +211,7 @@ class OptimalLineupSimulator:
         if c + w != 6:
             return False
         # Need at least 2C and at least 3W
-        # UTIL absorbs one extra C or W → valid combos: 2C/4W or 3C/3W
+        # UTIL absorbs one extra C or W -> valid combos: 2C/4W or 3C/3W
         if c >= 2 and w >= 3:
             return True
         return False
@@ -156,7 +241,7 @@ class OptimalLineupSimulator:
                     return 'D'
                 return 'D'
             else:
-                # Need 2 more D but only 1 spot — impossible
+                # Need 2 more D but only 1 spot -- impossible
                 return None
         elif d > 2:
             return None  # Already too many D
@@ -166,7 +251,7 @@ class OptimalLineupSimulator:
         if cw_total != 5:
             return None
 
-        # We need 6 C/W total → adding one more
+        # We need 6 C/W total -> adding one more
         # Check if adding C keeps feasible (c+1 >= 2 and w >= 3)
         c_ok = (c + 1 >= 2) and (w >= 3)
         # Check if adding W keeps feasible (c >= 2 and w+1 >= 3)
@@ -189,6 +274,7 @@ class OptimalLineupSimulator:
         used_names: set,
         current_positions: List[str],
         remaining_salary: int,
+        fpts_col: str = 'projected_fpts',
     ) -> Optional[pd.Series]:
         """
         Scan pre-sorted skaters for the highest-projected fill player.
@@ -246,10 +332,10 @@ class OptimalLineupSimulator:
     #  Build optimal lineup for one (A, B) pair
     # ------------------------------------------------------------------ #
     def _build_optimal_lineup(
-        self, team_a: str, team_b: str
+        self, team_a: str, team_b: str, fpts_col: str = 'projected_fpts'
     ) -> Optional[Tuple[float, List[pd.Series]]]:
         """
-        Exhaustively search C(12,4) × C(12,3) combos from A × B,
+        Exhaustively search C(N,4) x C(N,3) combos from A x B,
         find the best fill + goalie, return best total fpts and player list.
         """
         skaters_a = self.skaters_by_team.get(team_a)
@@ -262,12 +348,12 @@ class OptimalLineupSimulator:
         # Pre-compute arrays for speed
         a_names = skaters_a['name'].values
         a_salaries = skaters_a['salary'].values
-        a_fpts = skaters_a['projected_fpts'].values
+        a_fpts = skaters_a[fpts_col].values
         a_pos = skaters_a['sim_pos'].values
 
         b_names = skaters_b['name'].values
         b_salaries = skaters_b['salary'].values
-        b_fpts = skaters_b['projected_fpts'].values
+        b_fpts = skaters_b[fpts_col].values
         b_pos = skaters_b['sim_pos'].values
 
         n_a = len(skaters_a)
@@ -302,8 +388,8 @@ class OptimalLineupSimulator:
                 # perfect fill + goalie)
                 if best_total > 0:
                     # Generous upper bound for fill + goalie
-                    max_fill_fpts = self.skaters['projected_fpts'].iloc[0] if len(self.skaters) > 0 else 0
-                    max_goalie_fpts = self.goalies['projected_fpts'].iloc[0] if len(self.goalies) > 0 else 0
+                    max_fill_fpts = self.skaters[fpts_col].iloc[0] if len(self.skaters) > 0 else 0
+                    max_goalie_fpts = self.goalies[fpts_col].iloc[0] if len(self.goalies) > 0 else 0
                     if fpts_a + fpts_b + max_fill_fpts + max_goalie_fpts <= best_total:
                         continue
 
@@ -316,7 +402,7 @@ class OptimalLineupSimulator:
 
                 # Find best fill
                 fill = self._find_best_fill(
-                    excluded_teams, used_names, positions_7, remaining_salary
+                    excluded_teams, used_names, positions_7, remaining_salary, fpts_col
                 )
                 if fill is None:
                     continue
@@ -341,7 +427,7 @@ class OptimalLineupSimulator:
                 if goalie is None:
                     continue
 
-                total_fpts = fpts_a + fpts_b + fill['projected_fpts'] + goalie['projected_fpts']
+                total_fpts = fpts_a + fpts_b + fill[fpts_col] + goalie[fpts_col]
                 if total_fpts > best_total:
                     best_total = total_fpts
                     # Build player list
@@ -360,6 +446,8 @@ class OptimalLineupSimulator:
         """
         Generate all valid (A, B) pairs, build optimal lineup for each,
         return frequency table of player appearances.
+
+        In MC mode, repeats the process n_iterations times with sampled projections.
         """
         teams = self.all_teams
         pairs = []
@@ -372,29 +460,50 @@ class OptimalLineupSimulator:
                     continue
                 pairs.append((a, b))
 
-        print(f"\nSimulator: {len(teams)} teams, {len(pairs)} valid ordered pairs")
+        is_mc = self._n_iterations > 0
+        n_iter = self._n_iterations if is_mc else 1
+        fpts_col = 'sampled_fpts' if is_mc else 'projected_fpts'
+
+        mode_str = f"Monte Carlo ({n_iter} iterations, TOP_N={self.TOP_N_PER_TEAM})" if is_mc else "Deterministic"
+        print(f"\nSimulator: {len(teams)} teams, {len(pairs)} valid ordered pairs — {mode_str}")
 
         counts: Dict[str, int] = defaultdict(int)
-        valid_lineups = 0
+        total_valid_lineups = 0
 
-        for idx, (a, b) in enumerate(pairs):
-            result = self._build_optimal_lineup(a, b)
-            if result is not None:
-                valid_lineups += 1
-                _, players = result
-                for p in players:
-                    counts[p['name']] += 1
+        for iteration in range(n_iter):
+            if is_mc:
+                self._sample_projections()
 
-            if (idx + 1) % 50 == 0 or idx + 1 == len(pairs):
-                print(f"  Processed {idx + 1}/{len(pairs)} pairs "
-                      f"({valid_lineups} valid lineups so far)")
+            valid_this_iter = 0
+            for idx, (a, b) in enumerate(pairs):
+                result = self._build_optimal_lineup(a, b, fpts_col)
+                if result is not None:
+                    valid_this_iter += 1
+                    _, players = result
+                    for p in players:
+                        counts[p['name']] += 1
 
-        self._valid_lineups = valid_lineups
-        self._total_pairs = len(pairs)
+            total_valid_lineups += valid_this_iter
+
+            if is_mc:
+                if (iteration + 1) % 10 == 0 or iteration + 1 == n_iter:
+                    print(f"  Iteration {iteration + 1}/{n_iter} — "
+                          f"{valid_this_iter} valid lineups this iter, "
+                          f"{total_valid_lineups} total")
+            else:
+                # Deterministic: show pair-level progress
+                print(f"  Processed {len(pairs)} pairs ({valid_this_iter} valid lineups)")
+
+        self._valid_lineups = total_valid_lineups
+        self._total_pairs = len(pairs) * n_iter
 
         # Build results DataFrame
         if not counts:
             return pd.DataFrame()
+
+        # Restore original pool for player info lookup
+        if is_mc:
+            self._build_pools('projected_fpts')
 
         rows = []
         all_players = pd.concat([self.skaters, self.goalies], ignore_index=True)
@@ -407,17 +516,32 @@ class OptimalLineupSimulator:
             info = player_info.get(name)
             if info is None:
                 continue
-            rows.append({
+            row = {
                 'name': name,
                 'team': info.get('team', ''),
                 'position': info.get('sim_pos', ''),
                 'salary': info.get('salary', 0),
                 'projected_fpts': info.get('projected_fpts', 0),
                 'count': count,
-                'pct': round(100.0 * count / valid_lineups, 1) if valid_lineups else 0,
-            })
+                'pct': round(100.0 * count / total_valid_lineups, 1) if total_valid_lineups else 0,
+            }
+            # Add std_fpts column if available
+            if name in self._std_by_name:
+                row['std_fpts'] = round(self._std_by_name[name], 2)
+            rows.append(row)
 
         results = pd.DataFrame(rows).sort_values('count', ascending=False).reset_index(drop=True)
+
+        # Baseline probability and lift
+        self._baselines = self._compute_baselines()
+        results['baseline_pct'] = results['position'].map(self._baselines)
+        results['lift'] = np.where(
+            results['baseline_pct'] > 0,
+            results['pct'] / results['baseline_pct'],
+            0.0,
+        )
+        results['lift'] = results['lift'].round(1)
+
         return results
 
     # ------------------------------------------------------------------ #
@@ -429,33 +553,74 @@ class OptimalLineupSimulator:
             print("\nNo valid lineups generated.")
             return
 
-        print(f"\n{'=' * 85}")
-        print(f" OPTIMAL LINEUP SIMULATOR — FREQUENCY RESULTS")
-        print(f"{'=' * 85}")
-        print(f" Total valid lineups: {self._valid_lineups} / {self._total_pairs} pairs\n")
+        is_mc = self._n_iterations > 0
+        mode_str = f"MONTE CARLO ({self._n_iterations} iter)" if is_mc else "DETERMINISTIC"
+        has_std = 'std_fpts' in results.columns
+
+        print(f"\n{'=' * 100}")
+        print(f" OPTIMAL LINEUP SIMULATOR — FREQUENCY RESULTS [{mode_str}]")
+        print(f"{'=' * 100}")
+        if is_mc:
+            print(f" Mode: Monte Carlo | Iterations: {self._n_iterations} | TOP_N: {self.TOP_N_PER_TEAM}")
+        else:
+            print(f" Mode: Deterministic | TOP_N: {self.TOP_N_PER_TEAM}")
+        print(f" Total valid lineups: {self._valid_lineups} / {self._total_pairs} pair-iterations")
+
+        # Baseline probability header
+        if hasattr(self, '_baselines') and hasattr(self, '_pool_counts'):
+            bl = self._baselines
+            pc = self._pool_counts
+            print(f"\n Baseline probability (random selection into 2C/3W/2D/1G/1UTIL):")
+            print(f"   C: {bl['C']}% ({pc['C']} players, 2 slots + UTIL share)")
+            print(f"   W: {bl['W']}% ({pc['W']} players, 3 slots + UTIL share)")
+            print(f"   D: {bl['D']}% ({pc['D']} players, 2 slots)")
+            print(f"   G: {bl['G']}% ({pc['G']} players, 1 slot)")
+        print()
 
         # Skaters
         skaters = results[results['position'] != 'G'].head(top_n)
         print(f" TOP {min(top_n, len(skaters))} SKATERS BY FREQUENCY")
-        print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
-              f"{'Count':>6} {'Pct':>6}")
-        print(f" {'-' * 75}")
+        if has_std:
+            print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
+                  f"{'Std':>6} {'Count':>6} {'Pct':>6} {'Lift':>6}")
+        else:
+            print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
+                  f"{'Count':>6} {'Pct':>6} {'Lift':>6}")
+        print(f" {'-' * 92}")
         for _, row in skaters.iterrows():
-            print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
-                  f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
-                  f"{row['count']:>6} {row['pct']:>5.1f}%")
+            std_str = f" {row['std_fpts']:>5.1f}" if has_std and pd.notna(row.get('std_fpts')) else "     -"
+            lift_str = f"{row['lift']:.1f}x" if pd.notna(row.get('lift')) else "    -"
+            if has_std:
+                print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
+                      f"${row['salary']:>7,} {row['projected_fpts']:>6.1f}{std_str} "
+                      f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
+            else:
+                print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
+                      f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
+                      f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
 
         # Goalies
         goalies = results[results['position'] == 'G']
         if not goalies.empty:
             print(f"\n GOALIES BY FREQUENCY")
-            print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
-                  f"{'Count':>6} {'Pct':>6}")
-            print(f" {'-' * 75}")
+            if has_std:
+                print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
+                      f"{'Std':>6} {'Count':>6} {'Pct':>6} {'Lift':>6}")
+            else:
+                print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
+                      f"{'Count':>6} {'Pct':>6} {'Lift':>6}")
+            print(f" {'-' * 92}")
             for _, row in goalies.iterrows():
-                print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
-                      f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
-                      f"{row['count']:>6} {row['pct']:>5.1f}%")
+                std_str = f" {row['std_fpts']:>5.1f}" if has_std and pd.notna(row.get('std_fpts')) else "     -"
+                lift_str = f"{row['lift']:.1f}x" if pd.notna(row.get('lift')) else "    -"
+                if has_std:
+                    print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
+                          f"${row['salary']:>7,} {row['projected_fpts']:>6.1f}{std_str} "
+                          f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
+                else:
+                    print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
+                          f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
+                          f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
 
     def export_results(self, results: pd.DataFrame, output_path: str):
         """Export frequency table to CSV."""
