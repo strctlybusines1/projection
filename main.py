@@ -148,6 +148,24 @@ def merge_projections_with_salaries(projections: pd.DataFrame,
         print(f"  Sample salary names: {sal['dk_name'].head(5).tolist()}")
         return merged
 
+    # ==================== DK Season Average Blending ====================
+    # Blend our projection with DK's season average to anchor toward market consensus
+    if 'dk_avg_fpts' in merged.columns:
+        from config import DK_AVG_BLEND_WEIGHT
+        valid_dk = merged['dk_avg_fpts'].notna() & (merged['dk_avg_fpts'] > 0)
+        merged.loc[valid_dk, 'projected_fpts'] = (
+            DK_AVG_BLEND_WEIGHT * merged.loc[valid_dk, 'projected_fpts'] +
+            (1 - DK_AVG_BLEND_WEIGHT) * merged.loc[valid_dk, 'dk_avg_fpts']
+        )
+
+    # Recalculate floor/ceiling after blending
+    from projections import FLOOR_MULTIPLIER
+    merged['floor'] = merged['projected_fpts'] * FLOOR_MULTIPLIER
+    if player_type == 'goalie':
+        merged['ceiling'] = merged['projected_fpts'] * 2.0 + 10
+    else:
+        merged['ceiling'] = merged['projected_fpts'] * 2.5 + 5
+
     # Calculate value metrics
     merged['value'] = merged['projected_fpts'] / (merged['salary'] / 1000)
     merged['edge'] = merged['projected_fpts'] - merged['dk_avg_fpts']

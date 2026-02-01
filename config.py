@@ -71,6 +71,10 @@ EXPECTED_TOI_BUMP_CAP = 0.15        # Cap TOI bump at 15%
 # When rate-based is on but expected_toi_minutes == toi_minutes (no situation TOI), scale base so comparison differs
 RATE_BASED_SAME_TOI_SCALE = 0.97    # 3% lower when data doesn't differentiate (backtest comparison)
 
+# DK Season Average Blending
+# Blend our projection with DK's season avg FPTS to anchor toward market consensus
+DK_AVG_BLEND_WEIGHT = 0.80  # 80% our projection, 20% DK season avg
+
 # Contest ROI: payout presets for leverage/EV (optional; contest_roi.py has its own if not set)
 # Share of prize pool: first place %, top 10% share, min-cash tier %
 CONTEST_PAYOUT_PRESETS = {
@@ -211,7 +215,7 @@ SIGNAL_WEIGHTS_NORMALIZED = {k: v / _total for k, v in SIGNAL_WEIGHTS.items()}
 
 SIGNAL_COMPOSITE_SENSITIVITY = 0.30   # Pct-point deviation -> projection % change
 SIGNAL_COMPOSITE_CLIP_LOW = 0.92      # Worst matchup: -8%
-SIGNAL_COMPOSITE_CLIP_HIGH = 1.10     # Best matchup: +10%
+SIGNAL_COMPOSITE_CLIP_HIGH = 1.08     # Best matchup: +8% (symmetric with low clip)
 LEAGUE_AVG_SHARE_PCT = 50.0           # Neutral share percentage
 
 # ==================== GPP Optimizer Configuration ====================

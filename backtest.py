@@ -842,6 +842,32 @@ class NHLBacktester:
                 print(f"  Enhanced features increased error by {enhanced_mae - baseline_mae:.2f} pts")
 
 
+def _parse_toi_minutes(toi_val) -> float:
+    """Parse TOI from MM:SS string or numeric to float minutes.
+
+    Args:
+        toi_val: TOI value — e.g. "18:30", "0:00", 18.5, or None
+
+    Returns:
+        Float minutes (e.g. 18.5). Returns 0.0 for missing/invalid values.
+    """
+    if toi_val is None or (isinstance(toi_val, float) and np.isnan(toi_val)):
+        return 0.0
+    if isinstance(toi_val, (int, float)):
+        return float(toi_val)
+    toi_str = str(toi_val).strip()
+    if ':' in toi_str:
+        parts = toi_str.split(':')
+        try:
+            return int(parts[0]) + int(parts[1]) / 60.0
+        except (ValueError, IndexError):
+            return 0.0
+    try:
+        return float(toi_str)
+    except ValueError:
+        return 0.0
+
+
 def fetch_skaters_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFrame:
     """
     Fetch actual skater DK fantasy points for a slate date from NHL API boxscores.
@@ -888,6 +914,8 @@ def fetch_skaters_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFr
                     blocks = s.get("blockedShots", 0) or s.get("blocked", 0) or 0
                     sh_goals = s.get("shorthandedGoals", 0) or s.get("shGoals", 0) or 0
                     sh_assists = s.get("shorthandedAssists", 0) or 0
+                    toi_raw = s.get("toi", "0:00")
+                    toi_minutes = _parse_toi_minutes(toi_raw)
                     game_dict = {
                         "goals": goals,
                         "assists": assists,
@@ -898,9 +926,10 @@ def fetch_skaters_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFr
                     }
                     pts = backtester.calculate_skater_dk_points(game_dict)
                     last_name = name.split()[-1] if name else ""
-                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts, "last_name": last_name})
+                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts,
+                                 "last_name": last_name, "toi_minutes": toi_minutes})
     if not rows:
-        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name"])
+        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name", "toi_minutes"])
     return pd.DataFrame(rows)
 
 
@@ -940,6 +969,7 @@ def fetch_goalies_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFr
                         continue
                     name_raw = g.get("name", {})
                     name = name_raw.get("default", "") if isinstance(name_raw, dict) else str(name_raw)
+                    toi_minutes = _parse_toi_minutes(toi)
                     game_dict = {
                         "saves": g.get("saves", 0),
                         "goalsAgainst": g.get("goalsAgainst", 0),
@@ -947,9 +977,10 @@ def fetch_goalies_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFr
                     }
                     pts = backtester.calculate_goalie_dk_points(game_dict)
                     last_name = name.split()[-1] if name else ""
-                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts, "last_name": last_name})
+                    rows.append({"name": name, "team": abbrev, "actual_fpts": pts,
+                                 "last_name": last_name, "toi_minutes": toi_minutes})
     if not rows:
-        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name"])
+        return pd.DataFrame(columns=["name", "team", "actual_fpts", "last_name", "toi_minutes"])
     return pd.DataFrame(rows)
 
 
@@ -1013,6 +1044,15 @@ def run_slate_goalie_backtest(
 
     actuals_df["proj_idx"] = actuals_df.apply(match_goalie, axis=1)
     matched = actuals_df.dropna(subset=["proj_idx"])
+
+    # Filter out goalies with TOI=0 before computing error metrics
+    if "toi_minutes" in matched.columns:
+        n_before = len(matched)
+        matched = matched[matched["toi_minutes"] > 0].copy()
+        n_filtered = n_before - len(matched)
+        if n_filtered > 0:
+            print(f"  Filtered {n_filtered} goalies with TOI=0")
+
     if matched.empty:
         return {
             "error": "No goalies matched between projections and actuals",
@@ -1099,6 +1139,15 @@ def run_slate_skater_backtest(
     actuals_df = actuals_df.copy()
     actuals_df["proj_idx"] = actuals_df.apply(match_skater, axis=1)
     matched = actuals_df.dropna(subset=["proj_idx"])
+
+    # Filter out scratches/DNPs (TOI = 0) before computing error metrics
+    if "toi_minutes" in matched.columns:
+        n_before = len(matched)
+        matched = matched[matched["toi_minutes"] > 0].copy()
+        n_filtered = n_before - len(matched)
+        if n_filtered > 0:
+            print(f"  Filtered {n_filtered} skaters with TOI=0 (scratches/DNPs)")
+
     if matched.empty:
         return {
             "error": "No skaters matched between projections and actuals",

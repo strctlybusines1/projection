@@ -20,29 +20,46 @@ from config import (
 from features import FeatureEngineer
 
 # ==================== Backtest-Derived Bias Corrections ====================
-# Updated from 1/29/26 backtest (644 predictions, full slate)
-# Overall skater bias: -1.57 pts (over-projection across all positions)
-# Overall goalie bias: -2.40 pts (over-projection, was previously boosted wrong)
+# Updated from 6-backtest combined analysis (1,642 skater + 87 goalie observations)
+# Overall skater bias: +1.46 pts (over-projection across all positions)
+# Overall goalie bias: +2.30 pts (over-projection)
 
-GLOBAL_BIAS_CORRECTION = 0.97  # 3% reduction to combat over-projection
+GLOBAL_BIAS_CORRECTION = 0.92  # 8% reduction (was 0.97)
 
 # Position-specific bias corrections (skaters)
-# Derived from MAE and bias analysis by position (1/29/26 backtest)
+# Derived from 6-backtest combined actual/projected ratios
 POSITION_BIAS_CORRECTION = {
-    'C': 0.95,   # Centers over-projected by ~1.58 pts
-    'L': 0.94,   # Left wings over-projected by ~1.85 pts
-    'LW': 0.94,  # Left wings (alternate code)
-    'R': 0.94,   # Right wings over-projected (previously under, corrected with more data)
-    'RW': 0.94,  # Right wings (alternate code)
-    'W': 0.94,   # Generic wing
-    'D': 0.93,   # Defensemen over-projected by ~1.14 pts
+    'C': 0.91,   # Centers
+    'L': 0.89,   # Left wings — highest bias (+1.62, 72% over-projected)
+    'LW': 0.89,  # Left wings (alternate code)
+    'R': 0.89,   # Right wings — highest bias
+    'RW': 0.89,  # Right wings (alternate code)
+    'W': 0.89,   # Generic wing
+    'D': 0.90,   # Defensemen
 }
 
-# Goalie bias correction (over-projected by ~2.40 pts on 1/29)
-GOALIE_BIAS_CORRECTION = 0.93  # 7% reduction
+# Goalie bias correction (over-projected by ~2.30 pts across 6 backtests)
+GOALIE_BIAS_CORRECTION = 0.88  # 12% reduction (relaxed from 0.85 — was overcorrecting)
 
 # Floor multiplier (reduced from 0.4 - 30.5% were below floor)
 FLOOR_MULTIPLIER = 0.25
+
+# ==================== Multiplicative Adjustment Cap ====================
+# 7 multiplicative adjustments can compound (signal_matchup * xg_matchup * streak
+# * pdo * opportunity * role * home) — this inflates high projections by ~25%
+MAX_MULTIPLICATIVE_SWING = 0.15  # Cap total adjustment multiplier at ±15%
+
+# ==================== High-Projection Mean Regression ====================
+SKATER_HIGH_PROJ_THRESHOLD = 14.0
+SKATER_HIGH_PROJ_BLEND = 0.80       # keep 80% of projection, blend 20% toward mean
+SKATER_LEAGUE_MEAN_FPTS = 6.0       # approximate league average DK pts
+
+GOALIE_HIGH_PROJ_THRESHOLD = 12.0
+GOALIE_HIGH_PROJ_BLEND = 0.80
+GOALIE_LEAGUE_MEAN_FPTS = 9.0
+
+# ==================== Goalie Projection Cap ====================
+GOALIE_PROJECTION_CAP = 16.0  # Raised from 14.0 — was overcorrecting on big goalie nights
 
 
 class NHLProjectionModel:
@@ -126,48 +143,51 @@ class NHLProjectionModel:
             expected_pts += prob_hat_trick * SKATER_BONUSES['hat_trick']
             expected_pts += prob_3_blocks * SKATER_BONUSES['three_plus_blocks']
 
-        # Apply signal-weighted matchup adjustment (replaces basic opp_softness)
-        # Based on backtest: share metrics (SFpct, xGFpct, SCFpct, FFpct, CFpct)
-        # predict DFS output better than simple GA/game
+        # ==================== Collect Multiplicative Adjustments ====================
+        # Collect all multipliers, then clamp to ±MAX_MULTIPLICATIVE_SWING before applying
+
+        combined_mult = 1.0
+
+        # Signal-weighted matchup adjustment
         signal_boost = row.get('signal_matchup_boost', 1.0)
         if pd.notna(signal_boost):
-            expected_pts *= signal_boost
+            combined_mult *= signal_boost
 
-        # ==================== Advanced Stat Adjustments ====================
-
-        # Apply xG matchup boost (based on expected goals analysis)
+        # xG matchup boost
         xg_matchup_boost = row.get('xg_matchup_boost', 1.0)
         if pd.notna(xg_matchup_boost):
-            expected_pts *= xg_matchup_boost
+            combined_mult *= xg_matchup_boost
 
-        # Apply hot/cold streak adjustment
+        # Hot/cold streak adjustment
         if row.get('team_hot_streak', 0) == 1:
-            # Hot team = boost projections
-            expected_pts *= (1.0 + STREAK_ADJUSTMENT_FACTOR)
+            combined_mult *= (1.0 + STREAK_ADJUSTMENT_FACTOR)
         elif row.get('team_cold_streak', 0) == 1:
-            # Cold team = reduce projections
-            expected_pts *= (1.0 - STREAK_ADJUSTMENT_FACTOR)
+            combined_mult *= (1.0 - STREAK_ADJUSTMENT_FACTOR)
 
-        # Apply PDO regression adjustment
+        # PDO regression adjustment
         pdo_adj = row.get('pdo_adj_factor', 1.0)
         if pd.notna(pdo_adj):
-            expected_pts *= pdo_adj
+            combined_mult *= pdo_adj
 
-        # Apply opportunity boost from teammate injuries
+        # Opportunity boost from teammate injuries
         opp_boost = row.get('opportunity_boost', 1.0)
         if pd.notna(opp_boost):
-            expected_pts *= opp_boost
+            combined_mult *= opp_boost
 
-        # Apply line role multiplier (PP1/Line1 from lines_data)
+        # Line role multiplier (PP1/Line1 from lines_data)
         role_mult = row.get('role_multiplier', 1.0)
         if pd.notna(role_mult):
-            expected_pts *= role_mult
+            combined_mult *= role_mult
 
-        # ==================== Standard Adjustments ====================
-
-        # Home ice advantage (reduced from 1.02 based on backtest)
+        # Home ice advantage
         if row.get('is_home') == True:
-            expected_pts *= 1.01
+            combined_mult *= 1.01
+
+        # Clamp combined multiplier to prevent compounding inflation
+        combined_mult = max(1.0 - MAX_MULTIPLICATIVE_SWING,
+                           min(1.0 + MAX_MULTIPLICATIVE_SWING, combined_mult))
+
+        expected_pts *= combined_mult
 
         # ==================== Backtest Bias Corrections ====================
         # Apply global bias correction
@@ -175,8 +195,13 @@ class NHLProjectionModel:
 
         # Apply position-specific bias correction
         position = row.get('position', 'C')
-        pos_correction = POSITION_BIAS_CORRECTION.get(position, 0.97)
+        pos_correction = POSITION_BIAS_CORRECTION.get(position, 0.91)
         expected_pts *= pos_correction
+
+        # ==================== High-Projection Mean Regression ====================
+        if expected_pts > SKATER_HIGH_PROJ_THRESHOLD:
+            expected_pts = (SKATER_HIGH_PROJ_BLEND * expected_pts +
+                           (1 - SKATER_HIGH_PROJ_BLEND) * SKATER_LEAGUE_MEAN_FPTS)
 
         return expected_pts
 
@@ -248,7 +273,7 @@ class NHLProjectionModel:
             expected_pts *= 1.03
 
         # ==================== Backtest Bias Correction ====================
-        # Goalies are over-projected by ~2.40 pts (1/29/26 backtest)
+        # Goalies are over-projected by ~2.30 pts (6-backtest combined)
         expected_pts *= GOALIE_BIAS_CORRECTION
 
         # ==================== Goalie Quality Tier ====================
@@ -256,6 +281,15 @@ class NHLProjectionModel:
         tier_mult = row.get('tier_multiplier', 1.0)
         if pd.notna(tier_mult):
             expected_pts *= tier_mult
+
+        # ==================== High-Projection Mean Regression ====================
+        if expected_pts > GOALIE_HIGH_PROJ_THRESHOLD:
+            expected_pts = (GOALIE_HIGH_PROJ_BLEND * expected_pts +
+                           (1 - GOALIE_HIGH_PROJ_BLEND) * GOALIE_LEAGUE_MEAN_FPTS)
+
+        # ==================== Goalie Projection Cap ====================
+        # Goalies projected 12+ had +3.79 bias — cap prevents extreme projections
+        expected_pts = min(expected_pts, GOALIE_PROJECTION_CAP)
 
         return expected_pts
 
