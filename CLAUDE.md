@@ -217,4 +217,73 @@ Requires `.env` file in `projection/` with:
 ODDS_API_KEY=<the-odds-api-key>
 ```
 
-Key Python dependencies: `pandas`, `numpy`, `requests`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`.
+Key Python dependencies: `pandas`, `numpy`, `requests`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`, `scipy`.
+
+## Ownership Regression Model
+
+### Approach
+
+The ownership model has two paths:
+
+1. **Regression (primary)**: Ridge regression trained on ~1,200 historical contest observations from 6 matchable dates. Uses `StandardScaler` + `Ridge` with alpha tuned via leave-one-date-out cross-validation. Loaded from `backtests/ownership_model.pkl`.
+2. **Heuristic (fallback)**: Original 12-factor multiplicative model using salary curve, PP1/Line1 boosts, goalie confirmation, value/projection ratios, Vegas totals, scarcity, recency, TOI surge. Used when no trained model pickle exists.
+
+### Features (26 total)
+
+| Category | Features |
+|----------|----------|
+| Core (from projection CSVs) | `salary`, `projected_fpts`, `dk_avg_fpts`, `floor`, `ceiling`, `edge`, `value` |
+| Derived ranks | `salary_rank_in_pos`, `proj_rank_in_pos`, `value_rank_in_pos`, `salary_pctile`, `proj_pctile` |
+| Derived ratios | `dk_value_ratio`, `salary_bin` |
+| Position | `pos_C`, `pos_W`, `pos_D`, `pos_G`, `is_goalie` |
+| Slate context | `slate_size`, `n_players_at_pos` |
+| Lines (conditional) | `is_pp1`, `is_pp2`, `is_line1`, `is_d1`, `is_confirmed_goalie` |
+
+Lines features are 0 when no lines JSON is available (3 of 6 training dates have lines data).
+
+### Training Data
+
+6 dates (~1,200 player-observations). SE (Single Entry) contests preferred for representative ownership:
+
+| Date | Contest | Projection | Lines? |
+|------|---------|-----------|--------|
+| Jan 23 | `$5main_NHL1.23.26.csv` | `01_23_26...190750.csv` | No |
+| Jan 26 | `$5SE_NHL1.26.26.csv` | `01_26_26...184134.csv` | No |
+| Jan 28 | `$5SE_NHL1.28.26.csv` | `01_28_26...191024.csv` | No |
+| Jan 29 | `$1SE_NHL_1.29.26.csv` | `01_29_26...184650.csv` | Yes |
+| Jan 31 | `$5SE_NHL1.31.26.csv` | `01_31_26...190255.csv` | Yes |
+| Feb 1 | `$5SE_NHL2.1.26.csv` | `02_01_26...140426.csv` | Yes |
+
+### Retraining
+
+```bash
+# Run LODOCV to evaluate model performance
+python backtest.py --ownership-backtest
+
+# Train final model on all data and save pickle
+python backtest.py --train-ownership
+```
+
+The trained model is saved to `backtests/ownership_model.pkl`. Delete the pickle to force the heuristic fallback path.
+
+### Performance (LODOCV)
+
+| Date | N | MAE | RMSE | Spearman |
+|------|---|-----|------|----------|
+| jan23 | 283 | 3.52 | 4.47 | 0.650 |
+| jan26 | 133 | 4.22 | 6.43 | 0.651 |
+| jan28 | 101 | 4.25 | 6.90 | 0.836 |
+| jan29 | 428 | 4.83 | 5.45 | 0.653 |
+| jan31 | 228 | 3.51 | 4.62 | 0.744 |
+| feb01 | 99 | 4.62 | 7.64 | 0.818 |
+| **Mean** | **1272** | **4.16** | **5.92** | **0.725** |
+
+Best alpha: 100.0. Top features by coefficient magnitude: `slate_size` (-2.0), `proj_rank_in_pos` (+1.4), `proj_pctile` (+1.3), `n_players_at_pos` (-1.2), `salary_rank_in_pos` (+1.1), `dk_avg_fpts` (+1.1).
+
+### Fallback Behavior
+
+`predict_ownership()` in `ownership.py`:
+1. Attempts to load `backtests/ownership_model.pkl`
+2. If loaded: builds feature matrix → Ridge predict → clip to [0.1, 50.0]
+3. If not loaded: runs `_heuristic_predict()` (original 12-factor model)
+4. Then normalizes ownership to ~900% total, computes leverage scores and tiers

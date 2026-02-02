@@ -1526,6 +1526,172 @@ def run_batch_csv_backtest(
     }
 
 
+def run_ownership_backtest(verbose: bool = True) -> Dict:
+    """Leave-one-date-out CV for ownership regression model.
+
+    For each of 6 folds, trains on 5 dates, predicts on held-out date,
+    computes MAE/RMSE/Spearman correlation vs actual %Drafted.
+    Reports per-date and aggregate metrics, plus feature importances.
+    """
+    from ownership import (
+        build_ownership_training_data, OwnershipRegressionModel,
+    )
+    from scipy.stats import spearmanr
+
+    print("=" * 60)
+    print(" OWNERSHIP REGRESSION — LEAVE-ONE-DATE-OUT CV")
+    print("=" * 60)
+
+    print("\nBuilding training data...")
+    training_df = build_ownership_training_data()
+
+    if training_df.empty:
+        return {"error": "No training data built"}
+
+    reg = OwnershipRegressionModel()
+    cv_results = reg.cross_validate(training_df)
+
+    best_alpha = cv_results['best_alpha']
+    best_mae = cv_results['best_mean_mae']
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f" CV RESULTS  (best alpha={best_alpha})")
+        print(f"{'='*60}")
+
+        # Print results for best alpha
+        folds = cv_results['results_by_alpha'][best_alpha]['folds']
+        print(f"\n{'Date':<10} {'N':>5} {'MAE':>8} {'RMSE':>8} {'Spearman':>10}")
+        print("-" * 45)
+        for f in folds:
+            print(f"  {f['date']:<8} {f['n']:>5} {f['mae']:>8.2f} {f['rmse']:>8.2f} {f['spearman']:>10.3f}")
+
+        mean_rmse = np.mean([f['rmse'] for f in folds])
+        mean_spearman = np.mean([f['spearman'] for f in folds])
+        total_n = sum(f['n'] for f in folds)
+        print("-" * 45)
+        print(f"  {'MEAN':<8} {total_n:>5} {best_mae:>8.2f} {mean_rmse:>8.2f} {mean_spearman:>10.3f}")
+
+        # Alpha comparison table
+        print(f"\n{'Alpha':<10} {'Mean MAE':>10}")
+        print("-" * 22)
+        for alpha in sorted(cv_results['results_by_alpha'].keys()):
+            m = cv_results['results_by_alpha'][alpha]['mean_mae']
+            marker = " <-- best" if alpha == best_alpha else ""
+            print(f"  {alpha:<8} {m:>10.2f}{marker}")
+
+    # Train final model on all data with best alpha for feature importances
+    reg.train(training_df, alpha=best_alpha)
+
+    if verbose:
+        print(f"\nFeature Importances (trained on all data, alpha={best_alpha}):")
+        print("-" * 45)
+        fi = reg.feature_importances()
+        for _, row in fi.head(15).iterrows():
+            print(f"  {row['feature']:<25} {row['coefficient']:>+8.3f}")
+
+    # Save per-fold details
+    out_dir = _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build detailed predictions for each fold at best alpha
+    from sklearn.linear_model import Ridge
+    from sklearn.preprocessing import StandardScaler
+
+    features = [c for c in OwnershipRegressionModel.FEATURE_COLS if c in training_df.columns]
+    dates = sorted(training_df['date_label'].unique())
+    all_details = []
+
+    for held_out in dates:
+        train_mask = training_df['date_label'] != held_out
+        test_mask = training_df['date_label'] == held_out
+
+        X_train = training_df.loc[train_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+        y_train = training_df.loc[train_mask, 'pct_drafted'].values
+        X_test = training_df.loc[test_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+        y_test = training_df.loc[test_mask, 'pct_drafted'].values
+
+        scaler = StandardScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        X_test_s = scaler.transform(X_test)
+
+        model = Ridge(alpha=best_alpha)
+        model.fit(X_train_s, y_train)
+        y_pred = model.predict(X_test_s)
+
+        fold_detail = training_df.loc[test_mask, ['date_label', 'pct_drafted']].copy()
+        fold_detail['predicted_own'] = y_pred
+        fold_detail['error'] = y_pred - y_test
+        fold_detail['abs_error'] = np.abs(fold_detail['error'])
+        all_details.append(fold_detail)
+
+    details_df = pd.concat(all_details, ignore_index=True)
+    details_path = out_dir / "ownership_cv_details.csv"
+    details_df.to_csv(details_path, index=False)
+    if verbose:
+        print(f"\nCV details saved to {details_path}")
+
+    return {
+        'cv_results': cv_results,
+        'best_alpha': best_alpha,
+        'best_mae': best_mae,
+        'feature_importances': reg.feature_importances(),
+        'details': details_df,
+    }
+
+
+def train_ownership_model(verbose: bool = True) -> Dict:
+    """Train final ownership regression model on all data and save pickle."""
+    from ownership import (
+        build_ownership_training_data, OwnershipRegressionModel,
+    )
+
+    print("=" * 60)
+    print(" OWNERSHIP REGRESSION — TRAIN FINAL MODEL")
+    print("=" * 60)
+
+    print("\nBuilding training data...")
+    training_df = build_ownership_training_data()
+
+    if training_df.empty:
+        return {"error": "No training data built"}
+
+    reg = OwnershipRegressionModel()
+
+    # Run CV to find best alpha
+    print("\nRunning CV to find best alpha...")
+    cv_results = reg.cross_validate(training_df)
+    best_alpha = cv_results['best_alpha']
+
+    if verbose:
+        print(f"  Best alpha: {best_alpha} (mean MAE: {cv_results['best_mean_mae']:.2f})")
+
+    # Train on all data
+    print(f"\nTraining on all {len(training_df)} observations with alpha={best_alpha}...")
+    metrics = reg.train(training_df, alpha=best_alpha)
+
+    if verbose:
+        print(f"  Train MAE: {metrics['mae']:.2f}")
+        print(f"  Train RMSE: {metrics['rmse']:.2f}")
+        print(f"  Train Spearman: {metrics['spearman']:.3f}")
+
+    # Save
+    reg.save()
+
+    if verbose:
+        print(f"\nTop 10 Feature Importances:")
+        fi = reg.feature_importances()
+        for _, row in fi.head(10).iterrows():
+            print(f"  {row['feature']:<25} {row['coefficient']:>+8.3f}")
+
+    return {
+        'metrics': metrics,
+        'cv_best_alpha': best_alpha,
+        'cv_best_mae': cv_results['best_mean_mae'],
+        'feature_importances': reg.feature_importances(),
+    }
+
+
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
     """
     Run full backtest pipeline.
@@ -1609,8 +1775,20 @@ if __name__ == "__main__":
                         help='Run batch backtest across all dates with saved projection CSVs')
     parser.add_argument('--batch-dates', type=str, default=None,
                         help='Comma-separated dates for batch backtest (YYYY-MM-DD,YYYY-MM-DD)')
+    parser.add_argument('--ownership-backtest', action='store_true',
+                        help='Run ownership regression LODOCV backtest')
+    parser.add_argument('--train-ownership', action='store_true',
+                        help='Train final ownership regression model and save pickle')
 
     args = parser.parse_args()
+
+    if args.ownership_backtest:
+        run_ownership_backtest()
+        sys.exit(0)
+
+    if args.train_ownership:
+        train_ownership_model()
+        sys.exit(0)
 
     if args.batch_backtest:
         batch_dates = None

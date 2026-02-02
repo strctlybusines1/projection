@@ -13,11 +13,13 @@ Key insights from historical analysis:
 
 import pandas as pd
 import numpy as np
+import pickle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass
+from scipy.stats import spearmanr
 
-from config import DAILY_SALARIES_DIR, CONTESTS_DIR
+from config import DAILY_SALARIES_DIR, CONTESTS_DIR, DAILY_PROJECTIONS_DIR
 
 
 @dataclass
@@ -89,6 +91,179 @@ class OwnershipConfig:
     # Composite multiplier safety cap
     composite_cap: float = 5.0    # max composite multiplier
     composite_floor: float = 0.1  # min composite multiplier
+
+
+class OwnershipRegressionModel:
+    """Ridge regression model for ownership prediction.
+
+    Trained on historical contest observations. Uses StandardScaler + Ridge.
+    Alpha is tuned via leave-one-date-out cross-validation.
+    """
+
+    FEATURE_COLS = [
+        # Core (from projection CSVs)
+        'salary', 'projected_fpts', 'dk_avg_fpts', 'floor', 'ceiling', 'edge', 'value',
+        # Derived ranks/percentiles
+        'salary_rank_in_pos', 'proj_rank_in_pos', 'value_rank_in_pos',
+        'salary_pctile', 'proj_pctile',
+        'dk_value_ratio',
+        'salary_bin',
+        # Position one-hot
+        'pos_C', 'pos_W', 'pos_D', 'pos_G',
+        'is_goalie',
+        # Slate context
+        'slate_size', 'n_players_at_pos',
+        # Conditional (lines JSON, 0 when missing)
+        'is_pp1', 'is_pp2', 'is_line1', 'is_d1', 'is_confirmed_goalie',
+    ]
+
+    MODEL_PATH = Path(__file__).parent / "backtests" / "ownership_model.pkl"
+
+    def __init__(self):
+        self.model = None
+        self.scaler = None
+        self.feature_names = None
+        self.alpha_ = None
+
+    def train(self, training_df: pd.DataFrame, alpha: float = None) -> Dict:
+        """Train Ridge regression on training data. Returns metrics dict."""
+        from sklearn.linear_model import Ridge
+        from sklearn.preprocessing import StandardScaler
+
+        features = [c for c in self.FEATURE_COLS if c in training_df.columns]
+        X = training_df[features].fillna(0).replace([np.inf, -np.inf], 0).values
+        y = training_df['pct_drafted'].values
+
+        self.scaler = StandardScaler()
+        X_scaled = self.scaler.fit_transform(X)
+
+        if alpha is None:
+            alpha = 1.0
+        self.model = Ridge(alpha=alpha)
+        self.model.fit(X_scaled, y)
+        self.feature_names = features
+        self.alpha_ = alpha
+
+        y_pred = self.model.predict(X_scaled)
+        mae = float(np.abs(y - y_pred).mean())
+        rmse = float(np.sqrt(((y - y_pred) ** 2).mean()))
+        corr, _ = spearmanr(y, y_pred)
+
+        return {'mae': mae, 'rmse': rmse, 'spearman': float(corr), 'n': len(y), 'alpha': alpha}
+
+    def cross_validate(self, training_df: pd.DataFrame,
+                       alphas: List[float] = None) -> Dict:
+        """Leave-one-date-out CV. Returns best alpha and per-fold results."""
+        from sklearn.linear_model import Ridge
+        from sklearn.preprocessing import StandardScaler
+
+        if alphas is None:
+            alphas = [0.01, 0.1, 0.5, 1.0, 5.0, 10.0, 50.0, 100.0]
+
+        if 'date_label' not in training_df.columns:
+            raise ValueError("training_df must have 'date_label' column for LODOCV")
+
+        features = [c for c in self.FEATURE_COLS if c in training_df.columns]
+        dates = sorted(training_df['date_label'].unique())
+
+        best_alpha = None
+        best_mean_mae = float('inf')
+        all_results = {}
+
+        for alpha in alphas:
+            fold_results = []
+            for held_out in dates:
+                train_mask = training_df['date_label'] != held_out
+                test_mask = training_df['date_label'] == held_out
+
+                X_train = training_df.loc[train_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+                y_train = training_df.loc[train_mask, 'pct_drafted'].values
+                X_test = training_df.loc[test_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+                y_test = training_df.loc[test_mask, 'pct_drafted'].values
+
+                scaler = StandardScaler()
+                X_train_s = scaler.fit_transform(X_train)
+                X_test_s = scaler.transform(X_test)
+
+                model = Ridge(alpha=alpha)
+                model.fit(X_train_s, y_train)
+                y_pred = model.predict(X_test_s)
+
+                mae = float(np.abs(y_test - y_pred).mean())
+                rmse = float(np.sqrt(((y_test - y_pred) ** 2).mean()))
+                corr, _ = spearmanr(y_test, y_pred)
+
+                fold_results.append({
+                    'date': held_out, 'mae': mae, 'rmse': rmse,
+                    'spearman': float(corr), 'n': len(y_test),
+                })
+
+            mean_mae = np.mean([f['mae'] for f in fold_results])
+            all_results[alpha] = {'folds': fold_results, 'mean_mae': float(mean_mae)}
+
+            if mean_mae < best_mean_mae:
+                best_mean_mae = mean_mae
+                best_alpha = alpha
+
+        return {
+            'best_alpha': best_alpha,
+            'best_mean_mae': float(best_mean_mae),
+            'results_by_alpha': all_results,
+        }
+
+    def predict(self, features_df: pd.DataFrame) -> np.ndarray:
+        """Predict ownership percentages from feature DataFrame."""
+        if self.model is None:
+            raise RuntimeError("Model not trained or loaded")
+        cols = [c for c in self.feature_names if c in features_df.columns]
+        X = features_df.reindex(columns=self.feature_names, fill_value=0).fillna(0)
+        X = X.replace([np.inf, -np.inf], 0).values
+        X_scaled = self.scaler.transform(X)
+        return self.model.predict(X_scaled)
+
+    def save(self, path: Path = None):
+        """Pickle model + scaler + feature names."""
+        path = path or self.MODEL_PATH
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, 'wb') as f:
+            pickle.dump({
+                'model': self.model,
+                'scaler': self.scaler,
+                'feature_names': self.feature_names,
+                'alpha': self.alpha_,
+            }, f)
+        print(f"Saved ownership regression model to {path}")
+
+    @classmethod
+    def load(cls, path: Path = None) -> Optional['OwnershipRegressionModel']:
+        """Load from pickle. Returns None if file doesn't exist."""
+        path = path or cls.MODEL_PATH
+        if not path.exists():
+            return None
+        try:
+            with open(path, 'rb') as f:
+                data = pickle.load(f)
+            obj = cls()
+            obj.model = data['model']
+            obj.scaler = data['scaler']
+            obj.feature_names = data['feature_names']
+            obj.alpha_ = data.get('alpha')
+            return obj
+        except Exception as e:
+            print(f"Warning: failed to load ownership model from {path}: {e}")
+            return None
+
+    def feature_importances(self) -> pd.DataFrame:
+        """Return DataFrame of feature coefficients sorted by abs value."""
+        if self.model is None or self.feature_names is None:
+            return pd.DataFrame()
+        coefs = self.model.coef_
+        df = pd.DataFrame({
+            'feature': self.feature_names,
+            'coefficient': coefs,
+            'abs_coef': np.abs(coefs),
+        }).sort_values('abs_coef', ascending=False)
+        return df
 
 
 class OwnershipModel:
@@ -208,6 +383,22 @@ class OwnershipModel:
                     return True
         return False
 
+    def _is_d1(self, player_name: str, team: str) -> bool:
+        """Check if player is on Defense Pair 1."""
+        if not self.lines_data or team not in self.lines_data:
+            return False
+
+        team_data = self.lines_data.get(team, {})
+        defense_pairs = team_data.get('defense_pairs', [])
+
+        for pair in defense_pairs:
+            if pair.get('pair') == 1:
+                d1_players = [p.lower() for p in pair.get('players', [])]
+                if any(player_name.lower() in p or p in player_name.lower()
+                       for p in d1_players):
+                    return True
+        return False
+
     def _is_confirmed_goalie(self, player_name: str, team: str) -> bool:
         """
         Check if goalie is confirmed starter.
@@ -270,6 +461,97 @@ class OwnershipModel:
 
         return scarcity
 
+    def _build_feature_matrix(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Build feature matrix for regression model from player pool DataFrame.
+
+        Uses self.lines_data and self.confirmed_goalies for line features.
+        Returns DataFrame with columns matching OwnershipRegressionModel.FEATURE_COLS.
+        """
+        feat = df[['name', 'team']].copy()
+        pos_col = 'dk_pos' if 'dk_pos' in df.columns else 'position'
+
+        # Normalize positions: LW/RW/L/R -> W
+        pos_map = {'LW': 'W', 'RW': 'W', 'L': 'W', 'R': 'W'}
+        positions = df[pos_col].map(lambda p: pos_map.get(p, p))
+
+        # Core features
+        for col in ['salary', 'projected_fpts', 'dk_avg_fpts', 'floor', 'ceiling', 'edge', 'value']:
+            feat[col] = df[col].fillna(0).astype(float) if col in df.columns else 0.0
+
+        # Within-position ranks (ascending rank, 1 = best)
+        feat['_pos'] = positions
+        for col, rank_name in [('salary', 'salary_rank_in_pos'),
+                                ('projected_fpts', 'proj_rank_in_pos'),
+                                ('value', 'value_rank_in_pos')]:
+            if col in df.columns:
+                feat[rank_name] = feat.groupby('_pos')[col].rank(ascending=False, method='min')
+            else:
+                feat[rank_name] = 0.0
+
+        # Percentile ranks (0-1)
+        for col, pct_name in [('salary', 'salary_pctile'), ('projected_fpts', 'proj_pctile')]:
+            if col in df.columns:
+                feat[pct_name] = feat.groupby('_pos')[col].rank(pct=True)
+            else:
+                feat[pct_name] = 0.5
+
+        # DK value ratio
+        feat['dk_value_ratio'] = np.where(
+            feat['salary'] > 0,
+            feat['dk_avg_fpts'] / (feat['salary'] / 1000),
+            0.0
+        )
+
+        # Salary bin: 0=punt, 1=low, 2=mid-low, 3=mid, 4=premium, 5=elite
+        def _salary_bin(s):
+            if s < 3500: return 0
+            if s < 4500: return 1
+            if s < 5500: return 2
+            if s < 7000: return 3
+            if s < 8500: return 4
+            return 5
+        feat['salary_bin'] = feat['salary'].apply(_salary_bin)
+
+        # Position one-hot + is_goalie
+        feat['pos_C'] = (positions == 'C').astype(int)
+        feat['pos_W'] = (positions == 'W').astype(int)
+        feat['pos_D'] = (positions == 'D').astype(int)
+        feat['pos_G'] = (positions == 'G').astype(int)
+        feat['is_goalie'] = feat['pos_G']
+
+        # Slate context
+        n_teams = df['team'].nunique() if 'team' in df.columns else 0
+        feat['slate_size'] = n_teams / 2
+        feat['n_players_at_pos'] = feat.groupby('_pos')['_pos'].transform('count')
+
+        # Lines-based features (conditional on lines_data being available)
+        feat['is_pp1'] = 0
+        feat['is_pp2'] = 0
+        feat['is_line1'] = 0
+        feat['is_d1'] = 0
+        feat['is_confirmed_goalie'] = 0
+
+        if self.lines_data:
+            pp1_vals, pp2_vals, line1_vals, d1_vals, cg_vals = [], [], [], [], []
+            for i in range(len(df)):
+                name = str(df.iloc[i]['name']) if 'name' in df.columns else ''
+                team = str(df.iloc[i]['team']) if 'team' in df.columns else ''
+                pos = positions.iloc[i] if i < len(positions) else ''
+                pp1_vals.append(int(self._is_pp1(name, team)))
+                pp2_vals.append(int(self._is_pp2(name, team)))
+                line1_vals.append(int(self._is_line1(name, team)))
+                d1_vals.append(int(self._is_d1(name, team)))
+                cg_vals.append(int(self._is_confirmed_goalie(name, team)) if pos == 'G' else 0)
+            feat['is_pp1'] = pp1_vals
+            feat['is_pp2'] = pp2_vals
+            feat['is_line1'] = line1_vals
+            feat['is_d1'] = d1_vals
+            feat['is_confirmed_goalie'] = cg_vals
+
+        # Drop helper columns
+        feat = feat.drop(columns=['name', 'team', '_pos'], errors='ignore')
+        return feat
+
     def _is_returning_from_injury(self, player_name: str, team: str) -> str:
         """Check if player is returning from injury today.
 
@@ -311,19 +593,11 @@ class OwnershipModel:
 
         return ''
 
-    def predict_ownership(self, player_pool: pd.DataFrame) -> pd.DataFrame:
+    def _heuristic_predict(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Original heuristic ownership prediction (12-factor multiplicative model).
+
+        Used as fallback when no trained regression model exists.
         """
-        Predict ownership for all players in the pool.
-
-        Args:
-            player_pool: DataFrame with columns: name, team, position, salary,
-                        projected_fpts, value, dk_avg_fpts
-
-        Returns:
-            DataFrame with added 'predicted_ownership' and 'leverage_score' columns
-        """
-        df = player_pool.copy()
-
         # Calculate position averages for normalization
         pos_col = 'dk_pos' if 'dk_pos' in df.columns else 'position'
         pos_avg_proj = df.groupby(pos_col)['projected_fpts'].mean()
@@ -367,25 +641,21 @@ class OwnershipModel:
                 if self._is_confirmed_goalie(name, team):
                     multiplier *= self.config.confirmed_goalie_boost
                 elif self.confirmed_goalies:
-                    # We have confirmation data but this goalie isn't confirmed
                     multiplier *= self.config.unconfirmed_goalie_penalty
                 else:
-                    # No confirmation data available - use salary as proxy
-                    # Higher salary goalies are more likely starters
                     if salary >= 8000:
-                        multiplier *= 1.3  # Likely starter
+                        multiplier *= 1.3
                     elif salary >= 7000:
-                        multiplier *= 1.0  # Possible starter
+                        multiplier *= 1.0
                     else:
-                        multiplier *= 0.5  # Likely backup
+                        multiplier *= 0.5
 
-            # 4. Value adjustment (key driver for mid-salary chalk)
+            # 4. Value adjustment
             if pos_avg_value is not None and position in pos_avg_value.index:
                 avg_val = pos_avg_value[position]
                 if avg_val > 0:
                     value_ratio = value / avg_val
                     if value_ratio > 1.5:
-                        # Elite value plays get massive boost (Victor Olofsson type)
                         multiplier *= self.config.elite_value_boost
                     elif value_ratio > 1.2:
                         multiplier *= self.config.high_value_boost
@@ -400,12 +670,11 @@ class OwnershipModel:
                     if proj_ratio > 1.3:
                         multiplier *= self.config.high_proj_boost
 
-            # 6. Smash spot detection (high value + mid salary = chalk)
-            # Players in $3.5K-$5.5K range with high value get extra boost
+            # 6. Smash spot detection
             if 3500 <= salary <= 5500 and value > 3.0:
                 multiplier *= self.config.smash_spot_boost
 
-            # 7. Vegas implied team total (Feature 1)
+            # 7. Vegas implied team total
             if self.team_totals and team in self.team_totals:
                 implied_total = self.team_totals[team]
                 if implied_total >= 3.5:
@@ -414,13 +683,12 @@ class OwnershipModel:
                     multiplier *= self.config.vegas_mid_team_total_boost
                 elif implied_total < 2.5:
                     multiplier *= self.config.vegas_low_team_total_penalty
-            # Game total boost (all players in high-scoring games)
             if self.team_game_totals and team in self.team_game_totals:
                 game_total = self.team_game_totals[team]
                 if game_total is not None and game_total >= 6.5:
                     multiplier *= self.config.vegas_high_game_total_boost
 
-            # 8. DK average FPTS perceived value (Feature 2)
+            # 8. DK average FPTS perceived value
             dk_avg = row.get('dk_avg_fpts', 0)
             if dk_avg and salary > 0:
                 dk_value_ratio = dk_avg / (salary / 1000)
@@ -431,24 +699,23 @@ class OwnershipModel:
                 elif dk_value_ratio < 2.0:
                     multiplier *= self.config.dk_value_low_penalty
 
-            # 9. Salary tier scarcity (Feature 3)
+            # 9. Salary tier scarcity
             if name in scarcity_map:
                 multiplier *= scarcity_map[name]
 
-            # 10. Return-from-injury buzz (Feature 4)
+            # 10. Return-from-injury buzz
             injury_status = self._is_returning_from_injury(name, team)
             if injury_status == 'IR_RETURN':
                 multiplier *= self.config.injury_return_boost
             elif injury_status == 'DTD':
                 multiplier *= self.config.injury_dtd_boost
 
-            # 11. Individual recent game scoring (Feature 5)
+            # 11. Individual recent game scoring
             player_id = row.get('player_id')
             if self.recent_scores and player_id and player_id in self.recent_scores:
                 scores = self.recent_scores[player_id]
                 last_1 = scores.get('last_1_game_fpts', 0)
                 last_3 = scores.get('last_3_avg_fpts', 0)
-                # Use max of applicable boosts (not multiplicative within category)
                 recency_mult = 1.0
                 if last_1 > 25:
                     recency_mult = max(recency_mult, self.config.recency_blowup_boost)
@@ -460,38 +727,64 @@ class OwnershipModel:
                     recency_mult = min(recency_mult, self.config.recency_cold_penalty)
                 multiplier *= recency_mult
 
-            # 12. TOI surge (Feature 6) — interaction with role
+            # 12. TOI surge — interaction with role
             if self.toi_surge_map:
                 toi_delta = self.toi_surge_map.get(name, 0)
-                if toi_delta > 2.0:  # 2+ minute surge
+                if toi_delta > 2.0:
                     if is_pp1 and is_line1:
-                        multiplier *= self.config.toi_surge_role_boost      # 1.5x
+                        multiplier *= self.config.toi_surge_role_boost
                     elif is_pp1:
-                        multiplier *= self.config.toi_surge_pp1_boost       # 1.25x
+                        multiplier *= self.config.toi_surge_pp1_boost
                     elif is_line1:
-                        multiplier *= self.config.toi_surge_line1_boost     # 1.15x
+                        multiplier *= self.config.toi_surge_line1_boost
                     else:
-                        multiplier *= self.config.toi_surge_solo_boost      # 1.1x
-                elif toi_delta < -2.0:  # 2+ minute drop
-                    multiplier *= self.config.toi_drop_penalty              # 0.85x
+                        multiplier *= self.config.toi_surge_solo_boost
+                elif toi_delta < -2.0:
+                    multiplier *= self.config.toi_drop_penalty
 
-            # Apply composite multiplier cap (safety)
+            # Apply composite multiplier cap
             multiplier = max(self.config.composite_floor,
                              min(self.config.composite_cap, multiplier))
 
-            # Calculate final ownership
             predicted_own = base_own * multiplier
-
-            # Cap at reasonable bounds
             predicted_own = max(0.5, min(45.0, predicted_own))
 
             ownership_predictions.append(predicted_own)
 
         df['predicted_ownership'] = ownership_predictions
+        return df
+
+    def predict_ownership(self, player_pool: pd.DataFrame) -> pd.DataFrame:
+        """
+        Predict ownership for all players in the pool.
+
+        Tries regression model first; falls back to heuristic if no pickle exists.
+
+        Args:
+            player_pool: DataFrame with columns: name, team, position, salary,
+                        projected_fpts, value, dk_avg_fpts
+
+        Returns:
+            DataFrame with added 'predicted_ownership' and 'leverage_score' columns
+        """
+        df = player_pool.copy()
+
+        # Try regression path
+        reg_model = OwnershipRegressionModel.load()
+        if reg_model is not None:
+            try:
+                features_df = self._build_feature_matrix(df)
+                preds = reg_model.predict(features_df)
+                df['predicted_ownership'] = np.clip(preds, 0.1, 50.0)
+                print("  [Ownership] Using regression model")
+            except Exception as e:
+                print(f"  [Ownership] Regression failed ({e}), falling back to heuristic")
+                df = self._heuristic_predict(df)
+        else:
+            print("  [Ownership] No regression model found, using heuristic")
+            df = self._heuristic_predict(df)
 
         # Normalize so total ownership is reasonable
-        # In a 9-player lineup, average ownership should be ~100/9 = 11.1% per slot
-        # But with 300+ players, total ownership across all players = 900%
         df = self._normalize_ownership(df)
 
         # Calculate leverage score (high projection + low ownership = good leverage)
@@ -650,6 +943,145 @@ def analyze_historical_ownership(contest_files: List[str]) -> pd.DataFrame:
         return pd.DataFrame()
 
     return pd.concat(all_data, ignore_index=True)
+
+
+def build_ownership_training_data() -> pd.DataFrame:
+    """Build training DataFrame from historical contest + projection data.
+
+    Matches ~1,200 player observations across 6 dates with actual %Drafted.
+    Returns DataFrame with all regression features plus 'pct_drafted' target
+    and 'date_label' for LODOCV.
+    """
+    from lines import fuzzy_match as _fm
+
+    project_dir = Path(__file__).parent
+    contests_dir = project_dir / CONTESTS_DIR
+    proj_dir = project_dir / DAILY_PROJECTIONS_DIR
+
+    # 6 matchable dates: (date_label, contest_csv, projection_csv, lines_json_or_None)
+    TRAINING_DATES = [
+        ('jan23', '$5main_NHL1.23.26.csv',
+         '01_23_26NHLprojections_20260123_190750.csv', None),
+        ('jan26', '$5SE_NHL1.26.26.csv',
+         '01_26_26NHLprojections_20260126_184134.csv', None),
+        ('jan28', '$5SE_NHL1.28.26.csv',
+         '01_28_26NHLprojections_20260128_191024.csv', None),
+        ('jan29', '$1SE_NHL_1.29.26.csv',
+         '01_29_26NHLprojections_20260129_184650.csv', 'lines_2026_01_29.json'),
+        ('jan31', '$5SE_NHL1.31.26.csv',
+         '01_31_26NHLprojections_20260131_190255.csv', 'lines_2026_01_31.json'),
+        ('feb01', '$5SE_NHL2.1.26.csv',
+         '02_01_26NHLprojections_20260201_140426.csv', 'lines_2026_02_01.json'),
+    ]
+
+    all_frames = []
+
+    for date_label, contest_file, proj_file, lines_file in TRAINING_DATES:
+        contest_path = contests_dir / contest_file
+        proj_path = proj_dir / proj_file
+
+        if not contest_path.exists():
+            print(f"  Warning: missing contest file {contest_path}, skipping {date_label}")
+            continue
+        if not proj_path.exists():
+            print(f"  Warning: missing projection file {proj_path}, skipping {date_label}")
+            continue
+
+        # --- Load contest CSV and extract unique Player + %Drafted ---
+        contest_df = pd.read_csv(contest_path)
+        if '%Drafted' not in contest_df.columns or 'Player' not in contest_df.columns:
+            print(f"  Warning: contest CSV missing required columns, skipping {date_label}")
+            continue
+
+        # Extract unique players with their %Drafted
+        ownership_df = contest_df[['Player', '%Drafted']].dropna().drop_duplicates(subset=['Player'])
+        ownership_df = ownership_df.copy()
+        ownership_df['%Drafted'] = (
+            ownership_df['%Drafted'].astype(str).str.replace('%', '').astype(float)
+        )
+        ownership_df = ownership_df.rename(columns={'Player': 'contest_name', '%Drafted': 'pct_drafted'})
+
+        # --- Load projection CSV ---
+        proj_df = pd.read_csv(proj_path)
+
+        # Normalize positions
+        pos_col = 'dk_pos' if 'dk_pos' in proj_df.columns else 'position'
+        pos_map = {'LW': 'W', 'RW': 'W', 'L': 'W', 'R': 'W'}
+        proj_df['norm_pos'] = proj_df[pos_col].map(lambda p: pos_map.get(p, p))
+
+        # --- Load lines JSON if available ---
+        lines_data = None
+        confirmed_goalies = {}
+        if lines_file:
+            lines_path = proj_dir / lines_file
+            if lines_path.exists():
+                import json
+                with open(lines_path, 'r') as f:
+                    lines_data = json.load(f)
+                # Extract confirmed goalies
+                for team_abbrev, team_data in lines_data.items():
+                    cg = team_data.get('confirmed_goalie', '')
+                    if cg:
+                        confirmed_goalies[team_abbrev] = cg
+
+        # --- Match players by name ---
+        proj_names = proj_df['name'].tolist()
+        matched_rows = []
+
+        for _, own_row in ownership_df.iterrows():
+            contest_name = own_row['contest_name']
+            pct_drafted = own_row['pct_drafted']
+
+            # Exact match first
+            exact = proj_df[proj_df['name'] == contest_name]
+            if len(exact) == 1:
+                matched_rows.append((exact.index[0], pct_drafted))
+                continue
+
+            # Fuzzy match fallback
+            match = None
+            best_ratio = 0
+            from difflib import SequenceMatcher
+            for i, pname in enumerate(proj_names):
+                if _fm(contest_name, pname):
+                    ratio = SequenceMatcher(None, contest_name.lower(), pname.lower()).ratio()
+                    if ratio > best_ratio:
+                        best_ratio = ratio
+                        match = proj_df.index[i]
+
+            if match is not None:
+                matched_rows.append((match, pct_drafted))
+
+        if not matched_rows:
+            print(f"  Warning: no players matched for {date_label}")
+            continue
+
+        # Build matched DataFrame (reset index to avoid duplicates)
+        match_indices, match_pcts = zip(*matched_rows)
+        date_df = proj_df.loc[list(match_indices)].copy().reset_index(drop=True)
+        date_df['pct_drafted'] = list(match_pcts)
+        date_df['date_label'] = date_label
+
+        # --- Build features using OwnershipModel ---
+        om = OwnershipModel()
+        if lines_data:
+            om.set_lines_data(lines_data, confirmed_goalies)
+
+        features = om._build_feature_matrix(date_df)
+        features['pct_drafted'] = date_df['pct_drafted'].values
+        features['date_label'] = date_label
+
+        all_frames.append(features)
+        print(f"  {date_label}: {len(features)} players matched "
+              f"(lines={'yes' if lines_data else 'no'})")
+
+    if not all_frames:
+        print("No training data built.")
+        return pd.DataFrame()
+
+    result = pd.concat(all_frames, ignore_index=True)
+    print(f"\nTotal training data: {len(result)} observations across {len(all_frames)} dates")
+    return result
 
 
 def print_ownership_report(df: pd.DataFrame, top_n: int = 20):
