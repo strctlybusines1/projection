@@ -73,6 +73,30 @@ def _write_latest_mae(
         json.dump(existing, f, indent=2)
 
 
+def _find_latest_projection_csv(date_str: str, projections_dir: str = "daily_projections") -> Optional[Path]:
+    """Find the latest saved projection CSV for a given date.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format (e.g. '2026-01-28')
+        projections_dir: Directory containing projection CSVs
+
+    Returns:
+        Path to latest matching CSV, or None if no match.
+    """
+    from glob import glob as _glob
+    dt = datetime.strptime(date_str, "%Y-%m-%d")
+    prefix = dt.strftime("%m_%d_%y")  # e.g. 01_28_26
+    pattern = str(_BACKTEST_PROJECT_ROOT / projections_dir / f"{prefix}NHLprojections_*.csv")
+    matches = [
+        p for p in _glob(pattern)
+        if "_lineups" not in p and "simulator" not in p
+    ]
+    if not matches:
+        return None
+    # Return latest by modification time
+    return Path(max(matches, key=lambda p: Path(p).stat().st_mtime))
+
+
 class NHLBacktester:
     """
     Backtest projection models against historical NHL data.
@@ -901,7 +925,7 @@ def fetch_skaters_actuals_for_date(client: NHLAPIClient, date: str) -> pd.DataFr
                 skater_list = side_data.get("skaters", [])
                 if not skater_list:
                     fwd = side_data.get("forwards", [])
-                    defs = side_data.get("defensemen", [])
+                    defs = side_data.get("defense", []) or side_data.get("defensemen", [])
                     skater_list = (fwd if isinstance(fwd, list) else []) + (defs if isinstance(defs, list) else [])
                 for s in skater_list:
                     if not isinstance(s, dict):
@@ -1166,6 +1190,9 @@ def run_slate_skater_backtest(
     details = matched[["name", "team", "actual_fpts"]].copy()
     details["projected_fpts"] = proj_fpts.values
     details["error"] = err
+    details["position"] = matched["proj_idx"].map(
+        lambda i: skater_proj.loc[i, "position"] if "position" in skater_proj.columns else "?"
+    )
 
     return {
         "mae": mae,
@@ -1186,6 +1213,317 @@ def run_slate_skater_comparison(date: str = "2026-01-28") -> Dict:
     per_game = run_slate_skater_backtest(date, use_rate_based=False)
     rate_based = run_slate_skater_backtest(date, use_rate_based=True)
     return {"per_game": per_game, "rate_based": rate_based}
+
+
+def run_batch_csv_backtest(
+    dates: Optional[List[str]] = None,
+    projections_dir: str = "daily_projections",
+    include_goalies: bool = True,
+    verbose: bool = True,
+) -> Dict:
+    """
+    Run backtests across all dates with saved projection CSVs.
+
+    For each date, loads the latest projection CSV, fetches actuals from the
+    NHL API, matches by last_name + team, and accumulates per-position stats.
+
+    Args:
+        dates: List of YYYY-MM-DD strings. If None, auto-discovers from CSVs.
+        projections_dir: Directory containing projection CSVs.
+        include_goalies: Whether to include goalie analysis.
+        verbose: Print progress and results.
+
+    Returns:
+        Dict with 'per_date', 'aggregate', and 'details' DataFrame.
+    """
+    from projections import (
+        GLOBAL_BIAS_CORRECTION, POSITION_BIAS_CORRECTION, GOALIE_BIAS_CORRECTION,
+    )
+
+    # Auto-discover dates from CSV filenames
+    if dates is None:
+        from glob import glob as _glob
+        pattern = str(_BACKTEST_PROJECT_ROOT / projections_dir / "*NHLprojections_*.csv")
+        all_csvs = [
+            p for p in _glob(pattern)
+            if "_lineups" not in p and "simulator" not in p
+        ]
+        # Extract unique dates from MM_DD_YY prefix
+        date_set = set()
+        for p in all_csvs:
+            fname = Path(p).name
+            parts = fname.split("NHLprojections_")
+            if len(parts) == 2:
+                prefix = parts[0]  # e.g. "01_28_26"
+                try:
+                    dt = datetime.strptime(prefix, "%m_%d_%y")
+                    date_set.add(dt.strftime("%Y-%m-%d"))
+                except ValueError:
+                    continue
+        dates = sorted(date_set)
+
+    if not dates:
+        print("No dates found with projection CSVs.")
+        return {"per_date": {}, "aggregate": {}, "details": pd.DataFrame()}
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f" BATCH CSV BACKTEST — {len(dates)} dates")
+        print(f"{'='*60}")
+        print(f"  Dates: {', '.join(dates)}")
+
+    backtester = NHLBacktester()
+    client = backtester.client
+
+    all_skater_details = []
+    all_goalie_details = []
+    per_date_results = {}
+
+    for date in dates:
+        if verbose:
+            print(f"\n--- {date} ---")
+
+        csv_path = _find_latest_projection_csv(date, projections_dir)
+        if csv_path is None:
+            if verbose:
+                print(f"  No projection CSV found, skipping.")
+            continue
+
+        # Load CSV
+        proj_df = pd.read_csv(csv_path)
+        if verbose:
+            print(f"  CSV: {csv_path.name}  ({len(proj_df)} rows)")
+
+        # Normalize positions: L/R/LW/RW -> W
+        if "position" in proj_df.columns:
+            pos_map = {"L": "W", "R": "W", "LW": "W", "RW": "W"}
+            proj_df["position"] = proj_df["position"].map(lambda p: pos_map.get(p, p))
+
+        # Split skaters vs goalies
+        skater_proj = proj_df[proj_df["position"].isin(["C", "W", "D"])].copy()
+        goalie_proj = proj_df[proj_df["position"] == "G"].copy() if include_goalies else pd.DataFrame()
+
+        # --- Skater actuals ---
+        try:
+            skater_actuals = fetch_skaters_actuals_for_date(client, date)
+        except Exception as e:
+            if verbose:
+                print(f"  Error fetching skater actuals: {e}")
+            continue
+
+        if skater_actuals.empty:
+            if verbose:
+                print(f"  No skater actuals found.")
+            continue
+
+        # Match skaters by last_name + team
+        def match_skater(row_act):
+            last = row_act["last_name"]
+            team = row_act["team"]
+            cand = skater_proj[
+                (skater_proj["team"] == team)
+                & (skater_proj["name"].str.endswith(" " + last, na=False))
+            ]
+            if len(cand) == 1:
+                return cand.index[0]
+            if len(cand) > 1:
+                for idx, r in cand.iterrows():
+                    if r["name"].split()[-1] == last:
+                        return idx
+                return cand.index[0]
+            return None
+
+        skater_actuals = skater_actuals.copy()
+        skater_actuals["proj_idx"] = skater_actuals.apply(match_skater, axis=1)
+        matched_sk = skater_actuals.dropna(subset=["proj_idx"])
+
+        # Filter TOI=0
+        if "toi_minutes" in matched_sk.columns:
+            matched_sk = matched_sk[matched_sk["toi_minutes"] > 0].copy()
+
+        if not matched_sk.empty:
+            proj_fpts = matched_sk["proj_idx"].map(lambda i: skater_proj.loc[i, "projected_fpts"])
+            positions = matched_sk["proj_idx"].map(lambda i: skater_proj.loc[i, "position"])
+            details = matched_sk[["name", "team", "actual_fpts"]].copy()
+            details["projected_fpts"] = proj_fpts.values
+            details["error"] = proj_fpts.values - matched_sk["actual_fpts"].values
+            details["position"] = positions.values
+            details["date"] = date
+            all_skater_details.append(details)
+
+            if verbose:
+                print(f"  Skaters matched: {len(details)}")
+        else:
+            if verbose:
+                print(f"  No skaters matched.")
+
+        # --- Goalie actuals ---
+        if include_goalies and not goalie_proj.empty:
+            try:
+                goalie_actuals = fetch_goalies_actuals_for_date(client, date)
+            except Exception:
+                goalie_actuals = pd.DataFrame()
+
+            if not goalie_actuals.empty:
+                def match_goalie(row_act):
+                    last = row_act["last_name"]
+                    team = row_act["team"]
+                    cand = goalie_proj[
+                        (goalie_proj["team"] == team)
+                        & (goalie_proj["name"].str.endswith(" " + last, na=False))
+                    ]
+                    if len(cand) == 1:
+                        return cand.index[0]
+                    if len(cand) > 1:
+                        for idx, r in cand.iterrows():
+                            if r["name"].split()[-1] == last:
+                                return idx
+                        return cand.index[0]
+                    return None
+
+                goalie_actuals = goalie_actuals.copy()
+                goalie_actuals["proj_idx"] = goalie_actuals.apply(match_goalie, axis=1)
+                matched_gk = goalie_actuals.dropna(subset=["proj_idx"])
+
+                if "toi_minutes" in matched_gk.columns:
+                    matched_gk = matched_gk[matched_gk["toi_minutes"] > 0].copy()
+
+                if not matched_gk.empty:
+                    gk_proj_fpts = matched_gk["proj_idx"].map(lambda i: goalie_proj.loc[i, "projected_fpts"])
+                    gk_details = matched_gk[["name", "team", "actual_fpts"]].copy()
+                    gk_details["projected_fpts"] = gk_proj_fpts.values
+                    gk_details["error"] = gk_proj_fpts.values - matched_gk["actual_fpts"].values
+                    gk_details["position"] = "G"
+                    gk_details["date"] = date
+                    all_goalie_details.append(gk_details)
+                    if verbose:
+                        print(f"  Goalies matched: {len(gk_details)}")
+
+        # Per-date summary
+        if all_skater_details and all_skater_details[-1]["date"].iloc[0] == date:
+            d = all_skater_details[-1]
+            per_date_results[date] = {
+                "n_skaters": len(d),
+                "skater_mae": float(d["error"].abs().mean()),
+                "skater_bias": float(d["error"].mean()),
+            }
+
+    # Aggregate results
+    if not all_skater_details:
+        print("\nNo skater data collected across any dates.")
+        return {"per_date": per_date_results, "aggregate": {}, "details": pd.DataFrame()}
+
+    combined_sk = pd.concat(all_skater_details, ignore_index=True)
+    combined_gk = pd.concat(all_goalie_details, ignore_index=True) if all_goalie_details else pd.DataFrame()
+
+    # Overall skater stats
+    n_total = len(combined_sk)
+    overall_mae = float(combined_sk["error"].abs().mean())
+    overall_bias = float(combined_sk["error"].mean())
+    overall_rmse = float(np.sqrt((combined_sk["error"] ** 2).mean()))
+
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f" AGGREGATE RESULTS — {n_total} skater observations across {len(dates)} dates")
+        print(f"{'='*60}")
+        print(f"  Overall:  N={n_total}  MAE={overall_mae:.2f}  bias={overall_bias:+.2f}  RMSE={overall_rmse:.2f}")
+
+    # Per-position stats
+    pos_stats = {}
+    for pos in ["C", "W", "D"]:
+        pos_df = combined_sk[combined_sk["position"] == pos]
+        if pos_df.empty:
+            continue
+        n = len(pos_df)
+        mae = float(pos_df["error"].abs().mean())
+        bias = float(pos_df["error"].mean())
+        mean_proj = float(pos_df["projected_fpts"].mean())
+        mean_act = float(pos_df["actual_fpts"].mean())
+        ratio = mean_act / mean_proj if mean_proj > 0 else 1.0
+        pos_stats[pos] = {
+            "n": n, "mae": mae, "bias": bias,
+            "mean_projected": mean_proj, "mean_actual": mean_act,
+            "actual_proj_ratio": ratio,
+        }
+        if verbose:
+            print(f"  {pos}:  N={n}  MAE={mae:.2f}  bias={bias:+.2f}  "
+                  f"mean_proj={mean_proj:.2f}  mean_act={mean_act:.2f}  ratio={ratio:.3f}")
+
+    # Goalie stats
+    goalie_stats = {}
+    if not combined_gk.empty:
+        gn = len(combined_gk)
+        g_mae = float(combined_gk["error"].abs().mean())
+        g_bias = float(combined_gk["error"].mean())
+        g_mean_proj = float(combined_gk["projected_fpts"].mean())
+        g_mean_act = float(combined_gk["actual_fpts"].mean())
+        g_ratio = g_mean_act / g_mean_proj if g_mean_proj > 0 else 1.0
+        goalie_stats = {
+            "n": gn, "mae": g_mae, "bias": g_bias,
+            "mean_projected": g_mean_proj, "mean_actual": g_mean_act,
+            "actual_proj_ratio": g_ratio,
+        }
+        if verbose:
+            print(f"  G:  N={gn}  MAE={g_mae:.2f}  bias={g_bias:+.2f}  "
+                  f"mean_proj={g_mean_proj:.2f}  mean_act={g_mean_act:.2f}  ratio={g_ratio:.3f}")
+
+    # Derive correction suggestions
+    if verbose:
+        print(f"\n{'='*60}")
+        print(f" SUGGESTED BIAS CORRECTIONS")
+        print(f"{'='*60}")
+        print(f"  Current: GLOBAL={GLOBAL_BIAS_CORRECTION}  "
+              f"C={POSITION_BIAS_CORRECTION.get('C', '?')}  "
+              f"W={POSITION_BIAS_CORRECTION.get('W', '?')}  "
+              f"D={POSITION_BIAS_CORRECTION.get('D', '?')}  "
+              f"GOALIE={GOALIE_BIAS_CORRECTION}")
+
+        # For each position, effective = GLOBAL * POSITION
+        # new_effective = old_effective * ratio
+        # Then decompose: new_GLOBAL = avg(new_effective), new_POS = new_effective / new_GLOBAL
+        new_effectives = {}
+        for pos in ["C", "W", "D"]:
+            if pos not in pos_stats:
+                continue
+            old_eff = GLOBAL_BIAS_CORRECTION * POSITION_BIAS_CORRECTION.get(pos, 1.0)
+            new_eff = old_eff * pos_stats[pos]["actual_proj_ratio"]
+            new_effectives[pos] = new_eff
+
+        if new_effectives:
+            new_global = sum(new_effectives.values()) / len(new_effectives)
+            new_pos_corrections = {pos: eff / new_global for pos, eff in new_effectives.items()}
+
+            print(f"\n  Derived (from actual/projected ratios):")
+            print(f"    new GLOBAL_BIAS_CORRECTION = {new_global:.4f}  (round to {round(new_global, 2)})")
+            for pos in ["C", "W", "D"]:
+                if pos in new_pos_corrections:
+                    print(f"    new POSITION['{pos}'] = {new_pos_corrections[pos]:.4f}  (round to {round(new_pos_corrections[pos], 2)})")
+
+        if goalie_stats:
+            old_goalie = GOALIE_BIAS_CORRECTION
+            new_goalie = old_goalie * goalie_stats["actual_proj_ratio"]
+            print(f"    new GOALIE_BIAS_CORRECTION = {new_goalie:.4f}  (round to {round(new_goalie, 2)})")
+
+    # Combine all details
+    all_details = pd.concat(
+        [combined_sk] + ([combined_gk] if not combined_gk.empty else []),
+        ignore_index=True,
+    )
+
+    aggregate = {
+        "n_skaters": n_total,
+        "skater_mae": overall_mae,
+        "skater_bias": overall_bias,
+        "skater_rmse": overall_rmse,
+        "position_stats": pos_stats,
+        "goalie_stats": goalie_stats,
+    }
+
+    return {
+        "per_date": per_date_results,
+        "aggregate": aggregate,
+        "details": all_details,
+    }
 
 
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
@@ -1267,8 +1605,27 @@ if __name__ == "__main__":
                         help='With --skater-slate-date: use rate-based (dk_pts_per_60) projections')
     parser.add_argument('--skater-compare', action='store_true',
                         help='With --skater-slate-date: compare per-game vs rate-based MAE')
+    parser.add_argument('--batch-backtest', action='store_true',
+                        help='Run batch backtest across all dates with saved projection CSVs')
+    parser.add_argument('--batch-dates', type=str, default=None,
+                        help='Comma-separated dates for batch backtest (YYYY-MM-DD,YYYY-MM-DD)')
 
     args = parser.parse_args()
+
+    if args.batch_backtest:
+        batch_dates = None
+        if args.batch_dates:
+            batch_dates = [d.strip() for d in args.batch_dates.split(",")]
+        result = run_batch_csv_backtest(dates=batch_dates)
+        # Save details CSV
+        details = result.get("details")
+        if details is not None and not details.empty:
+            out_dir = _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_path = out_dir / "batch_backtest_details.csv"
+            details.to_csv(out_path, index=False)
+            print(f"\nDetails saved to {out_path}")
+        sys.exit(0)
 
     if args.skater_slate_date:
         date = args.skater_slate_date

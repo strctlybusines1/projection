@@ -56,7 +56,7 @@ External APIs → data_pipeline.py → features.py → projections.py
 - **lines.py** — `LinesScraper` scrapes DailyFaceoff for line combos/PP units/confirmed goalies. `StackBuilder` builds correlation data and `get_best_stacks()` returns PP1/Line1/Line1+D1/Line2 groupings with projection matching.
 - **ownership.py** — `OwnershipModel.predict_ownership()` uses salary curve, PP1/Line1 role boosts, Vegas totals, goalie confirmation, recent scoring, and TOI surge signals. Normalizes to ~900% total.
 - **optimizer.py** — `NHLLineupOptimizer` builds lineups under DK constraints ($50k cap, 2C/3W/2D/1G/1UTIL). GPP mode uses `_get_correlated_stack_players()` to select from actual line/PP combos (PP1 > Line1+D1 > Line1 for primary, Line1 > Line2 > PP1 for secondary) with fallback to top-N-by-projection.
-- **simulator.py** — `OptimalLineupSimulator` iterates all valid (team_A, team_B) ordered pairs, builds the best 4-3-1-1 lineup for each, and counts player appearance frequency. Supports deterministic mode (fixed projections) and Monte Carlo mode (samples from `N(projected, std)` each iteration). Computes per-position baseline probability accounting for UTIL slot asymmetry (C/W eligible, D excluded) and a `lift` column (actual_pct / baseline_pct) for context. Run via `python main.py --simulate` or `--simulate --sim-iterations N`.
+- **simulator.py** — `OptimalLineupSimulator` iterates all valid (team_A, team_B) ordered pairs, builds the best 4-3-1-1 lineup for each, and counts player appearance frequency. Supports deterministic mode (fixed projections) and Monte Carlo mode (samples from `N(projected, std)` each iteration). Computes per-position baseline probability accounting for UTIL slot asymmetry (C/W eligible, D excluded) and a `lift` column (actual_pct / baseline_pct) for context. Run via `python main.py --simulate` or `--simulate --sim-iterations N`. Supports two-pass lift-adjusted re-simulation via `--sim-lift [blend]` (see below).
 - **contest_roi.py** — Leverage recommendations and contest EV scoring based on payout structure.
 - **backtest.py** — Compares projections to actual scores. Outputs MAE/RMSE/correlation by position. Filters TOI=0 scratches/DNPs from error metrics. Results feed bias corrections in `projections.py`.
 - **config.py** — Central configuration: DK scoring rules, API URLs, bias corrections, GPP optimizer settings, signal weights.
@@ -88,7 +88,7 @@ All relative to `projection/`:
 ## Key Patterns
 
 - **Name matching** between data sources uses fuzzy matching (`difflib.SequenceMatcher` at 0.85 threshold) throughout `lines.py` and `main.py`. The `find_player_match()` and `fuzzy_match()` functions in `lines.py` are the canonical implementations.
-- **Bias corrections** in `projections.py` are derived from backtest results. Constants live in `projections.py` itself (`GLOBAL_BIAS_CORRECTION`, `POSITION_BIAS_CORRECTION`, `GOALIE_BIAS_CORRECTION`). Update these when backtest metrics shift. Current values are from a 6-backtest combined analysis (1,642 skater + 87 goalie observations).
+- **Bias corrections** in `projections.py` are derived from backtest results. Constants live in `projections.py` itself (`GLOBAL_BIAS_CORRECTION`, `POSITION_BIAS_CORRECTION`, `GOALIE_BIAS_CORRECTION`). Update these when backtest metrics shift. Current values are from a 7-date batch backtest (1,410 skater + 77 goalie observations, including defensemen after API key bug fix). Run `python backtest.py --batch-backtest` to re-derive.
 - **Position normalization**: LW/RW/R/L all map to `W`. C/W and W/C map to `C`. LD/RD map to `D`. This happens in `optimizer.py._normalize_position()` and `simulator.py._normalise_pos()`.
 - **Goalie opponent exclusion**: The optimizer removes all skaters from the goalie's opponent team (negative correlation — if opponent scores, goalie loses points).
 - **Stack correlation flow**: `StackBuilder` stores correlation values (PP1: 0.95, Line1: 0.85, Line1+D1: 0.75, Line2: 0.70). The optimizer's `_get_correlated_stack_players()` picks from these actual line groupings rather than arbitrary top-N.
@@ -116,11 +116,36 @@ lift = actual_pct / baseline_pct
 
 A lift of 1.0x means random-level selection. Values well below 1.0x indicate a player is only appearing due to salary/position constraints rather than projection strength. The baseline header and lift column appear in both terminal output and CSV exports.
 
-## Projection Calibration (updated 2/1/26)
+## Lift-Adjusted Re-Simulation (`--sim-lift`)
+
+The `--sim-lift [blend]` flag runs a two-pass simulation:
+
+1. **First pass**: Normal simulation (deterministic or MC per `--sim-iterations`). Produces lift values for each player.
+2. **Second pass**: Re-runs the simulator with lift-adjusted projections, amplifying structural advantages (salary efficiency + position fit + projection strength).
+
+**Formula**: `adjusted_fpts = projected_fpts * (1 + blend * (lift - 1.0))`
+
+- `blend` defaults to **0.15** (configurable: `--sim-lift 0.25`)
+- A player with 3.0x lift gets a 30% projection boost (at 0.15 blend)
+- A player with 0.5x lift gets a 7.5% penalty
+- A player with 1.0x lift is unchanged
+- Players absent from first-pass results get lift = 0.0 (penalized — they never appeared)
+
+The second-pass output shows both original and adjusted projection columns with a `[LIFT-ADJUSTED]` header tag. Both first-pass and lift-adjusted CSVs are exported to `daily_projections/`.
+
+```bash
+# Deterministic two-pass with default 0.15 blend
+python main.py --simulate --sim-lift
+
+# MC mode with custom blend
+python main.py --simulate --sim-iterations 100 --sim-lift 0.25
+```
+
+## Projection Calibration (updated 2/2/26)
 
 ### Over-Projection Controls
 
-The model has several layers to combat systematic over-projection, added based on 6-backtest analysis:
+The model has several layers to combat systematic over-projection, added based on 7-date batch backtest analysis:
 
 1. **Multiplicative adjustment cap** (`MAX_MULTIPLICATIVE_SWING = 0.15` in `projections.py`): Seven multiplicative adjustments (signal matchup, xG matchup, streak, PDO, opportunity, role, home ice) are collected into a single combined multiplier and clamped to ±15% before applying. Without this, compounding inflated high projections by ~25%.
 
@@ -136,25 +161,50 @@ The model has several layers to combat systematic over-projection, added based o
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `GLOBAL_BIAS_CORRECTION` | 0.92 | Applied to all skaters |
-| Centers (`C`) | 0.91 | |
-| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.89 | Highest bias position (+1.62) |
-| Defensemen (`D`) | 0.90 | |
-| `GOALIE_BIAS_CORRECTION` | 0.88 | Relaxed from 0.85 (was overcorrecting) |
+| `GLOBAL_BIAS_CORRECTION` | 0.45 | Applied to all skaters (was 0.92) |
+| Centers (`C`) | 1.03 | actual/proj ratio 0.557 |
+| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.93 | Highest bias position (+4.08) |
+| Defensemen (`D`) | 1.04 | Now validated with actual D data |
+| `GOALIE_BIAS_CORRECTION` | 0.76 | Was 0.88 |
 
-### Backtest Results (post-calibration)
+### Backtest Results (7-date batch, pre-recalibration)
 
-| Date | Skater MAE | Skater Bias | Goalie MAE | Goalie Bias | N Skaters | N Goalies |
-|------|-----------|-------------|-----------|-------------|-----------|-----------|
-| Jan 28 | 4.90 | +1.26 | 4.76 | +1.87 | 68 | 6 |
-| Jan 29 | 4.87 | +1.54 | 6.73 | -0.19 | 349 | 32 |
-| Jan 31 | 4.29 | +1.75 | 7.99 | -2.79 | 326 | 27 |
+| Date | N Skaters | N Goalies |
+|------|-----------|-----------|
+| Jan 23 | 269 | 15 |
+| Jan 26 | 135 | 7 |
+| Jan 28 | 100 | 6 |
+| Jan 29 | 507 | 30 |
+| Jan 30 | 34 | 2 |
+| Jan 31 | 263 | 11 |
+| Feb 1 | 102 | 6 |
+| **Total** | **1,410** | **77** |
+
+Aggregate (pre-recalibration): Skater MAE=5.47, bias=+3.63, RMSE=6.69. Goalie MAE=6.70, bias=+1.52.
+
+Per-position (pre-recalibration):
+| Position | N | MAE | Bias | Mean Proj | Mean Actual | Ratio |
+|----------|---|-----|------|-----------|-------------|-------|
+| C | 475 | 5.71 | +3.56 | 8.03 | 4.48 | 0.557 |
+| W | 469 | 6.03 | +4.08 | 8.43 | 4.34 | 0.515 |
+| D | 466 | 4.67 | +3.25 | 7.49 | 4.25 | 0.567 |
+| G | 77 | 6.70 | +1.52 | 11.43 | 9.91 | 0.867 |
 
 Key observations:
-- Skater MAE improved to 4.29 on the largest slate (was 4.90 pre-change target)
-- Goalie bias nearly zeroed on Jan 29 (largest sample, -0.19)
-- Jan 31 goalie under-projection (-2.79) was driven by an unusually high-scoring goalie night (multiple 25+ FPTS performances)
-- Goalie parameters were relaxed once after initial implementation (bias correction 0.85→0.88, cap 14→16, blend 0.75→0.80) to avoid overcorrecting
+- Defensemen now included in backtests (466 observations) after fixing `"defense"` vs `"defensemen"` API key bug in `fetch_skaters_actuals_for_date()`
+- D have the lowest MAE (4.67) and lowest bias (+3.25) of skater positions
+- Wings have the highest bias (+4.08, ratio 0.515)
+- Goalie bias reduced from prior +2.30 to +1.52 with 77 observations
+- Batch backtest available via `python backtest.py --batch-backtest`
+
+### Post-Recalibration Spot Check (Feb 1)
+
+After applying the updated bias corrections, `python backtest.py --skater-slate-date 2026-02-01` produced:
+- **Skater MAE: 3.78** (down from 5.47 aggregate pre-recalibration)
+- **Skater bias: -1.76** (flipped from +3.63 over-projection to slight under-projection)
+- **104 skaters matched** (35 D, 39 W, 30 C — defensemen fully represented)
+
+The corrections shifted from systematic over-projection to slight under-projection, which is preferable for DFS (conservative projections avoid chasing inflated ceilings). The position column is now included in `run_slate_skater_backtest()` details output for per-position analysis on any single-date backtest.
 
 ### Backtest TOI Filtering
 

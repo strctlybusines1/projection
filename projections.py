@@ -20,26 +20,27 @@ from config import (
 from features import FeatureEngineer
 
 # ==================== Backtest-Derived Bias Corrections ====================
-# Updated from 6-backtest combined analysis (1,642 skater + 87 goalie observations)
-# Overall skater bias: +1.46 pts (over-projection across all positions)
-# Overall goalie bias: +2.30 pts (over-projection)
+# Updated from 7-date batch backtest (1,410 skater + 77 goalie observations)
+# including defensemen (fixed "defense" vs "defensemen" API key bug)
+# Overall skater bias: +3.63 pts (mean_proj=8.0, mean_act=4.35)
+# Overall goalie bias: +1.52 pts (mean_proj=11.43, mean_act=9.91)
 
-GLOBAL_BIAS_CORRECTION = 0.92  # 8% reduction (was 0.97)
+GLOBAL_BIAS_CORRECTION = 0.45  # 55% reduction (was 0.92)
 
 # Position-specific bias corrections (skaters)
-# Derived from 6-backtest combined actual/projected ratios
+# Derived from 7-date batch actual/projected ratios
 POSITION_BIAS_CORRECTION = {
-    'C': 0.91,   # Centers
-    'L': 0.89,   # Left wings — highest bias (+1.62, 72% over-projected)
-    'LW': 0.89,  # Left wings (alternate code)
-    'R': 0.89,   # Right wings — highest bias
-    'RW': 0.89,  # Right wings (alternate code)
-    'W': 0.89,   # Generic wing
-    'D': 0.90,   # Defensemen
+    'C': 1.03,   # Centers — actual/proj ratio 0.557
+    'L': 0.93,   # Left wings (alternate code)
+    'LW': 0.93,  # Left wings (alternate code)
+    'R': 0.93,   # Right wings
+    'RW': 0.93,  # Right wings (alternate code)
+    'W': 0.93,   # Wings — highest bias (+4.08, ratio 0.515)
+    'D': 1.04,   # Defensemen — now validated with actual D data
 }
 
-# Goalie bias correction (over-projected by ~2.30 pts across 6 backtests)
-GOALIE_BIAS_CORRECTION = 0.88  # 12% reduction (relaxed from 0.85 — was overcorrecting)
+# Goalie bias correction (over-projected by ~1.52 pts across 7 dates)
+GOALIE_BIAS_CORRECTION = 0.76  # 24% reduction (was 0.88)
 
 # Floor multiplier (reduced from 0.4 - 30.5% were below floor)
 FLOOR_MULTIPLIER = 0.25
