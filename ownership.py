@@ -94,10 +94,11 @@ class OwnershipConfig:
 
 
 class OwnershipRegressionModel:
-    """Ridge regression model for ownership prediction.
+    """Regression model for ownership prediction (Ridge or TabPFN).
 
-    Trained on historical contest observations. Uses StandardScaler + Ridge.
-    Alpha is tuned via leave-one-date-out cross-validation.
+    Trained on historical contest observations. Uses StandardScaler + model.
+    Ridge alpha is tuned via leave-one-date-out cross-validation.
+    TabPFN requires no hyperparameter tuning.
     """
 
     FEATURE_COLS = [
@@ -119,15 +120,15 @@ class OwnershipRegressionModel:
 
     MODEL_PATH = Path(__file__).parent / "backtests" / "ownership_model.pkl"
 
-    def __init__(self):
+    def __init__(self, model_type: str = 'ridge'):
         self.model = None
         self.scaler = None
         self.feature_names = None
         self.alpha_ = None
+        self.model_type = model_type
 
     def train(self, training_df: pd.DataFrame, alpha: float = None) -> Dict:
-        """Train Ridge regression on training data. Returns metrics dict."""
-        from sklearn.linear_model import Ridge
+        """Train model on training data. Returns metrics dict."""
         from sklearn.preprocessing import StandardScaler
 
         features = [c for c in self.FEATURE_COLS if c in training_df.columns]
@@ -137,23 +138,42 @@ class OwnershipRegressionModel:
         self.scaler = StandardScaler()
         X_scaled = self.scaler.fit_transform(X)
 
-        if alpha is None:
-            alpha = 1.0
-        self.model = Ridge(alpha=alpha)
-        self.model.fit(X_scaled, y)
+        if self.model_type == 'tabpfn':
+            from tabpfn import TabPFNRegressor
+            self.model = TabPFNRegressor(ignore_pretraining_limits=True)
+            self.model.fit(X_scaled, y)
+            self.alpha_ = None
+        else:
+            from sklearn.linear_model import Ridge
+            if alpha is None:
+                alpha = 1.0
+            self.model = Ridge(alpha=alpha)
+            self.model.fit(X_scaled, y)
+            self.alpha_ = alpha
+
         self.feature_names = features
-        self.alpha_ = alpha
 
         y_pred = self.model.predict(X_scaled)
         mae = float(np.abs(y - y_pred).mean())
         rmse = float(np.sqrt(((y - y_pred) ** 2).mean()))
         corr, _ = spearmanr(y, y_pred)
 
-        return {'mae': mae, 'rmse': rmse, 'spearman': float(corr), 'n': len(y), 'alpha': alpha}
+        return {'mae': mae, 'rmse': rmse, 'spearman': float(corr), 'n': len(y),
+                'alpha': alpha, 'model_type': self.model_type}
 
     def cross_validate(self, training_df: pd.DataFrame,
                        alphas: List[float] = None) -> Dict:
-        """Leave-one-date-out CV. Returns best alpha and per-fold results."""
+        """Leave-one-date-out CV. Returns best alpha and per-fold results.
+
+        Dispatches to Ridge CV (multiple alphas) or TabPFN CV (single pass).
+        """
+        if self.model_type == 'tabpfn':
+            return self._cross_validate_tabpfn(training_df)
+        return self._cross_validate_ridge(training_df, alphas)
+
+    def _cross_validate_ridge(self, training_df: pd.DataFrame,
+                              alphas: List[float] = None) -> Dict:
+        """Ridge LODOCV with alpha grid search."""
         from sklearn.linear_model import Ridge
         from sklearn.preprocessing import StandardScaler
 
@@ -211,6 +231,54 @@ class OwnershipRegressionModel:
             'results_by_alpha': all_results,
         }
 
+    def _cross_validate_tabpfn(self, training_df: pd.DataFrame) -> Dict:
+        """TabPFN LODOCV — single pass, no hyperparameters."""
+        from tabpfn import TabPFNRegressor
+        from sklearn.preprocessing import StandardScaler
+
+        if 'date_label' not in training_df.columns:
+            raise ValueError("training_df must have 'date_label' column for LODOCV")
+
+        features = [c for c in self.FEATURE_COLS if c in training_df.columns]
+        dates = sorted(training_df['date_label'].unique())
+
+        fold_results = []
+        for held_out in dates:
+            train_mask = training_df['date_label'] != held_out
+            test_mask = training_df['date_label'] == held_out
+
+            X_train = training_df.loc[train_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+            y_train = training_df.loc[train_mask, 'pct_drafted'].values
+            X_test = training_df.loc[test_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+            y_test = training_df.loc[test_mask, 'pct_drafted'].values
+
+            scaler = StandardScaler()
+            X_train_s = scaler.fit_transform(X_train)
+            X_test_s = scaler.transform(X_test)
+
+            model = TabPFNRegressor(ignore_pretraining_limits=True)
+            model.fit(X_train_s, y_train)
+            y_pred = model.predict(X_test_s)
+
+            mae = float(np.abs(y_test - y_pred).mean())
+            rmse = float(np.sqrt(((y_test - y_pred) ** 2).mean()))
+            corr, _ = spearmanr(y_test, y_pred)
+
+            fold_results.append({
+                'date': held_out, 'mae': mae, 'rmse': rmse,
+                'spearman': float(corr), 'n': len(y_test),
+            })
+
+        mean_mae = np.mean([f['mae'] for f in fold_results])
+
+        return {
+            'best_alpha': 'tabpfn',
+            'best_mean_mae': float(mean_mae),
+            'results_by_alpha': {
+                'tabpfn': {'folds': fold_results, 'mean_mae': float(mean_mae)},
+            },
+        }
+
     def predict(self, features_df: pd.DataFrame) -> np.ndarray:
         """Predict ownership percentages from feature DataFrame."""
         if self.model is None:
@@ -222,7 +290,7 @@ class OwnershipRegressionModel:
         return self.model.predict(X_scaled)
 
     def save(self, path: Path = None):
-        """Pickle model + scaler + feature names."""
+        """Pickle model + scaler + feature names + model_type."""
         path = path or self.MODEL_PATH
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, 'wb') as f:
@@ -231,19 +299,24 @@ class OwnershipRegressionModel:
                 'scaler': self.scaler,
                 'feature_names': self.feature_names,
                 'alpha': self.alpha_,
+                'model_type': self.model_type,
             }, f)
-        print(f"Saved ownership regression model to {path}")
+        print(f"Saved ownership {self.model_type} model to {path}")
 
     @classmethod
     def load(cls, path: Path = None) -> Optional['OwnershipRegressionModel']:
-        """Load from pickle. Returns None if file doesn't exist."""
+        """Load from pickle. Returns None if file doesn't exist.
+
+        Backward-compatible: pickles without model_type default to 'ridge'.
+        """
         path = path or cls.MODEL_PATH
         if not path.exists():
             return None
         try:
             with open(path, 'rb') as f:
                 data = pickle.load(f)
-            obj = cls()
+            model_type = data.get('model_type', 'ridge')
+            obj = cls(model_type=model_type)
             obj.model = data['model']
             obj.scaler = data['scaler']
             obj.feature_names = data['feature_names']
@@ -254,9 +327,18 @@ class OwnershipRegressionModel:
             return None
 
     def feature_importances(self) -> pd.DataFrame:
-        """Return DataFrame of feature coefficients sorted by abs value."""
+        """Return DataFrame of feature coefficients sorted by abs value.
+
+        TabPFN has no .coef_ attribute — returns zeroed DataFrame.
+        """
         if self.model is None or self.feature_names is None:
             return pd.DataFrame()
+        if self.model_type == 'tabpfn' or not hasattr(self.model, 'coef_'):
+            return pd.DataFrame({
+                'feature': self.feature_names,
+                'coefficient': 0.0,
+                'abs_coef': 0.0,
+            })
         coefs = self.model.coef_
         df = pd.DataFrame({
             'feature': self.feature_names,

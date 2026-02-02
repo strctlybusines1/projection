@@ -1526,12 +1526,36 @@ def run_batch_csv_backtest(
     }
 
 
+def _print_ownership_cv_results(label: str, cv_results: Dict, verbose: bool = True):
+    """Print per-fold and aggregate CV results for an ownership model."""
+    best_alpha = cv_results['best_alpha']
+    best_mae = cv_results['best_mean_mae']
+    folds = cv_results['results_by_alpha'][best_alpha]['folds']
+
+    if not verbose:
+        return
+
+    print(f"\n{'='*60}")
+    print(f" {label} CV RESULTS  (alpha={best_alpha})")
+    print(f"{'='*60}")
+
+    print(f"\n{'Date':<10} {'N':>5} {'MAE':>8} {'RMSE':>8} {'Spearman':>10}")
+    print("-" * 45)
+    for f in folds:
+        print(f"  {f['date']:<8} {f['n']:>5} {f['mae']:>8.2f} {f['rmse']:>8.2f} {f['spearman']:>10.3f}")
+
+    mean_rmse = np.mean([f['rmse'] for f in folds])
+    mean_spearman = np.mean([f['spearman'] for f in folds])
+    total_n = sum(f['n'] for f in folds)
+    print("-" * 45)
+    print(f"  {'MEAN':<8} {total_n:>5} {best_mae:>8.2f} {mean_rmse:>8.2f} {mean_spearman:>10.3f}")
+
+
 def run_ownership_backtest(verbose: bool = True) -> Dict:
     """Leave-one-date-out CV for ownership regression model.
 
-    For each of 6 folds, trains on 5 dates, predicts on held-out date,
-    computes MAE/RMSE/Spearman correlation vs actual %Drafted.
-    Reports per-date and aggregate metrics, plus feature importances.
+    Runs Ridge CV, then TabPFN CV (if available), prints per-fold metrics
+    for both, and a side-by-side comparison table.
     """
     from ownership import (
         build_ownership_training_data, OwnershipRegressionModel,
@@ -1548,53 +1572,82 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
     if training_df.empty:
         return {"error": "No training data built"}
 
-    reg = OwnershipRegressionModel()
-    cv_results = reg.cross_validate(training_df)
-
-    best_alpha = cv_results['best_alpha']
-    best_mae = cv_results['best_mean_mae']
+    # --- Ridge CV ---
+    ridge_reg = OwnershipRegressionModel(model_type='ridge')
+    ridge_cv = ridge_reg.cross_validate(training_df)
+    _print_ownership_cv_results("RIDGE", ridge_cv, verbose)
 
     if verbose:
-        print(f"\n{'='*60}")
-        print(f" CV RESULTS  (best alpha={best_alpha})")
-        print(f"{'='*60}")
-
-        # Print results for best alpha
-        folds = cv_results['results_by_alpha'][best_alpha]['folds']
-        print(f"\n{'Date':<10} {'N':>5} {'MAE':>8} {'RMSE':>8} {'Spearman':>10}")
-        print("-" * 45)
-        for f in folds:
-            print(f"  {f['date']:<8} {f['n']:>5} {f['mae']:>8.2f} {f['rmse']:>8.2f} {f['spearman']:>10.3f}")
-
-        mean_rmse = np.mean([f['rmse'] for f in folds])
-        mean_spearman = np.mean([f['spearman'] for f in folds])
-        total_n = sum(f['n'] for f in folds)
-        print("-" * 45)
-        print(f"  {'MEAN':<8} {total_n:>5} {best_mae:>8.2f} {mean_rmse:>8.2f} {mean_spearman:>10.3f}")
-
         # Alpha comparison table
         print(f"\n{'Alpha':<10} {'Mean MAE':>10}")
         print("-" * 22)
-        for alpha in sorted(cv_results['results_by_alpha'].keys()):
-            m = cv_results['results_by_alpha'][alpha]['mean_mae']
-            marker = " <-- best" if alpha == best_alpha else ""
+        for alpha in sorted(ridge_cv['results_by_alpha'].keys()):
+            m = ridge_cv['results_by_alpha'][alpha]['mean_mae']
+            marker = " <-- best" if alpha == ridge_cv['best_alpha'] else ""
             print(f"  {alpha:<8} {m:>10.2f}{marker}")
 
-    # Train final model on all data with best alpha for feature importances
-    reg.train(training_df, alpha=best_alpha)
+    # Train Ridge on all data for feature importances
+    ridge_reg.train(training_df, alpha=ridge_cv['best_alpha'])
 
     if verbose:
-        print(f"\nFeature Importances (trained on all data, alpha={best_alpha}):")
+        print(f"\nFeature Importances (Ridge, alpha={ridge_cv['best_alpha']}):")
         print("-" * 45)
-        fi = reg.feature_importances()
+        fi = ridge_reg.feature_importances()
         for _, row in fi.head(15).iterrows():
             print(f"  {row['feature']:<25} {row['coefficient']:>+8.3f}")
 
-    # Save per-fold details
+    # --- TabPFN CV (if available) ---
+    tabpfn_cv = None
+    if TABPFN_AVAILABLE:
+        print(f"\n{'='*60}")
+        print(" Running TabPFN LODOCV...")
+        print(f"{'='*60}")
+        try:
+            tabpfn_reg = OwnershipRegressionModel(model_type='tabpfn')
+            tabpfn_cv = tabpfn_reg.cross_validate(training_df)
+            _print_ownership_cv_results("TABPFN", tabpfn_cv, verbose)
+        except Exception as e:
+            print(f"  TabPFN CV failed: {e}")
+            tabpfn_cv = None
+    else:
+        if verbose:
+            print("\n  TabPFN not installed — skipping TabPFN CV")
+
+    # --- Comparison table ---
+    if verbose:
+        print(f"\n{'='*60}")
+        print(" MODEL COMPARISON")
+        print("=" * 60)
+
+        ridge_folds = ridge_cv['results_by_alpha'][ridge_cv['best_alpha']]['folds']
+        ridge_mean_mae = ridge_cv['best_mean_mae']
+        ridge_mean_rmse = float(np.mean([f['rmse'] for f in ridge_folds]))
+        ridge_mean_spearman = float(np.mean([f['spearman'] for f in ridge_folds]))
+
+        print(f"\n  {'Model':<15} {'Mean MAE':>10} {'Mean RMSE':>11} {'Mean Spearman':>15}")
+        print(f"  {'-'*53}")
+        print(f"  {'Ridge':<15} {ridge_mean_mae:>10.2f} {ridge_mean_rmse:>11.2f} {ridge_mean_spearman:>15.3f}")
+
+        if tabpfn_cv is not None:
+            tabpfn_folds = tabpfn_cv['results_by_alpha']['tabpfn']['folds']
+            tabpfn_mean_mae = tabpfn_cv['best_mean_mae']
+            tabpfn_mean_rmse = float(np.mean([f['rmse'] for f in tabpfn_folds]))
+            tabpfn_mean_spearman = float(np.mean([f['spearman'] for f in tabpfn_folds]))
+            print(f"  {'TabPFN':<15} {tabpfn_mean_mae:>10.2f} {tabpfn_mean_rmse:>11.2f} {tabpfn_mean_spearman:>15.3f}")
+
+            # Declare winner
+            diff = ridge_mean_mae - tabpfn_mean_mae
+            if diff > 0:
+                print(f"\n  >>> TabPFN wins by {diff:.2f} MAE")
+            elif diff < 0:
+                print(f"\n  >>> Ridge wins by {-diff:.2f} MAE")
+            else:
+                print(f"\n  >>> Tie")
+
+    # Save per-fold details (Ridge, for backward compatibility)
     out_dir = _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # Build detailed predictions for each fold at best alpha
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import StandardScaler
 
@@ -1615,7 +1668,7 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
         X_train_s = scaler.fit_transform(X_train)
         X_test_s = scaler.transform(X_test)
 
-        model = Ridge(alpha=best_alpha)
+        model = Ridge(alpha=ridge_cv['best_alpha'])
         model.fit(X_train_s, y_train)
         y_pred = model.predict(X_test_s)
 
@@ -1631,23 +1684,33 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
     if verbose:
         print(f"\nCV details saved to {details_path}")
 
-    return {
-        'cv_results': cv_results,
-        'best_alpha': best_alpha,
-        'best_mae': best_mae,
-        'feature_importances': reg.feature_importances(),
+    result = {
+        'ridge_cv': ridge_cv,
+        'best_alpha': ridge_cv['best_alpha'],
+        'best_mae': ridge_cv['best_mean_mae'],
+        'feature_importances': ridge_reg.feature_importances(),
         'details': details_df,
+        # Backward-compatible alias
+        'cv_results': ridge_cv,
     }
+    if tabpfn_cv is not None:
+        result['tabpfn_cv'] = tabpfn_cv
+    return result
 
 
-def train_ownership_model(verbose: bool = True) -> Dict:
-    """Train final ownership regression model on all data and save pickle."""
+def train_ownership_model(model_type: str = 'ridge', verbose: bool = True) -> Dict:
+    """Train final ownership model on all data and save pickle.
+
+    Args:
+        model_type: 'ridge' (default) or 'tabpfn'
+        verbose: Print progress and metrics
+    """
     from ownership import (
         build_ownership_training_data, OwnershipRegressionModel,
     )
 
     print("=" * 60)
-    print(" OWNERSHIP REGRESSION — TRAIN FINAL MODEL")
+    print(f" OWNERSHIP {model_type.upper()} — TRAIN FINAL MODEL")
     print("=" * 60)
 
     print("\nBuilding training data...")
@@ -1656,19 +1719,23 @@ def train_ownership_model(verbose: bool = True) -> Dict:
     if training_df.empty:
         return {"error": "No training data built"}
 
-    reg = OwnershipRegressionModel()
+    reg = OwnershipRegressionModel(model_type=model_type)
 
-    # Run CV to find best alpha
-    print("\nRunning CV to find best alpha...")
-    cv_results = reg.cross_validate(training_df)
-    best_alpha = cv_results['best_alpha']
+    if model_type == 'tabpfn':
+        # TabPFN: no alpha to tune, train directly
+        print(f"\nTraining TabPFN on all {len(training_df)} observations...")
+        metrics = reg.train(training_df)
+    else:
+        # Ridge: run CV to find best alpha, then train
+        print("\nRunning CV to find best alpha...")
+        cv_results = reg.cross_validate(training_df)
+        best_alpha = cv_results['best_alpha']
 
-    if verbose:
-        print(f"  Best alpha: {best_alpha} (mean MAE: {cv_results['best_mean_mae']:.2f})")
+        if verbose:
+            print(f"  Best alpha: {best_alpha} (mean MAE: {cv_results['best_mean_mae']:.2f})")
 
-    # Train on all data
-    print(f"\nTraining on all {len(training_df)} observations with alpha={best_alpha}...")
-    metrics = reg.train(training_df, alpha=best_alpha)
+        print(f"\nTraining on all {len(training_df)} observations with alpha={best_alpha}...")
+        metrics = reg.train(training_df, alpha=best_alpha)
 
     if verbose:
         print(f"  Train MAE: {metrics['mae']:.2f}")
@@ -1678,18 +1745,21 @@ def train_ownership_model(verbose: bool = True) -> Dict:
     # Save
     reg.save()
 
-    if verbose:
+    if verbose and model_type == 'ridge':
         print(f"\nTop 10 Feature Importances:")
         fi = reg.feature_importances()
         for _, row in fi.head(10).iterrows():
             print(f"  {row['feature']:<25} {row['coefficient']:>+8.3f}")
 
-    return {
+    result = {
         'metrics': metrics,
-        'cv_best_alpha': best_alpha,
-        'cv_best_mae': cv_results['best_mean_mae'],
+        'model_type': model_type,
         'feature_importances': reg.feature_importances(),
     }
+    if model_type == 'ridge':
+        result['cv_best_alpha'] = cv_results['best_alpha']
+        result['cv_best_mae'] = cv_results['best_mean_mae']
+    return result
 
 
 def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, include_tabpfn: bool = True):
@@ -1776,9 +1846,11 @@ if __name__ == "__main__":
     parser.add_argument('--batch-dates', type=str, default=None,
                         help='Comma-separated dates for batch backtest (YYYY-MM-DD,YYYY-MM-DD)')
     parser.add_argument('--ownership-backtest', action='store_true',
-                        help='Run ownership regression LODOCV backtest')
+                        help='Run ownership regression LODOCV backtest (Ridge + TabPFN comparison)')
     parser.add_argument('--train-ownership', action='store_true',
                         help='Train final ownership regression model and save pickle')
+    parser.add_argument('--ownership-tabpfn', action='store_true',
+                        help='With --train-ownership: train TabPFN model instead of Ridge')
 
     args = parser.parse_args()
 
@@ -1787,7 +1859,8 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.train_ownership:
-        train_ownership_model()
+        mt = 'tabpfn' if args.ownership_tabpfn else 'ridge'
+        train_ownership_model(model_type=mt)
         sys.exit(0)
 
     if args.batch_backtest:

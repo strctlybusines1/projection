@@ -223,10 +223,11 @@ Key Python dependencies: `pandas`, `numpy`, `requests`, `tabpfn`, `scikit-learn`
 
 ### Approach
 
-The ownership model has two paths:
+The ownership model has three paths:
 
-1. **Regression (primary)**: Ridge regression trained on ~1,200 historical contest observations from 6 matchable dates. Uses `StandardScaler` + `Ridge` with alpha tuned via leave-one-date-out cross-validation. Loaded from `backtests/ownership_model.pkl`.
-2. **Heuristic (fallback)**: Original 12-factor multiplicative model using salary curve, PP1/Line1 boosts, goalie confirmation, value/projection ratios, Vegas totals, scarcity, recency, TOI surge. Used when no trained model pickle exists.
+1. **Ridge regression (default)**: Ridge regression trained on ~1,200 historical contest observations from 6 matchable dates. Uses `StandardScaler` + `Ridge` with alpha tuned via leave-one-date-out cross-validation. Loaded from `backtests/ownership_model.pkl`.
+2. **TabPFN (alternative)**: TabPFN v6.3.1 regressor (`TabPFNRegressor(ignore_pretraining_limits=True)`) trained on the same data. No hyperparameters to tune — just 6 LODOCV folds vs Ridge's 48 (8 alphas × 6 folds). Uses the same `StandardScaler` + feature pipeline as Ridge. Fully pickleable (inherits sklearn `BaseEstimator`).
+3. **Heuristic (fallback)**: Original 12-factor multiplicative model using salary curve, PP1/Line1 boosts, goalie confirmation, value/projection ratios, Vegas totals, scarcity, recency, TOI surge. Used when no trained model pickle exists.
 
 ### Features (26 total)
 
@@ -257,14 +258,23 @@ Lines features are 0 when no lines JSON is available (3 of 6 training dates have
 ### Retraining
 
 ```bash
-# Run LODOCV to evaluate model performance
+# Run LODOCV for both Ridge and TabPFN, print side-by-side comparison
 python backtest.py --ownership-backtest
 
-# Train final model on all data and save pickle
+# Train Ridge model (default) on all data and save pickle
 python backtest.py --train-ownership
+
+# Train TabPFN model instead and save pickle
+python backtest.py --train-ownership --ownership-tabpfn
 ```
 
-The trained model is saved to `backtests/ownership_model.pkl`. Delete the pickle to force the heuristic fallback path.
+| Command | Effect |
+|---------|--------|
+| `--ownership-backtest` | Run LODOCV for both Ridge and TabPFN, print comparison |
+| `--train-ownership` | Train Ridge (default), save pickle |
+| `--train-ownership --ownership-tabpfn` | Train TabPFN, save pickle |
+
+The trained model is saved to `backtests/ownership_model.pkl`. The pickle stores its `model_type` (`'ridge'` or `'tabpfn'`), so `predict_ownership()` loads whichever was last trained. Older pickles without `model_type` default to `'ridge'`. Delete the pickle to force the heuristic fallback path.
 
 ### Performance (LODOCV)
 
