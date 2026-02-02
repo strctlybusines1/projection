@@ -806,6 +806,8 @@ def main():
                         help='Run optimal lineup simulator (team-pair frequency analysis)')
     parser.add_argument('--sim-iterations', type=int, default=0,
                         help='Monte Carlo iterations for simulator (0=deterministic, recommended=100)')
+    parser.add_argument('--sim-lift', type=float, nargs='?', const=0.15, default=None,
+                        help='Run two-pass lift-adjusted simulation (blend factor, default 0.15)')
 
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
@@ -1044,6 +1046,7 @@ def main():
                 player_ids, player_type_map
             )
 
+        # First-pass simulation
         simulator = OptimalLineupSimulator(
             player_pool, dk_salaries,
             std_dev_data=std_dev_data,
@@ -1051,7 +1054,8 @@ def main():
         )
         sim_results = simulator.run()
         simulator.print_results(sim_results)
-        # Auto-export
+
+        # Auto-export first-pass
         sim_out_dir = project_dir / DAILY_PROJECTIONS_DIR
         sim_out_dir.mkdir(parents=True, exist_ok=True)
         sim_date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')
@@ -1059,6 +1063,30 @@ def main():
         mode_tag = f"mc{sim_iterations}" if sim_iterations > 0 else "det"
         sim_path = str(sim_out_dir / f"{sim_date_str}NHLsimulator_{mode_tag}_{sim_timestamp}.csv")
         simulator.export_results(sim_results, sim_path)
+
+        # Second-pass: lift-adjusted re-simulation
+        if args.sim_lift is not None and not sim_results.empty:
+            blend = args.sim_lift
+            print(f"\n{'=' * 110}")
+            print(f" LIFT-ADJUSTED RE-SIMULATION (blend={blend:.2f})")
+            print(f"{'=' * 110}")
+
+            lifted_pool = OptimalLineupSimulator.apply_lift_adjustments(
+                player_pool, sim_results, blend=blend
+            )
+
+            lift_simulator = OptimalLineupSimulator(
+                lifted_pool, dk_salaries,
+                std_dev_data=std_dev_data,
+                n_iterations=sim_iterations,
+            )
+            lift_results = lift_simulator.run()
+            lift_simulator.print_results(lift_results)
+
+            # Auto-export lift-adjusted
+            lift_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            lift_path = str(sim_out_dir / f"{sim_date_str}NHLsimulator_{mode_tag}_lift{blend}_{lift_timestamp}.csv")
+            lift_simulator.export_results(lift_results, lift_path)
 
     # Generate optimized lineup
     lineups = []

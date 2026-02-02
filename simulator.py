@@ -528,6 +528,9 @@ class OptimalLineupSimulator:
             # Add std_fpts column if available
             if name in self._std_by_name:
                 row['std_fpts'] = round(self._std_by_name[name], 2)
+            # Preserve pre-lift original projection if present
+            if 'pre_lift_fpts' in info.index:
+                row['pre_lift_fpts'] = info['pre_lift_fpts']
             rows.append(row)
 
         results = pd.DataFrame(rows).sort_values('count', ascending=False).reset_index(drop=True)
@@ -545,6 +548,48 @@ class OptimalLineupSimulator:
         return results
 
     # ------------------------------------------------------------------ #
+    #  Lift-adjusted re-simulation
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def apply_lift_adjustments(
+        player_pool: pd.DataFrame,
+        lift_results: pd.DataFrame,
+        blend: float = 0.15,
+    ) -> pd.DataFrame:
+        """Apply lift-based projection adjustments for a second-pass simulation.
+
+        Formula: adjusted_fpts = projected_fpts * (1 + blend * (lift - 1.0))
+
+        Players missing from lift_results (never appeared in first pass)
+        get lift = 0.0, so they are penalized.
+
+        Args:
+            player_pool: Full player pool DataFrame with 'projected_fpts'.
+            lift_results: First-pass results DataFrame with 'name' and 'lift'.
+            blend: Blend factor (default 0.15). Higher = stronger adjustment.
+
+        Returns:
+            New player pool DataFrame with adjusted projected_fpts and
+            original values stored in 'pre_lift_fpts'.
+        """
+        pool = player_pool.copy()
+
+        # Build name -> lift mapping from first-pass results
+        lift_map = dict(zip(lift_results['name'], lift_results['lift']))
+
+        # Map lift to pool; players not in results get 0.0 (penalized)
+        pool['_lift'] = pool['name'].map(lift_map).fillna(0.0)
+
+        # Store original projections
+        pool['pre_lift_fpts'] = pool['projected_fpts'].copy()
+
+        # Apply adjustment
+        pool['projected_fpts'] = pool['projected_fpts'] * (1.0 + blend * (pool['_lift'] - 1.0))
+
+        pool = pool.drop(columns=['_lift'])
+        return pool
+
+    # ------------------------------------------------------------------ #
     #  Output
     # ------------------------------------------------------------------ #
     def print_results(self, results: pd.DataFrame, top_n: int = 30):
@@ -556,10 +601,12 @@ class OptimalLineupSimulator:
         is_mc = self._n_iterations > 0
         mode_str = f"MONTE CARLO ({self._n_iterations} iter)" if is_mc else "DETERMINISTIC"
         has_std = 'std_fpts' in results.columns
+        has_lift_adj = 'pre_lift_fpts' in results.columns
 
-        print(f"\n{'=' * 100}")
-        print(f" OPTIMAL LINEUP SIMULATOR — FREQUENCY RESULTS [{mode_str}]")
-        print(f"{'=' * 100}")
+        lift_tag = " [LIFT-ADJUSTED]" if has_lift_adj else ""
+        print(f"\n{'=' * 110}")
+        print(f" OPTIMAL LINEUP SIMULATOR — FREQUENCY RESULTS [{mode_str}]{lift_tag}")
+        print(f"{'=' * 110}")
         if is_mc:
             print(f" Mode: Monte Carlo | Iterations: {self._n_iterations} | TOP_N: {self.TOP_N_PER_TEAM}")
         else:
@@ -577,43 +624,28 @@ class OptimalLineupSimulator:
             print(f"   G: {bl['G']}% ({pc['G']} players, 1 slot)")
         print()
 
-        # Skaters
-        skaters = results[results['position'] != 'G'].head(top_n)
-        print(f" TOP {min(top_n, len(skaters))} SKATERS BY FREQUENCY")
-        if has_std:
-            print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
-                  f"{'Std':>6} {'Count':>6} {'Pct':>6} {'Lift':>6}")
-        else:
-            print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
-                  f"{'Count':>6} {'Pct':>6} {'Lift':>6}")
-        print(f" {'-' * 92}")
-        for _, row in skaters.iterrows():
-            std_str = f" {row['std_fpts']:>5.1f}" if has_std and pd.notna(row.get('std_fpts')) else "     -"
-            lift_str = f"{row['lift']:.1f}x" if pd.notna(row.get('lift')) else "    -"
-            if has_std:
-                print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
-                      f"${row['salary']:>7,} {row['projected_fpts']:>6.1f}{std_str} "
-                      f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
-            else:
-                print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
-                      f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
-                      f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
-
-        # Goalies
-        goalies = results[results['position'] == 'G']
-        if not goalies.empty:
-            print(f"\n GOALIES BY FREQUENCY")
-            if has_std:
+        def _print_section(section_df, section_title):
+            print(f" {section_title}")
+            # Build header
+            if has_lift_adj:
+                print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'OrigProj':>8} {'AdjProj':>8} "
+                      f"{'Count':>6} {'Pct':>6} {'Lift':>6}")
+            elif has_std:
                 print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
                       f"{'Std':>6} {'Count':>6} {'Pct':>6} {'Lift':>6}")
             else:
                 print(f" {'Name':<28} {'Team':<5} {'Pos':<4} {'Salary':>8} {'Proj':>6} "
                       f"{'Count':>6} {'Pct':>6} {'Lift':>6}")
-            print(f" {'-' * 92}")
-            for _, row in goalies.iterrows():
-                std_str = f" {row['std_fpts']:>5.1f}" if has_std and pd.notna(row.get('std_fpts')) else "     -"
+            print(f" {'-' * 102}")
+            for _, row in section_df.iterrows():
                 lift_str = f"{row['lift']:.1f}x" if pd.notna(row.get('lift')) else "    -"
-                if has_std:
+                if has_lift_adj:
+                    orig = row.get('pre_lift_fpts', row['projected_fpts'])
+                    print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
+                          f"${row['salary']:>7,} {orig:>8.1f} {row['projected_fpts']:>8.1f} "
+                          f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
+                elif has_std:
+                    std_str = f" {row['std_fpts']:>5.1f}" if pd.notna(row.get('std_fpts')) else "     -"
                     print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
                           f"${row['salary']:>7,} {row['projected_fpts']:>6.1f}{std_str} "
                           f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
@@ -621,6 +653,16 @@ class OptimalLineupSimulator:
                     print(f" {row['name']:<28} {row['team']:<5} {row['position']:<4} "
                           f"${row['salary']:>7,} {row['projected_fpts']:>6.1f} "
                           f"{row['count']:>6} {row['pct']:>5.1f}% {lift_str:>6}")
+
+        # Skaters
+        skaters = results[results['position'] != 'G'].head(top_n)
+        _print_section(skaters, f"TOP {min(top_n, len(skaters))} SKATERS BY FREQUENCY")
+
+        # Goalies
+        goalies = results[results['position'] == 'G']
+        if not goalies.empty:
+            print()
+            _print_section(goalies, "GOALIES BY FREQUENCY")
 
     def export_results(self, results: pd.DataFrame, output_path: str):
         """Export frequency table to CSV."""
