@@ -12,6 +12,9 @@ NHL DFS (Daily Fantasy Sports) projection and lineup optimization system for Dra
 # Primary workflow — generate projections, ownership, and lineups
 python main.py --stacks --show-injuries --lineups 5
 
+# With NHL Edge tracking boosts (speed, OZ time, bursts)
+python main.py --stacks --show-injuries --lineups 5 --edge
+
 # With contest-aware EV scoring
 python main.py --stacks --show-injuries --lineups 20 \
   --contest-entry-fee 5 --contest-field-size 10000 --contest-payout top_heavy_gpp
@@ -59,6 +62,7 @@ External APIs → data_pipeline.py → features.py → projections.py
 - **simulator.py** — `OptimalLineupSimulator` iterates all valid (team_A, team_B) ordered pairs, builds the best 4-3-1-1 lineup for each, and counts player appearance frequency. Supports deterministic mode (fixed projections) and Monte Carlo mode (samples from `N(projected, std)` each iteration). Computes per-position baseline probability accounting for UTIL slot asymmetry (C/W eligible, D excluded) and a `lift` column (actual_pct / baseline_pct) for context. Run via `python main.py --simulate` or `--simulate --sim-iterations N`. Supports two-pass lift-adjusted re-simulation via `--sim-lift [blend]` (see below).
 - **contest_roi.py** — Leverage recommendations and contest EV scoring based on payout structure.
 - **backtest.py** — Compares projections to actual scores. Outputs MAE/RMSE/correlation by position. Filters TOI=0 scratches/DNPs from error metrics. Results feed bias corrections in `projections.py`.
+- **edge_stats.py** — `EdgeStatsClient` fetches NHL Edge tracking data (skating speed, bursts, offensive zone time) via `nhl-api-py`. Calculates projection boosts for elite metrics. Run with `--edge` flag.
 - **config.py** — Central configuration: DK scoring rules, API URLs, bias corrections, GPP optimizer settings, signal weights.
 
 ### DraftKings NHL Roster
@@ -295,3 +299,54 @@ Best alpha: 100.0. Top features by coefficient magnitude: `slate_size` (-2.0), `
 2. If loaded: builds feature matrix → Ridge predict → clip to [0.1, 50.0]
 3. If not loaded: runs `_heuristic_predict()` (original 12-factor model)
 4. Then normalizes ownership to ~900% total, computes leverage scores and tiers
+
+## NHL Edge Stats Integration
+
+### Overview
+
+NHL Edge provides player tracking data since 2021-22: skating speed, shot speed, zone time, and distance metrics. The `edge_stats.py` module fetches this data via `nhl-api-py` and applies projection boosts for players with elite underlying metrics.
+
+### Usage
+
+```bash
+# Enable Edge boosts
+python main.py --stacks --show-injuries --lineups 5 --edge
+
+# Skip Edge stats (faster)
+python main.py --stacks --show-injuries --lineups 5 --no-edge
+```
+
+### Metrics Tracked
+
+| Metric | Description | DFS Value |
+|--------|-------------|-----------|
+| **Max Skating Speed** | Top speed in mph with league percentile | Breakaway/rush potential |
+| **Bursts Over 20mph** | Count of explosive skating bursts | Transition game indicator |
+| **Offensive Zone Time %** | Share of ice time in OZ | More scoring chances |
+| **Zone Starts %** | OZ vs DZ faceoff starts | Usage/deployment indicator |
+| **Shot Speed** | Hardest shot in mph | Scoring threat level |
+
+### Boost Thresholds
+
+| Tier | Percentile | Boost |
+|------|------------|-------|
+| Elite | ≥90th | +2-3% per metric |
+| Above Average | ≥65th | +1-1.5% per metric |
+
+Maximum combined boost: ~7-8% for players elite in all skating metrics (e.g., McDavid: +7.2%).
+
+### Example Output
+
+```
+Edge boosts applied to 45 skaters:
+  Connor McDavid            +7.2% | Elite OZ time (98% pctile); Elite speed (24.6 mph); Elite bursts (475 over 20mph)
+  Leon Draisaitl            +1.5% | Above-avg OZ time (86% pctile)
+  Auston Matthews           +1.5% | Above-avg OZ time (71% pctile)
+```
+
+### Notes
+
+- Edge data only available for skaters (not goalies)
+- Requires `nhl-api-py` package: `pip install nhl-api-py`
+- API rate limited at 0.3s delay between requests
+- Results cached in memory during session
