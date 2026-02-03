@@ -20,27 +20,28 @@ from config import (
 from features import FeatureEngineer
 
 # ==================== Backtest-Derived Bias Corrections ====================
-# Updated from 7-date batch backtest (1,410 skater + 77 goalie observations)
-# including defensemen (fixed "defense" vs "defensemen" API key bug)
-# Overall skater bias: +3.63 pts (mean_proj=8.0, mean_act=4.35)
-# Overall goalie bias: +1.52 pts (mean_proj=11.43, mean_act=9.91)
+# RECALIBRATED 2/3/26: Previous 0.45 was derived from CSVs with older corrections,
+# causing double-correction. Feb 2 backtest (243 skaters, 18 goalies) showed:
+#   - Skaters under-projected by 78% (mean_proj=4.70, mean_act=8.38)
+#   - Goalies over-projected by 47% (mean_proj=8.66, mean_act=4.58)
+# New values derived from: new_eff = old_eff × (actual/projected ratio)
 
-GLOBAL_BIAS_CORRECTION = 0.45  # 55% reduction (was 0.92)
+GLOBAL_BIAS_CORRECTION = 0.80  # Was 0.45 (over-corrected), now 0.45 × 1.78 = 0.80
 
 # Position-specific bias corrections (skaters)
-# Derived from 7-date batch actual/projected ratios
+# Feb 2 shows positions are now near-neutral relative to each other
 POSITION_BIAS_CORRECTION = {
-    'C': 1.03,   # Centers — actual/proj ratio 0.557
-    'L': 0.93,   # Left wings (alternate code)
-    'LW': 0.93,  # Left wings (alternate code)
-    'R': 0.93,   # Right wings
-    'RW': 0.93,  # Right wings (alternate code)
-    'W': 0.93,   # Wings — highest bias (+4.08, ratio 0.515)
-    'D': 1.04,   # Defensemen — now validated with actual D data
+    'C': 1.01,   # Centers — ratio 1.743, new_eff/global = 1.01
+    'L': 0.99,   # Left wings (alternate code)
+    'LW': 0.99,  # Left wings (alternate code)
+    'R': 0.99,   # Right wings
+    'RW': 0.99,  # Right wings (alternate code)
+    'W': 0.99,   # Wings — ratio 1.895, new_eff/global = 0.99
+    'D': 1.00,   # Defensemen — ratio 1.709, new_eff/global = 1.00
 }
 
-# Goalie bias correction (over-projected by ~1.52 pts across 7 dates)
-GOALIE_BIAS_CORRECTION = 0.76  # 24% reduction (was 0.88)
+# Goalie bias correction (still over-projecting by 47% on Feb 2)
+GOALIE_BIAS_CORRECTION = 0.40  # Was 0.76, now 0.76 × 0.529 = 0.40
 
 # Floor multiplier (reduced from 0.4 - 30.5% were below floor)
 FLOOR_MULTIPLIER = 0.25

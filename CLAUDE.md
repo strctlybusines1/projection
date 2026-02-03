@@ -141,74 +141,72 @@ python main.py --simulate --sim-lift
 python main.py --simulate --sim-iterations 100 --sim-lift 0.25
 ```
 
-## Projection Calibration (updated 2/2/26)
+## Projection Calibration (updated 2/3/26)
 
-### Over-Projection Controls
+### Calibration Drift Bug Fix (2/3/26)
 
-The model has several layers to combat systematic over-projection, added based on 7-date batch backtest analysis:
+**Root Cause**: The previous `GLOBAL_BIAS_CORRECTION = 0.45` was derived from projection CSVs (Jan 23 - Feb 1) that were generated with **older, weaker** correction values (~0.92). When 0.45 was applied to the raw projection calculation, it caused **double-correction** — skater projections were reduced by ~78% too much.
 
-1. **Multiplicative adjustment cap** (`MAX_MULTIPLICATIVE_SWING = 0.15` in `projections.py`): Seven multiplicative adjustments (signal matchup, xG matchup, streak, PDO, opportunity, role, home ice) are collected into a single combined multiplier and clamped to ±15% before applying. Without this, compounding inflated high projections by ~25%.
+**Evidence**: Feb 2 backtest showed skaters under-projected by 78% (mean_proj=4.70, mean_act=8.38). Date-by-date analysis revealed the progression:
+- Jan 23-31: Mean proj ~7.8, ratio ~0.55 (old corrections)
+- Feb 2: Mean proj ~4.2, ratio ~1.11 (new 0.45 applied → over-corrected)
 
-2. **High-projection mean regression** (`projections.py`): Skater projections above 14.0 FPTS are blended 80/20 toward league mean (6.0). Goalie projections above 12.0 are blended 80/20 toward goalie mean (9.0). This targets the worst-calibrated bucket (15+ projected had the highest bias).
-
-3. **Goalie projection cap** (`GOALIE_PROJECTION_CAP = 16.0`): Hard ceiling on goalie projections. Goalies projected 12+ had +3.79 average bias.
-
-4. **DK season average blending** (`DK_AVG_BLEND_WEIGHT = 0.80` in `config.py`): After salary merge in `main.py`, projections are blended 80% model / 20% DK's `AvgPointsPerGame`. This anchors toward market consensus and reduces outlier projections. Floor/ceiling/edge/value are recalculated after blending.
-
-5. **Symmetric signal clips** (`config.py`): `SIGNAL_COMPOSITE_CLIP_HIGH` reduced from 1.10 to 1.08, matching the low clip at 0.92 for symmetric ±8%.
+**Fix**: Recalibrated using Feb 2 data (which has current corrections applied). New values: `GLOBAL = 0.45 × 1.78 = 0.80`.
 
 ### Current Bias Correction Values
 
 | Parameter | Value | Notes |
 |-----------|-------|-------|
-| `GLOBAL_BIAS_CORRECTION` | 0.45 | Applied to all skaters (was 0.92) |
-| Centers (`C`) | 1.03 | actual/proj ratio 0.557 |
-| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.93 | Highest bias position (+4.08) |
-| Defensemen (`D`) | 1.04 | Now validated with actual D data |
-| `GOALIE_BIAS_CORRECTION` | 0.76 | Was 0.88 |
+| `GLOBAL_BIAS_CORRECTION` | 0.80 | Was 0.45 (over-corrected) |
+| Centers (`C`) | 1.01 | Near neutral |
+| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.99 | Near neutral |
+| Defensemen (`D`) | 1.00 | Near neutral |
+| `GOALIE_BIAS_CORRECTION` | 0.40 | Was 0.76 (under-corrected) |
 
-### Backtest Results (7-date batch, pre-recalibration)
+### Post-Fix Verification (Feb 2 simulated)
 
-| Date | N Skaters | N Goalies |
-|------|-----------|-----------|
-| Jan 23 | 269 | 15 |
-| Jan 26 | 135 | 7 |
-| Jan 28 | 100 | 6 |
-| Jan 29 | 507 | 30 |
-| Jan 30 | 34 | 2 |
-| Jan 31 | 263 | 11 |
-| Feb 1 | 102 | 6 |
-| **Total** | **1,410** | **77** |
+| Position | Old Bias | New Bias |
+|----------|----------|----------|
+| C | -3.72 | +0.00 |
+| W | -4.36 | -0.01 |
+| D | -3.04 | +0.00 |
+| G | +4.08 | -0.02 |
+| **Skaters** | **-3.68** | **-0.00** |
 
-Aggregate (pre-recalibration): Skater MAE=5.47, bias=+3.63, RMSE=6.69. Goalie MAE=6.70, bias=+1.52.
+### Projection Controls
 
-Per-position (pre-recalibration):
-| Position | N | MAE | Bias | Mean Proj | Mean Actual | Ratio |
-|----------|---|-----|------|-----------|-------------|-------|
-| C | 475 | 5.71 | +3.56 | 8.03 | 4.48 | 0.557 |
-| W | 469 | 6.03 | +4.08 | 8.43 | 4.34 | 0.515 |
-| D | 466 | 4.67 | +3.25 | 7.49 | 4.25 | 0.567 |
-| G | 77 | 6.70 | +1.52 | 11.43 | 9.91 | 0.867 |
+The model has several layers to manage projection accuracy:
 
-Key observations:
-- Defensemen now included in backtests (466 observations) after fixing `"defense"` vs `"defensemen"` API key bug in `fetch_skaters_actuals_for_date()`
-- D have the lowest MAE (4.67) and lowest bias (+3.25) of skater positions
-- Wings have the highest bias (+4.08, ratio 0.515)
-- Goalie bias reduced from prior +2.30 to +1.52 with 77 observations
-- Batch backtest available via `python backtest.py --batch-backtest`
+1. **Multiplicative adjustment cap** (`MAX_MULTIPLICATIVE_SWING = 0.15`): Seven adjustments (signal matchup, xG matchup, streak, PDO, opportunity, role, home ice) clamped to ±15%.
 
-### Post-Recalibration Spot Check (Feb 1)
+2. **High-projection mean regression**: Skater projections >14.0 FPTS blended 80/20 toward league mean (6.0). Goalie projections >12.0 blended toward 9.0.
 
-After applying the updated bias corrections, `python backtest.py --skater-slate-date 2026-02-01` produced:
-- **Skater MAE: 3.78** (down from 5.47 aggregate pre-recalibration)
-- **Skater bias: -1.76** (flipped from +3.63 over-projection to slight under-projection)
-- **104 skaters matched** (35 D, 39 W, 30 C — defensemen fully represented)
+3. **Goalie projection cap** (`GOALIE_PROJECTION_CAP = 16.0`): Hard ceiling.
 
-The corrections shifted from systematic over-projection to slight under-projection, which is preferable for DFS (conservative projections avoid chasing inflated ceilings). The position column is now included in `run_slate_skater_backtest()` details output for per-position analysis on any single-date backtest.
+4. **DK season average blending** (`DK_AVG_BLEND_WEIGHT = 0.80`): Projections blended 80% model / 20% DK's `AvgPointsPerGame` after salary merge.
+
+5. **Symmetric signal clips**: `SIGNAL_COMPOSITE_CLIP_HIGH/LOW` at ±8%.
+
+### Calibration Process
+
+When recalibrating, always use projection CSVs generated with the **current** correction values:
+
+```bash
+# 1. Generate projections with current model
+python main.py --stacks --show-injuries --lineups 5
+
+# 2. After games complete, run backtest against that day
+python backtest.py --skater-slate-date YYYY-MM-DD
+
+# 3. If bias ≠ 0, calculate new correction:
+#    new_correction = old_correction × (actual/projected ratio)
+```
+
+**Warning**: Never derive corrections from CSVs generated with different correction values — this causes calibration drift.
 
 ### Backtest TOI Filtering
 
-`backtest.py` now filters out players with TOI=0 (scratches/DNPs) before computing error metrics. The `_parse_toi_minutes()` utility handles both `"MM:SS"` strings and numeric values from the NHL API boxscore data. Both `fetch_skaters_actuals_for_date()` and `fetch_goalies_actuals_for_date()` now include a `toi_minutes` column.
+`backtest.py` filters out players with TOI=0 (scratches/DNPs) before computing error metrics. The `_parse_toi_minutes()` utility handles both `"MM:SS"` strings and numeric values.
 
 ## Environment Setup
 
