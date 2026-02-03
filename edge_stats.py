@@ -32,11 +32,14 @@ class EdgeStatsClient:
     ABOVE_AVG_PERCENTILE = 0.65  # Top 35%
 
     # Projection boost factors (multiplicative)
+    # Calibrated from 1,180-observation backtest (Jan 22 - Feb 2, 2026)
+    # Raw data: elite OZ +55%, elite speed +9%, elite bursts +24%
+    # Using ~20% of raw to stay conservative (avoid confounding with player quality)
     EDGE_BOOST_FACTORS = {
-        'elite_oz_time': 1.03,      # +3% for elite offensive zone time
-        'elite_speed': 1.02,        # +2% for elite skating speed
-        'elite_bursts': 1.02,       # +2% for elite burst count
-        'above_avg_oz_time': 1.015, # +1.5% for above-avg OZ time
+        'elite_oz_time': 1.10,      # +10% for elite OZ time (strongest predictor, r=0.18)
+        'elite_speed': 1.02,        # +2% for elite skating speed (weak correlation, r=0.07)
+        'elite_bursts': 1.05,       # +5% for elite burst count (solid predictor, r=0.15)
+        'above_avg_oz_time': 1.04,  # +4% for above-avg OZ time
         'above_avg_speed': 1.01,    # +1% for above-avg speed
     }
 

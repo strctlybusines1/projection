@@ -22,6 +22,9 @@ python main.py --stacks --show-injuries --lineups 20 \
 # Run backtest against actual results
 python backtest.py --players 75
 
+# Run Edge stats backtest (calibrate boost values)
+python backtest.py --edge-backtest
+
 # Test line scraper + stack builder
 python lines.py
 
@@ -326,14 +329,24 @@ python main.py --stacks --show-injuries --lineups 5 --no-edge
 | **Zone Starts %** | OZ vs DZ faceoff starts | Usage/deployment indicator |
 | **Shot Speed** | Hardest shot in mph | Scoring threat level |
 
-### Boost Thresholds
+### Boost Thresholds (Calibrated 2/3/26)
 
-| Tier | Percentile | Boost |
-|------|------------|-------|
-| Elite | ≥90th | +2-3% per metric |
-| Above Average | ≥65th | +1-1.5% per metric |
+Calibrated from 1,180-observation backtest across Jan 22 - Feb 2, 2026:
 
-Maximum combined boost: ~7-8% for players elite in all skating metrics (e.g., McDavid: +7.2%).
+| Metric | Elite (≥90th) | Above-Avg (≥65th) | Backtest Correlation |
+|--------|---------------|-------------------|---------------------|
+| OZ Time | +10% | +4% | r=+0.18 (strongest) |
+| Bursts | +5% | - | r=+0.15 |
+| Speed | +2% | +1% | r=+0.07 (weakest) |
+
+Maximum combined boost: ~17% for players elite in all metrics. Raw backtest showed elite OZ players score +55% vs baseline, but using ~20% of raw to avoid confounding with player quality.
+
+### Backtest Command
+
+```bash
+# Run Edge stats backtest (validates boost calibration)
+python backtest.py --edge-backtest
+```
 
 ### Example Output
 

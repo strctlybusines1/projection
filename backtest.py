@@ -21,6 +21,13 @@ from config import (
     GOALIE_SCORING, GOALIE_BONUSES, BACKTESTS_DIR
 )
 
+# NHL Edge stats (optional)
+try:
+    from edge_stats import EdgeStatsClient
+    EDGE_AVAILABLE = True
+except ImportError:
+    EDGE_AVAILABLE = False
+
 # TabPFN import (optional - will gracefully handle if not installed)
 try:
     from tabpfn import TabPFNRegressor
@@ -1821,6 +1828,292 @@ def run_full_backtest(max_players: int = 100, season: str = CURRENT_SEASON, incl
     return results, comparison, game_logs
 
 
+def run_edge_backtest(verbose: bool = True) -> Dict:
+    """
+    Backtest NHL Edge stats against actual DFS performance.
+
+    Reads backtest xlsx files, fetches Edge stats for players, and analyzes
+    whether Edge metrics (skating speed, OZ time, bursts) correlate with
+    actual fantasy point production.
+
+    Returns:
+        Dict with correlation results and recommendations for boost calibration.
+    """
+    if not EDGE_AVAILABLE:
+        print("Edge stats module not available. Install with: pip install nhl-api-py")
+        return {"error": "Edge module not available"}
+
+    from scipy import stats
+    import openpyxl
+
+    edge_client = EdgeStatsClient(rate_limit_delay=0.3)
+    nhl_client = NHLAPIClient()
+
+    # Find all backtest xlsx files
+    backtest_dir = _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR
+    xlsx_files = sorted(backtest_dir.glob("*.xlsx"))
+
+    if not xlsx_files:
+        print("No backtest xlsx files found in backtests/")
+        return {"error": "No backtest files"}
+
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f" NHL EDGE STATS BACKTEST")
+        print(f"{'='*70}")
+        print(f"  Found {len(xlsx_files)} backtest files")
+
+    # Collect all player results across all dates
+    all_results = []
+
+    for xlsx_path in xlsx_files:
+        # Extract date from filename (e.g., "1.26.26_nhl_backtest.xlsx")
+        fname = xlsx_path.name
+        if not fname.endswith("_nhl_backtest.xlsx"):
+            continue
+
+        date_part = fname.replace("_nhl_backtest.xlsx", "")
+        try:
+            # Parse M.DD.YY format
+            parts = date_part.split(".")
+            if len(parts) == 3:
+                month, day, year = int(parts[0]), int(parts[1]), int(parts[2])
+                backtest_date = f"20{year}-{month:02d}-{day:02d}"
+            else:
+                continue
+        except (ValueError, IndexError):
+            continue
+
+        if verbose:
+            print(f"\n--- {backtest_date} ({fname}) ---")
+
+        # Read backtest results
+        try:
+            df = pd.read_excel(xlsx_path)
+        except Exception as e:
+            if verbose:
+                print(f"  Error reading file: {e}")
+            continue
+
+        # Filter to skaters only (exclude goalies)
+        if 'Roster Position' in df.columns:
+            skaters = df[df['Roster Position'].isin(['C', 'W', 'D', 'UTIL'])].copy()
+        else:
+            skaters = df.copy()
+
+        if verbose:
+            print(f"  Loaded {len(skaters)} skaters with actual FPTS")
+
+        # For each skater, try to find their NHL player ID and fetch Edge stats
+        for _, row in skaters.iterrows():
+            player_name = row.get('Player', '')
+            actual_fpts = row.get('FPTS', 0)
+            position = row.get('Roster Position', '')
+
+            if not player_name or pd.isna(actual_fpts):
+                continue
+
+            # Skip goalies
+            if position == 'G':
+                continue
+
+            all_results.append({
+                'date': backtest_date,
+                'player_name': player_name,
+                'actual_fpts': actual_fpts,
+                'position': position,
+            })
+
+    if not all_results:
+        print("No valid results collected")
+        return {"error": "No results"}
+
+    results_df = pd.DataFrame(all_results)
+
+    if verbose:
+        print(f"\n  Total observations: {len(results_df)}")
+        print(f"  Unique players: {results_df['player_name'].nunique()}")
+
+    # Now fetch Edge stats for unique players
+    # First, we need to map player names to NHL IDs
+    unique_players = results_df['player_name'].unique().tolist()
+
+    if verbose:
+        print(f"\nFetching NHL player IDs for {len(unique_players)} unique players...")
+
+    # Use NHL API to get all skaters
+    player_id_map = {}
+    try:
+        stats_response = nhl_client.get_skater_stats(season=CURRENT_SEASON)
+        skater_data = stats_response.get('data', [])
+    except Exception as e:
+        print(f"Error fetching skater stats: {e}")
+        skater_data = []
+
+    for player in skater_data:
+        full_name = player.get('skaterFullName', '')
+        last_name = player.get('lastName', '')
+        player_id = player.get('playerId')
+
+        if player_id:
+            player_id_map[full_name.lower()] = player_id
+            if last_name:
+                player_id_map[last_name.lower()] = player_id
+
+    # Match players to IDs
+    matched_ids = {}
+    for name in unique_players:
+        name_lower = name.lower().strip()
+        # Try exact match first
+        if name_lower in player_id_map:
+            matched_ids[name] = player_id_map[name_lower]
+        else:
+            # Try last name match
+            last_name = name.split()[-1].lower() if name else ''
+            if last_name in player_id_map:
+                matched_ids[name] = player_id_map[last_name]
+
+    if verbose:
+        print(f"  Matched {len(matched_ids)}/{len(unique_players)} players to NHL IDs")
+
+    # Fetch Edge stats for matched players
+    if verbose:
+        print(f"\nFetching Edge stats for {len(matched_ids)} players...")
+
+    edge_data = {}
+    for i, (name, pid) in enumerate(matched_ids.items()):
+        if verbose and (i + 1) % 25 == 0:
+            print(f"  Progress: {i + 1}/{len(matched_ids)}")
+
+        try:
+            summary = edge_client.get_skater_edge_summary(pid)
+            if summary:
+                edge_data[name] = summary
+        except Exception:
+            continue
+
+    if verbose:
+        print(f"  Fetched Edge stats for {len(edge_data)} players")
+
+    # Merge Edge stats with results
+    edge_rows = []
+    for name, edge in edge_data.items():
+        edge_rows.append({
+            'player_name': name,
+            'max_speed_mph': edge.get('max_speed_mph', 0),
+            'speed_percentile': edge.get('speed_percentile', 0),
+            'bursts_over_20': edge.get('bursts_over_20', 0),
+            'bursts_percentile': edge.get('bursts_percentile', 0),
+            'oz_time_pct': edge.get('oz_time_pct', 0),
+            'oz_time_percentile': edge.get('oz_time_percentile', 0),
+            'shot_speed_mph': edge.get('shot_speed_mph', 0),
+            'shot_speed_percentile': edge.get('shot_speed_percentile', 0),
+        })
+
+    if not edge_rows:
+        print("No Edge data fetched")
+        return {"error": "No Edge data"}
+
+    edge_df = pd.DataFrame(edge_rows)
+
+    # Merge with results
+    merged = results_df.merge(edge_df, on='player_name', how='inner')
+
+    if verbose:
+        print(f"\n  Merged results: {len(merged)} observations with Edge data")
+
+    # Analyze correlations
+    print(f"\n{'='*70}")
+    print(" EDGE METRIC CORRELATIONS WITH ACTUAL FPTS")
+    print(f"{'='*70}")
+
+    metrics = [
+        ('max_speed_mph', 'Max Skating Speed (mph)'),
+        ('speed_percentile', 'Speed Percentile'),
+        ('bursts_over_20', 'Bursts Over 20mph'),
+        ('bursts_percentile', 'Bursts Percentile'),
+        ('oz_time_pct', 'Offensive Zone Time %'),
+        ('oz_time_percentile', 'OZ Time Percentile'),
+        ('shot_speed_mph', 'Shot Speed (mph)'),
+        ('shot_speed_percentile', 'Shot Speed Percentile'),
+    ]
+
+    correlations = {}
+    for col, label in metrics:
+        if col in merged.columns:
+            valid = merged[[col, 'actual_fpts']].dropna()
+            if len(valid) > 10:
+                corr, pval = stats.pearsonr(valid[col], valid['actual_fpts'])
+                correlations[col] = {'corr': corr, 'pval': pval, 'n': len(valid)}
+                sig = '***' if pval < 0.001 else '**' if pval < 0.01 else '*' if pval < 0.05 else ''
+                print(f"  {label:30} r={corr:+.3f} (p={pval:.4f}) {sig} n={len(valid)}")
+
+    # Analyze by percentile tiers
+    print(f"\n{'='*70}")
+    print(" ACTUAL FPTS BY EDGE TIER")
+    print(f"{'='*70}")
+
+    for col, label in [('oz_time_percentile', 'OZ Time'), ('speed_percentile', 'Speed'), ('bursts_percentile', 'Bursts')]:
+        if col not in merged.columns:
+            continue
+
+        print(f"\n  {label}:")
+        # Create tiers
+        merged[f'{col}_tier'] = pd.cut(
+            merged[col],
+            bins=[0, 0.33, 0.66, 1.0],
+            labels=['Bottom 33%', 'Middle 33%', 'Top 33%']
+        )
+
+        tier_stats = merged.groupby(f'{col}_tier')['actual_fpts'].agg(['mean', 'std', 'count'])
+        for tier in ['Bottom 33%', 'Middle 33%', 'Top 33%']:
+            if tier in tier_stats.index:
+                row = tier_stats.loc[tier]
+                print(f"    {tier:15} avg={row['mean']:.1f} FPTS (n={int(row['count'])})")
+
+    # Calculate recommended boosts based on actual performance
+    print(f"\n{'='*70}")
+    print(" RECOMMENDED EDGE BOOST CALIBRATION")
+    print(f"{'='*70}")
+
+    # Compare elite (>90th pctile) vs average performance
+    if 'oz_time_percentile' in merged.columns:
+        elite_oz = merged[merged['oz_time_percentile'] >= 0.90]['actual_fpts'].mean()
+        avg_oz = merged[merged['oz_time_percentile'] < 0.90]['actual_fpts'].mean()
+        if avg_oz > 0:
+            oz_boost = elite_oz / avg_oz
+            print(f"  Elite OZ Time (≥90th pctile): {elite_oz:.1f} avg FPTS vs {avg_oz:.1f} baseline")
+            print(f"    → Recommended boost: {(oz_boost - 1) * 100:+.1f}%")
+
+    if 'speed_percentile' in merged.columns:
+        elite_speed = merged[merged['speed_percentile'] >= 0.90]['actual_fpts'].mean()
+        avg_speed = merged[merged['speed_percentile'] < 0.90]['actual_fpts'].mean()
+        if avg_speed > 0:
+            speed_boost = elite_speed / avg_speed
+            print(f"  Elite Speed (≥90th pctile): {elite_speed:.1f} avg FPTS vs {avg_speed:.1f} baseline")
+            print(f"    → Recommended boost: {(speed_boost - 1) * 100:+.1f}%")
+
+    if 'bursts_percentile' in merged.columns:
+        elite_bursts = merged[merged['bursts_percentile'] >= 0.90]['actual_fpts'].mean()
+        avg_bursts = merged[merged['bursts_percentile'] < 0.90]['actual_fpts'].mean()
+        if avg_bursts > 0:
+            bursts_boost = elite_bursts / avg_bursts
+            print(f"  Elite Bursts (≥90th pctile): {elite_bursts:.1f} avg FPTS vs {avg_bursts:.1f} baseline")
+            print(f"    → Recommended boost: {(bursts_boost - 1) * 100:+.1f}%")
+
+    # Save detailed results
+    out_path = backtest_dir / "edge_backtest_details.csv"
+    merged.to_csv(out_path, index=False)
+    print(f"\n  Details saved to {out_path}")
+
+    return {
+        "n_observations": len(merged),
+        "n_players": merged['player_name'].nunique(),
+        "correlations": correlations,
+        "details": merged,
+    }
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -1851,6 +2144,8 @@ if __name__ == "__main__":
                         help='Train final ownership regression model and save pickle')
     parser.add_argument('--ownership-tabpfn', action='store_true',
                         help='With --train-ownership: train TabPFN model instead of Ridge')
+    parser.add_argument('--edge-backtest', action='store_true',
+                        help='Run Edge stats backtest to validate/calibrate boost values')
 
     args = parser.parse_args()
 
@@ -1861,6 +2156,10 @@ if __name__ == "__main__":
     if args.train_ownership:
         mt = 'tabpfn' if args.ownership_tabpfn else 'ridge'
         train_ownership_model(model_type=mt)
+        sys.exit(0)
+
+    if args.edge_backtest:
+        run_edge_backtest()
         sys.exit(0)
 
     if args.batch_backtest:
