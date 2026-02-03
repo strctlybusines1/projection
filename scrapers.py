@@ -22,6 +22,13 @@ class MoneyPuckClient:
 
     INJURIES_URL = "https://moneypuck.com/moneypuck/playerData/playerNews/current_injuries.csv"
 
+    # Browser headers to bypass Cloudflare protection
+    HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/csv,text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
+
     def __init__(self, timeout: int = 30):
         self.timeout = timeout
         self._cache = None
@@ -46,7 +53,7 @@ class MoneyPuckClient:
 
         try:
             print("Fetching injuries from MoneyPuck...")
-            response = requests.get(self.INJURIES_URL, timeout=self.timeout)
+            response = requests.get(self.INJURIES_URL, headers=self.HEADERS, timeout=self.timeout)
             response.raise_for_status()
 
             # Parse CSV
