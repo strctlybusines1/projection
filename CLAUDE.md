@@ -6,24 +6,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 NHL DFS (Daily Fantasy Sports) projection and lineup optimization system for DraftKings. Generates player fantasy point projections from multiple data sources, predicts ownership percentages, and builds salary-cap-constrained GPP lineups with correlated stacking.
 
+## Daily Workflow (Order of Operations)
+
+### Pre-Slate Workflow (2-3 hours before lock)
+
+```bash
+# Step 1: Download DK salary CSV from DraftKings
+# Save to: projection/daily_salaries/DKSalaries_M.DD.YY.csv
+
+# Step 2: Generate base projections + ownership (NO Edge yet)
+python main.py --stacks --show-injuries --lineups 5
+
+# Step 3: Apply EDGE stats boosts (separate step due to API timing)
+python main.py --stacks --show-injuries --lineups 5 --edge
+
+# Step 4: Review output files in daily_projections/
+#   - {date}_projections_{timestamp}.csv  (player projections)
+#   - {date}_lineups_{timestamp}.csv      (optimized lineups)
+#   - {date}_lines.json                   (line combos/stacks)
+```
+
+### Pre-Lock Checklist (30 mins before lock)
+
+```bash
+# Confirm starting goalies (critical!)
+python lines.py  # Check goalie confirmations
+
+# Check for late scratches
+# - Compare lineup players to DailyFaceoff
+# - Any player with uncertain status → have pivot ready
+
+# Verify lineup positions against DK
+# - DK uses LW/RW/C/D, not just W/C
+# - Confirm UTIL slot eligibility
+```
+
+### Post-Slate Workflow
+
+```bash
+# Step 1: Download contest results from DraftKings
+# Save to: projection/contests/
+
+# Step 2: Create actuals file with: name, actual, own, TOI
+
+# Step 3: Run backtest to measure accuracy
+python backtest.py --players 75
+
+# Step 4: Update bias corrections if needed (see Calibration section)
+```
+
 ## Common Commands
 
 ```bash
-# Primary workflow — generate projections, ownership, and lineups
+# === PRIMARY WORKFLOW ===
+
+# Generate projections WITHOUT Edge (faster, use for initial build)
 python main.py --stacks --show-injuries --lineups 5
 
-# With NHL Edge tracking boosts (speed, OZ time, bursts)
+# Generate projections WITH Edge (slower, ~2-3 min for API calls)
 python main.py --stacks --show-injuries --lineups 5 --edge
 
-# With contest-aware EV scoring
+# Generate projections with NO Edge (explicit skip)
+python main.py --stacks --show-injuries --lineups 5 --no-edge
+
+# === CONTEST-AWARE MODE ===
+
+# For GPP optimization with EV scoring
 python main.py --stacks --show-injuries --lineups 20 \
   --contest-entry-fee 5 --contest-field-size 10000 --contest-payout top_heavy_gpp
 
-# Run backtest against actual results
+# === BACKTESTING ===
+
+# Standard backtest against actual results
 python backtest.py --players 75
 
-# Run Edge stats backtest (calibrate boost values)
+# Edge stats backtest (calibrate boost values)
 python backtest.py --edge-backtest
+
+# Ownership model backtest
+python backtest.py --ownership-backtest
+
+# Batch backtest across multiple dates
+python backtest.py --batch-backtest
+
+# === UTILITIES ===
 
 # Test line scraper + stack builder
 python lines.py
@@ -33,6 +99,17 @@ python optimizer.py
 
 # Launch local dashboard
 python dashboard/server.py
+
+# === SIMULATION MODE ===
+
+# Run lineup simulation (deterministic)
+python main.py --simulate
+
+# Run Monte Carlo simulation
+python main.py --simulate --sim-iterations 100
+
+# Two-pass lift-adjusted simulation
+python main.py --simulate --sim-lift 0.15
 ```
 
 All commands run from the `projection/` directory. There is no build step, linter, or test suite — validation is done via backtesting (`backtest.py`).
@@ -42,31 +119,56 @@ All commands run from the `projection/` directory. There is no build step, linte
 ### Data Flow
 
 ```
-External APIs → data_pipeline.py → features.py → projections.py
-                                                       ↓
-                                          ┌────────────┴────────────┐
-                                          ↓                        ↓
-                                   ownership.py              optimizer.py
-                                          ↓                        ↓
-                                          └────────────┬───────────┘
-                                                       ↓
-                                                    main.py → CSV export
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           MAIN.PY PIPELINE                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  1. LOAD DATA                                                           │
+│     ├── DK Salaries (daily_salaries/*.csv)                              │
+│     ├── Vegas Lines (The Odds API or vegas/*.csv fallback)              │
+│     └── Line Combos (DailyFaceoff scrape via lines.py)                  │
+│                              ↓                                          │
+│  2. FETCH STATS                                                         │
+│     └── data_pipeline.py → NHL API, MoneyPuck, Natural Stat Trick       │
+│                              ↓                                          │
+│  3. ENGINEER FEATURES                                                   │
+│     └── features.py → rates, bonuses, matchup adjustments               │
+│                              ↓                                          │
+│  4. GENERATE PROJECTIONS                                                │
+│     └── projections.py → base FPTS calculation + bias corrections       │
+│                              ↓                                          │
+│  5. APPLY EDGE BOOSTS (if --edge flag)                                  │
+│     └── edge_stats.py → speed/OZ/bursts percentile boosts               │
+│                              ↓                                          │
+│  6. MERGE WITH SALARIES                                                 │
+│     └── Fuzzy name matching, position normalization                     │
+│                              ↓                                          │
+│  7. PREDICT OWNERSHIP                                                   │
+│     └── ownership.py → Ridge model or heuristic fallback                │
+│                              ↓                                          │
+│  8. OPTIMIZE LINEUPS                                                    │
+│     └── optimizer.py → salary cap, stacks, correlation                  │
+│                              ↓                                          │
+│  9. EXPORT                                                              │
+│     └── daily_projections/*.csv                                         │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Modules
 
-- **main.py** — CLI entry point. Orchestrates the full pipeline: load DK salaries, fetch data, generate projections, predict ownership, build lineups, export CSVs. Also fetches Vegas odds via The Odds API (key in `.env`).
-- **data_pipeline.py** — `NHLDataPipeline.build_projection_dataset()` fetches from NHL API, MoneyPuck (injuries), and Natural Stat Trick (xG/Corsi/PDO). Returns unified skater/goalie/team DataFrames.
-- **features.py** — `FeatureEngineer` computes per-game rates, bonus probabilities, opponent adjustments, xG matchup boosts, and injury opportunity boosts.
-- **projections.py** — `NHLProjectionModel.generate_projections()` calculates expected fantasy points with position-specific bias corrections, multiplicative adjustment capping (±15%), high-projection mean regression, and goalie projection cap. Constants are defined at module top. Optional TabPFN ML model.
-- **lines.py** — `LinesScraper` scrapes DailyFaceoff for line combos/PP units/confirmed goalies. `StackBuilder` builds correlation data and `get_best_stacks()` returns PP1/Line1/Line1+D1/Line2 groupings with projection matching.
-- **ownership.py** — `OwnershipModel.predict_ownership()` uses salary curve, PP1/Line1 role boosts, Vegas totals, goalie confirmation, recent scoring, and TOI surge signals. Normalizes to ~900% total.
-- **optimizer.py** — `NHLLineupOptimizer` builds lineups under DK constraints ($50k cap, 2C/3W/2D/1G/1UTIL). GPP mode uses `_get_correlated_stack_players()` to select from actual line/PP combos (PP1 > Line1+D1 > Line1 for primary, Line1 > Line2 > PP1 for secondary) with fallback to top-N-by-projection.
-- **simulator.py** — `OptimalLineupSimulator` iterates all valid (team_A, team_B) ordered pairs, builds the best 4-3-1-1 lineup for each, and counts player appearance frequency. Supports deterministic mode (fixed projections) and Monte Carlo mode (samples from `N(projected, std)` each iteration). Computes per-position baseline probability accounting for UTIL slot asymmetry (C/W eligible, D excluded) and a `lift` column (actual_pct / baseline_pct) for context. Run via `python main.py --simulate` or `--simulate --sim-iterations N`. Supports two-pass lift-adjusted re-simulation via `--sim-lift [blend]` (see below).
-- **contest_roi.py** — Leverage recommendations and contest EV scoring based on payout structure.
-- **backtest.py** — Compares projections to actual scores. Outputs MAE/RMSE/correlation by position. Filters TOI=0 scratches/DNPs from error metrics. Results feed bias corrections in `projections.py`.
-- **edge_stats.py** — `EdgeStatsClient` fetches NHL Edge tracking data (skating speed, bursts, offensive zone time) via `nhl-api-py`. Calculates projection boosts for elite metrics. Run with `--edge` flag.
-- **config.py** — Central configuration: DK scoring rules, API URLs, bias corrections, GPP optimizer settings, signal weights.
+| Module | Purpose |
+|--------|---------|
+| **main.py** | CLI entry point. Orchestrates full pipeline. |
+| **data_pipeline.py** | Fetches NHL API, MoneyPuck injuries, Natural Stat Trick xG/Corsi. |
+| **features.py** | Computes per-game rates, bonus probabilities, opponent adjustments. |
+| **projections.py** | Calculates expected FPTS with bias corrections. |
+| **edge_stats.py** | Fetches NHL Edge tracking data, applies projection boosts. |
+| **lines.py** | Scrapes DailyFaceoff for lines/PP/goalies. Builds stack correlations. |
+| **ownership.py** | Predicts ownership via Ridge regression or heuristic. |
+| **optimizer.py** | Builds DK-legal lineups under salary cap with stacking. |
+| **backtest.py** | Compares projections to actuals. Outputs MAE/RMSE/correlation. |
+| **config.py** | Central configuration: DK scoring, API URLs, weights. |
 
 ### DraftKings NHL Roster
 
@@ -84,240 +186,26 @@ All relative to `projection/`:
 | `backtests/` | Backtest xlsx workbooks + `latest_mae.json` |
 | `contests/` | DK contest result CSVs (for post-slate analysis) |
 
-### External APIs & Rate Limits
-
-- **NHL API** (api-web.nhle.com) — player stats, schedules, game logs. 0.3s delay.
-- **MoneyPuck** (moneypuck.com) — injury CSV. No auth.
-- **Natural Stat Trick** (naturalstattrick.com) — xG, Corsi, PDO. 2.0s delay between requests.
-- **DailyFaceoff** (dailyfaceoff.com) — line combos, confirmed goalies. Web scrape, 0.5s delay.
-- **The Odds API** (the-odds-api.com) — moneylines, spreads, totals. Requires `ODDS_API_KEY` in `.env`.
-
-## Key Patterns
-
-- **Name matching** between data sources uses fuzzy matching (`difflib.SequenceMatcher` at 0.85 threshold) throughout `lines.py` and `main.py`. The `find_player_match()` and `fuzzy_match()` functions in `lines.py` are the canonical implementations.
-- **Bias corrections** in `projections.py` are derived from backtest results. Constants live in `projections.py` itself (`GLOBAL_BIAS_CORRECTION`, `POSITION_BIAS_CORRECTION`, `GOALIE_BIAS_CORRECTION`). Update these when backtest metrics shift. Current values are from a 7-date batch backtest (1,410 skater + 77 goalie observations, including defensemen after API key bug fix). Run `python backtest.py --batch-backtest` to re-derive.
-- **Position normalization**: LW/RW/R/L all map to `W`. C/W and W/C map to `C`. LD/RD map to `D`. This happens in `optimizer.py._normalize_position()` and `simulator.py._normalise_pos()`.
-- **Goalie opponent exclusion**: The optimizer removes all skaters from the goalie's opponent team (negative correlation — if opponent scores, goalie loses points).
-- **Stack correlation flow**: `StackBuilder` stores correlation values (PP1: 0.95, Line1: 0.85, Line1+D1: 0.75, Line2: 0.70). The optimizer's `_get_correlated_stack_players()` picks from these actual line groupings rather than arbitrary top-N.
-- **Ownership normalization** targets ~900% total (9 roster spots × ~100% each). The `_normalize_ownership()` method in `ownership.py` scales raw predictions to hit this target.
-
-## Known Gotchas
-
-- **Salary merge column whitelist**: `merge_projections_with_salaries()` in `main.py` uses an explicit `merge_cols` list. Any column from DK salary data that downstream code needs (e.g., `game_info` for goalie-opponent exclusion) **must be manually added** to this list or it gets silently dropped during the pandas merge. This caused a bug where `_get_opponent_team()` always returned `None` because `Game Info` wasn't preserved.
-- **Weight normalization for `np.random.choice`**: When building a probability array for team selection, the weights array must be normalized (`weights / weights.sum()`) because the pool may have fewer teams than the hardcoded weight list expects. Without this, `np.random.choice` raises `ValueError: probabilities do not sum to 1`.
-- **Stale salary files**: The optimizer's `__main__` test block loads the latest file from `daily_salaries/`. If the most recent salary file is old, few players will match today's slate — the optimizer silently produces zero lineups when `min_teams` isn't met. Always verify the salary file date matches the target slate.
-- **Fuzzy match false positives**: Name matching at 0.85 threshold can occasionally match wrong players (e.g., two players with similar surnames on different teams). Stack-building code should verify team membership after fuzzy matching when possible.
-
-## Simulator Baseline & Lift
-
-The simulator's `_compute_baselines()` calculates per-position baseline probability — the chance a random player at that position would appear in a lineup if selection were uniform. This accounts for the UTIL slot asymmetry (C/W only, D excluded) by splitting the UTIL share proportionally by pool size:
-
-```
-effective_C_slots = 2 + N_C / (N_C + N_W)
-effective_W_slots = 3 + N_W / (N_C + N_W)
-effective_D_slots = 2
-effective_G_slots = 1
-baseline_pct(pos) = effective_slots / pool_size * 100
-lift = actual_pct / baseline_pct
-```
-
-A lift of 1.0x means random-level selection. Values well below 1.0x indicate a player is only appearing due to salary/position constraints rather than projection strength. The baseline header and lift column appear in both terminal output and CSV exports.
-
-## Lift-Adjusted Re-Simulation (`--sim-lift`)
-
-The `--sim-lift [blend]` flag runs a two-pass simulation:
-
-1. **First pass**: Normal simulation (deterministic or MC per `--sim-iterations`). Produces lift values for each player.
-2. **Second pass**: Re-runs the simulator with lift-adjusted projections, amplifying structural advantages (salary efficiency + position fit + projection strength).
-
-**Formula**: `adjusted_fpts = projected_fpts * (1 + blend * (lift - 1.0))`
-
-- `blend` defaults to **0.15** (configurable: `--sim-lift 0.25`)
-- A player with 3.0x lift gets a 30% projection boost (at 0.15 blend)
-- A player with 0.5x lift gets a 7.5% penalty
-- A player with 1.0x lift is unchanged
-- Players absent from first-pass results get lift = 0.0 (penalized — they never appeared)
-
-The second-pass output shows both original and adjusted projection columns with a `[LIFT-ADJUSTED]` header tag. Both first-pass and lift-adjusted CSVs are exported to `daily_projections/`.
-
-```bash
-# Deterministic two-pass with default 0.15 blend
-python main.py --simulate --sim-lift
-
-# MC mode with custom blend
-python main.py --simulate --sim-iterations 100 --sim-lift 0.25
-```
-
-## Projection Calibration (updated 2/3/26)
-
-### Calibration Drift Bug Fix (2/3/26)
-
-**Root Cause**: The previous `GLOBAL_BIAS_CORRECTION = 0.45` was derived from projection CSVs (Jan 23 - Feb 1) that were generated with **older, weaker** correction values (~0.92). When 0.45 was applied to the raw projection calculation, it caused **double-correction** — skater projections were reduced by ~78% too much.
-
-**Evidence**: Feb 2 backtest showed skaters under-projected by 78% (mean_proj=4.70, mean_act=8.38). Date-by-date analysis revealed the progression:
-- Jan 23-31: Mean proj ~7.8, ratio ~0.55 (old corrections)
-- Feb 2: Mean proj ~4.2, ratio ~1.11 (new 0.45 applied → over-corrected)
-
-**Fix**: Recalibrated using Feb 2 data (which has current corrections applied). New values: `GLOBAL = 0.45 × 1.78 = 0.80`.
-
-### Current Bias Correction Values
-
-| Parameter | Value | Notes |
-|-----------|-------|-------|
-| `GLOBAL_BIAS_CORRECTION` | 0.80 | Was 0.45 (over-corrected) |
-| Centers (`C`) | 1.01 | Near neutral |
-| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.99 | Near neutral |
-| Defensemen (`D`) | 1.00 | Near neutral |
-| `GOALIE_BIAS_CORRECTION` | 0.40 | Was 0.76 (under-corrected) |
-
-### Post-Fix Verification (Feb 2 simulated)
-
-| Position | Old Bias | New Bias |
-|----------|----------|----------|
-| C | -3.72 | +0.00 |
-| W | -4.36 | -0.01 |
-| D | -3.04 | +0.00 |
-| G | +4.08 | -0.02 |
-| **Skaters** | **-3.68** | **-0.00** |
-
-### Projection Controls
-
-The model has several layers to manage projection accuracy:
-
-1. **Multiplicative adjustment cap** (`MAX_MULTIPLICATIVE_SWING = 0.15`): Seven adjustments (signal matchup, xG matchup, streak, PDO, opportunity, role, home ice) clamped to ±15%.
-
-2. **High-projection mean regression**: Skater projections >14.0 FPTS blended 80/20 toward league mean (6.0). Goalie projections >12.0 blended toward 9.0.
-
-3. **Goalie projection cap** (`GOALIE_PROJECTION_CAP = 16.0`): Hard ceiling.
-
-4. **DK season average blending** (`DK_AVG_BLEND_WEIGHT = 0.80`): Projections blended 80% model / 20% DK's `AvgPointsPerGame` after salary merge.
-
-5. **Symmetric signal clips**: `SIGNAL_COMPOSITE_CLIP_HIGH/LOW` at ±8%.
-
-### Calibration Process
-
-When recalibrating, always use projection CSVs generated with the **current** correction values:
-
-```bash
-# 1. Generate projections with current model
-python main.py --stacks --show-injuries --lineups 5
-
-# 2. After games complete, run backtest against that day
-python backtest.py --skater-slate-date YYYY-MM-DD
-
-# 3. If bias ≠ 0, calculate new correction:
-#    new_correction = old_correction × (actual/projected ratio)
-```
-
-**Warning**: Never derive corrections from CSVs generated with different correction values — this causes calibration drift.
-
-### Backtest TOI Filtering
-
-`backtest.py` filters out players with TOI=0 (scratches/DNPs) before computing error metrics. The `_parse_toi_minutes()` utility handles both `"MM:SS"` strings and numeric values.
-
-## Environment Setup
-
-Requires `.env` file in `projection/` with:
-```
-ODDS_API_KEY=<the-odds-api-key>
-```
-
-Key Python dependencies: `pandas`, `numpy`, `requests`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`, `scipy`.
-
-## Ownership Regression Model
-
-### Approach
-
-The ownership model has three paths:
-
-1. **Ridge regression (default)**: Ridge regression trained on ~1,200 historical contest observations from 6 matchable dates. Uses `StandardScaler` + `Ridge` with alpha tuned via leave-one-date-out cross-validation. Loaded from `backtests/ownership_model.pkl`.
-2. **TabPFN (alternative)**: TabPFN v6.3.1 regressor (`TabPFNRegressor(ignore_pretraining_limits=True)`) trained on the same data. No hyperparameters to tune — just 6 LODOCV folds vs Ridge's 48 (8 alphas × 6 folds). Uses the same `StandardScaler` + feature pipeline as Ridge. Fully pickleable (inherits sklearn `BaseEstimator`).
-3. **Heuristic (fallback)**: Original 12-factor multiplicative model using salary curve, PP1/Line1 boosts, goalie confirmation, value/projection ratios, Vegas totals, scarcity, recency, TOI surge. Used when no trained model pickle exists.
-
-### Features (26 total)
-
-| Category | Features |
-|----------|----------|
-| Core (from projection CSVs) | `salary`, `projected_fpts`, `dk_avg_fpts`, `floor`, `ceiling`, `edge`, `value` |
-| Derived ranks | `salary_rank_in_pos`, `proj_rank_in_pos`, `value_rank_in_pos`, `salary_pctile`, `proj_pctile` |
-| Derived ratios | `dk_value_ratio`, `salary_bin` |
-| Position | `pos_C`, `pos_W`, `pos_D`, `pos_G`, `is_goalie` |
-| Slate context | `slate_size`, `n_players_at_pos` |
-| Lines (conditional) | `is_pp1`, `is_pp2`, `is_line1`, `is_d1`, `is_confirmed_goalie` |
-
-Lines features are 0 when no lines JSON is available (3 of 6 training dates have lines data).
-
-### Training Data
-
-6 dates (~1,200 player-observations). SE (Single Entry) contests preferred for representative ownership:
-
-| Date | Contest | Projection | Lines? |
-|------|---------|-----------|--------|
-| Jan 23 | `$5main_NHL1.23.26.csv` | `01_23_26...190750.csv` | No |
-| Jan 26 | `$5SE_NHL1.26.26.csv` | `01_26_26...184134.csv` | No |
-| Jan 28 | `$5SE_NHL1.28.26.csv` | `01_28_26...191024.csv` | No |
-| Jan 29 | `$1SE_NHL_1.29.26.csv` | `01_29_26...184650.csv` | Yes |
-| Jan 31 | `$5SE_NHL1.31.26.csv` | `01_31_26...190255.csv` | Yes |
-| Feb 1 | `$5SE_NHL2.1.26.csv` | `02_01_26...140426.csv` | Yes |
-
-### Retraining
-
-```bash
-# Run LODOCV for both Ridge and TabPFN, print side-by-side comparison
-python backtest.py --ownership-backtest
-
-# Train Ridge model (default) on all data and save pickle
-python backtest.py --train-ownership
-
-# Train TabPFN model instead and save pickle
-python backtest.py --train-ownership --ownership-tabpfn
-```
-
-| Command | Effect |
-|---------|--------|
-| `--ownership-backtest` | Run LODOCV for both Ridge and TabPFN, print comparison |
-| `--train-ownership` | Train Ridge (default), save pickle |
-| `--train-ownership --ownership-tabpfn` | Train TabPFN, save pickle |
-
-The trained model is saved to `backtests/ownership_model.pkl`. The pickle stores its `model_type` (`'ridge'` or `'tabpfn'`), so `predict_ownership()` loads whichever was last trained. Older pickles without `model_type` default to `'ridge'`. Delete the pickle to force the heuristic fallback path.
-
-### Performance (LODOCV)
-
-| Date | N | MAE | RMSE | Spearman |
-|------|---|-----|------|----------|
-| jan23 | 283 | 3.52 | 4.47 | 0.650 |
-| jan26 | 133 | 4.22 | 6.43 | 0.651 |
-| jan28 | 101 | 4.25 | 6.90 | 0.836 |
-| jan29 | 428 | 4.83 | 5.45 | 0.653 |
-| jan31 | 228 | 3.51 | 4.62 | 0.744 |
-| feb01 | 99 | 4.62 | 7.64 | 0.818 |
-| **Mean** | **1272** | **4.16** | **5.92** | **0.725** |
-
-Best alpha: 100.0. Top features by coefficient magnitude: `slate_size` (-2.0), `proj_rank_in_pos` (+1.4), `proj_pctile` (+1.3), `n_players_at_pos` (-1.2), `salary_rank_in_pos` (+1.1), `dk_avg_fpts` (+1.1).
-
-### Fallback Behavior
-
-`predict_ownership()` in `ownership.py`:
-1. Attempts to load `backtests/ownership_model.pkl`
-2. If loaded: builds feature matrix → Ridge predict → clip to [0.1, 50.0]
-3. If not loaded: runs `_heuristic_predict()` (original 12-factor model)
-4. Then normalizes ownership to ~900% total, computes leverage scores and tiers
-
 ## NHL Edge Stats Integration
 
 ### Overview
 
 NHL Edge provides player tracking data since 2021-22: skating speed, shot speed, zone time, and distance metrics. The `edge_stats.py` module fetches this data via `nhl-api-py` and applies projection boosts for players with elite underlying metrics.
 
-### Usage
+### IMPORTANT: Edge Integration Workflow
+
+**Known Issue**: Running `--edge` simultaneously with projection generation can cause timing/API issues. The recommended workflow is:
 
 ```bash
-# Enable Edge boosts
-python main.py --stacks --show-injuries --lineups 5 --edge
+# Option A: Two-step process (more reliable)
+python main.py --stacks --show-injuries --lineups 5          # Step 1: Base projections
+python main.py --stacks --show-injuries --lineups 5 --edge   # Step 2: Add Edge boosts
 
-# Skip Edge stats (faster)
-python main.py --stacks --show-injuries --lineups 5 --no-edge
+# Option B: Single step (may have API timing issues)
+python main.py --stacks --show-injuries --lineups 5 --edge
 ```
+
+If Option B fails, fall back to Option A.
 
 ### Metrics Tracked
 
@@ -339,27 +227,175 @@ Calibrated from 1,180-observation backtest across Jan 22 - Feb 2, 2026:
 | Bursts | +5% | - | r=+0.15 |
 | Speed | +2% | +1% | r=+0.07 (weakest) |
 
-Maximum combined boost: ~17% for players elite in all metrics. Raw backtest showed elite OZ players score +55% vs baseline, but using ~20% of raw to avoid confounding with player quality.
+Maximum combined boost: ~17% for players elite in all metrics.
 
-### Backtest Command
+### Backtest Validation
 
 ```bash
-# Run Edge stats backtest (validates boost calibration)
+# Validate Edge boost calibration
 python backtest.py --edge-backtest
+
+# Expected output: correlation values for each metric
+# If correlations drop below thresholds, recalibrate boosts
 ```
 
-### Example Output
+## Projection Calibration
 
+### Current Bias Correction Values
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `GLOBAL_BIAS_CORRECTION` | 0.80 | Skater multiplier |
+| Centers (`C`) | 1.01 | Near neutral |
+| Wings (`W`/`L`/`R`/`LW`/`RW`) | 0.99 | Near neutral |
+| Defensemen (`D`) | 1.00 | Near neutral |
+| `GOALIE_BIAS_CORRECTION` | 0.40 | Goalie multiplier |
+
+### Calibration Process
+
+When recalibrating, always use projection CSVs generated with the **current** correction values:
+
+```bash
+# 1. Generate projections with current model
+python main.py --stacks --show-injuries --lineups 5
+
+# 2. After games complete, run backtest against that day
+python backtest.py --skater-slate-date YYYY-MM-DD
+
+# 3. If bias ≠ 0, calculate new correction:
+#    new_correction = old_correction × (actual/projected ratio)
 ```
-Edge boosts applied to 45 skaters:
-  Connor McDavid            +7.2% | Elite OZ time (98% pctile); Elite speed (24.6 mph); Elite bursts (475 over 20mph)
-  Leon Draisaitl            +1.5% | Above-avg OZ time (86% pctile)
-  Auston Matthews           +1.5% | Above-avg OZ time (71% pctile)
+
+**Warning**: Never derive corrections from CSVs generated with different correction values — this causes calibration drift.
+
+### Backtest TOI Filtering
+
+`backtest.py` filters out players with TOI=0 (scratches/DNPs) before computing error metrics. Always include TOI in actuals data.
+
+## Ownership Regression Model
+
+### Approach
+
+The ownership model has three paths:
+
+1. **Ridge regression (default)**: Trained on ~1,200 historical contest observations. Loaded from `backtests/ownership_model.pkl`.
+2. **TabPFN (alternative)**: TabPFN v6.3.1 regressor for comparison.
+3. **Heuristic (fallback)**: Original 12-factor multiplicative model when no pickle exists.
+
+### Retraining
+
+```bash
+# Run LODOCV for both Ridge and TabPFN
+python backtest.py --ownership-backtest
+
+# Train Ridge model and save pickle
+python backtest.py --train-ownership
+
+# Train TabPFN model instead
+python backtest.py --train-ownership --ownership-tabpfn
 ```
 
-### Notes
+### Performance (LODOCV)
 
-- Edge data only available for skaters (not goalies)
-- Requires `nhl-api-py` package: `pip install nhl-api-py`
-- API rate limited at 0.3s delay between requests
-- Results cached in memory during session
+| Metric | Value |
+|--------|-------|
+| Mean MAE | 4.16 |
+| Mean RMSE | 5.92 |
+| Mean Spearman | 0.725 |
+
+## Key Patterns
+
+- **Name matching**: Fuzzy matching at 0.85 threshold via `difflib.SequenceMatcher`.
+- **Position normalization**: LW/RW/R/L → `W`. C/W → `C`. LD/RD → `D`.
+- **Goalie opponent exclusion**: Optimizer removes skaters from goalie's opponent team.
+- **Stack correlation**: PP1 (0.95), Line1 (0.85), Line1+D1 (0.75), Line2 (0.70).
+- **Ownership normalization**: Targets ~900% total (9 roster spots × ~100% each).
+
+## Known Gotchas
+
+### Critical Issues
+
+1. **Salary merge column whitelist**: `merge_projections_with_salaries()` uses explicit `merge_cols` list. Any column from DK salary data needed downstream **must be manually added** or it gets silently dropped.
+
+2. **Stale salary files**: Optimizer loads latest file from `daily_salaries/`. If the file is old, few players match — silently produces zero lineups. **Always verify salary file date matches target slate.**
+
+3. **Late scratches**: Players with TOI=0 are common. **Always check for late scratches 30 mins before lock** and have pivots ready.
+
+4. **DK position mismatches**: Your projection file may show different positions than DK (e.g., Guentzel as C when DK has him as W). **Always verify positions against actual DK salary file before finalizing lineup.**
+
+### Edge-Specific Issues
+
+5. **Edge API timing**: Running `--edge` can fail if NHL API is slow. If this happens:
+   - Run base projections first (no `--edge`)
+   - Run again with `--edge` flag
+   - Or skip Edge for that slate (`--no-edge`)
+
+6. **Edge data availability**: Only available for skaters (not goalies). Only covers 2021-22 season onwards.
+
+### Name Matching Issues
+
+7. **Fuzzy match false positives**: 0.85 threshold can match wrong players with similar names. Stack-building code should verify team membership after matching.
+
+8. **Special characters**: Names like "Stützle" may not match "Stutzle". Check for encoding issues.
+
+## External APIs & Rate Limits
+
+| API | Purpose | Rate Limit |
+|-----|---------|------------|
+| NHL API (api-web.nhle.com) | Player stats, schedules | 0.3s delay |
+| MoneyPuck (moneypuck.com) | Injury CSV | No auth |
+| Natural Stat Trick | xG, Corsi, PDO | 2.0s delay |
+| DailyFaceoff | Line combos, goalies | 0.5s delay |
+| The Odds API | Vegas lines | Requires API key in `.env` |
+| NHL Edge (via nhl-api-py) | Tracking data | 0.3s delay |
+
+## Environment Setup
+
+Requires `.env` file in `projection/` with:
+```
+ODDS_API_KEY=<the-odds-api-key>
+```
+
+Key Python dependencies: `pandas`, `numpy`, `requests`, `nhl-api-py`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`, `scipy`.
+
+## Quick Reference: Contest Strategy
+
+### WTA (Winner-Take-All) - 10 person
+- Maximum differentiation required
+- Fade chalk aggressively
+- Stack 4-5 players from highest O/U game
+- Contrarian goalie in low-total game
+
+### GPP (Guaranteed Prize Pool) - 100+ entries
+- Balance ceiling + floor
+- 3-4 man primary stack
+- Some chalk OK if highest ceiling
+- Target top 10-20% for cash
+
+### Cash Games (50/50, Double-Up)
+- Prioritize floor over ceiling
+- Play chalk/safe plays
+- Confirmed goalies only
+- Avoid volatile players
+
+## Troubleshooting
+
+### "No lineups generated"
+- Check salary file date matches slate
+- Verify `min_teams` requirement met
+- Check for position eligibility issues
+
+### "Edge boosts not applied"
+- Run two-step process (base then edge)
+- Check `nhl-api-py` is installed
+- Verify NHL Edge API is responding
+
+### "Projection file has wrong positions"
+- Positions come from DK salary file
+- Re-download salary file if stale
+- Manually verify against DK before lock
+
+### "Name not found in merge"
+- Check for special characters in names
+- Try manual fuzzy match lookup
+- Add player to manual mapping if needed
