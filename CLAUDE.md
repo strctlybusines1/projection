@@ -166,8 +166,9 @@ All commands run from the `projection/` directory. There is no build step, linte
 | **data_pipeline.py** | Fetches NHL API, MoneyPuck injuries, Natural Stat Trick xG/Corsi. |
 | **features.py** | Computes per-game rates, bonus probabilities, opponent adjustments. |
 | **projections.py** | Calculates expected FPTS with bias corrections. |
-| **edge_stats.py** | Fetches NHL Edge tracking data, applies projection boosts. |
+| **edge_stats.py** | Fetches NHL Edge tracking data, applies projection boosts (skaters + goalies). |
 | **edge_cache.py** | Caches Edge stats daily to avoid redundant API calls. |
+| **recent_scores_cache.py** | Caches recent game scores daily to avoid redundant API calls. |
 | **lines.py** | Scrapes DailyFaceoff for lines/PP/goalies. Builds stack correlations. |
 | **ownership.py** | Predicts ownership via Ridge/XGBoost regression or heuristic. |
 | **optimizer.py** | Builds DK-legal lineups under salary cap with stacking. |
@@ -189,7 +190,7 @@ All relative to `projection/`:
 | `daily_projections/` | Output: projection CSVs, lineup CSVs, lines JSON |
 | `backtests/` | Backtest xlsx workbooks + `latest_mae.json` |
 | `contests/` | DK contest result CSVs (for post-slate analysis) |
-| `cache/` | Edge stats daily cache (`edge_stats_{date}.json`) |
+| `cache/` | Daily caches: Edge stats, goalie Edge, recent scores |
 
 ## NHL Edge Stats Integration
 
@@ -197,12 +198,12 @@ All relative to `projection/`:
 
 NHL Edge provides player tracking data since 2021-22: skating speed, shot speed, zone time, and distance metrics. The `edge_stats.py` module fetches this data via `nhl-api-py` and applies projection boosts for players with elite underlying metrics.
 
-### Edge Caching Workflow
+### Edge & Data Caching Workflow
 
-Edge stats are **cumulative season totals** that update **once daily** (overnight after games). Caching avoids redundant API calls.
+Edge stats, goalie stats, and recent scores are **cumulative season data** that update **once daily** (overnight after games). Caching avoids redundant API calls.
 
 ```bash
-# First run of day: fetch fresh Edge data and cache it
+# First run of day: fetch fresh data and cache it
 python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
 
 # Subsequent runs: use cached data (seconds vs minutes)
@@ -216,17 +217,20 @@ python main.py --stacks --show-injuries --lineups 5 --no-edge
 | Scenario | Old Time | New Time | Savings |
 |----------|----------|----------|---------|
 | First run of day | 16 min | 5-6 min | 62% |
-| 2nd-5th runs | 16 min each | 2-3 min each | 85% |
-| Full day (5 runs) | 80 min | 17 min | 79% |
+| 2nd-5th runs | 16 min each | 1-2 min each | 90% |
+| Full day (5 runs) | 80 min | 12 min | 85% |
 
-**Cache location:** `projection/cache/edge_stats_{date}.json`
+**Cache locations:**
+- `projection/cache/edge_stats_{date}.json` - Skater Edge (speed, OZ%, bursts)
+- `projection/cache/goalie_edge_stats_{date}.json` - Goalie Edge (EV SV%, QS%)
+- `projection/cache/recent_scores_{date}.json` - Recent game scores (last 1/3/5 games)
 
 **When to refresh:**
 - Morning (first run): `--refresh-edge` to get overnight updates
 - During the day: use cache (data doesn't change)
 - Pre-lock: optional `--refresh-edge` if paranoid
 
-### Metrics Tracked
+### Skater Metrics Tracked
 
 | Metric | Description | DFS Value |
 |--------|-------------|-----------|
@@ -236,7 +240,15 @@ python main.py --stacks --show-injuries --lineups 5 --no-edge
 | **Zone Starts %** | OZ vs DZ faceoff starts | Usage/deployment indicator |
 | **Shot Speed** | Hardest shot in mph | Scoring threat level |
 
-### Boost Thresholds (Calibrated 2/3/26)
+### Goalie Metrics Tracked (NEW)
+
+| Metric | Description | DFS Value |
+|--------|-------------|-----------|
+| **EV Save %** | Even-strength save percentage | Core goalie skill |
+| **Quality Starts %** | % of games with QS | Consistency indicator |
+| **PP/SH Save %** | Special teams save % | Situational performance |
+
+### Skater Boost Thresholds (Calibrated 2/3/26)
 
 Calibrated from 1,180-observation backtest across Jan 22 - Feb 2, 2026:
 
@@ -247,6 +259,17 @@ Calibrated from 1,180-observation backtest across Jan 22 - Feb 2, 2026:
 | Speed | +2% | +1% | r=+0.07 (weakest) |
 
 Maximum combined boost: ~17% for players elite in all metrics.
+
+### Goalie Boost Thresholds (Calibrated 2/4/26)
+
+| Metric | Elite Threshold | Boost | Penalty Threshold | Penalty |
+|--------|-----------------|-------|-------------------|---------|
+| EV Save % | ≥92.0% | +8% | <89.0% | -6% |
+| EV Save % | ≥90.5% | +4% | - | - |
+| Quality Starts % | ≥60% | +6% | <40% | -4% |
+| Quality Starts % | ≥50% | +3% | - | - |
+
+Maximum combined boost: ~14.5% for elite goalies. Maximum penalty: ~10% for struggling goalies.
 
 ### Backtest Validation
 
@@ -349,7 +372,7 @@ python backtest.py --train-ownership --ownership-tabpfn
    - Run again with `--edge` flag
    - Or skip Edge for that slate (`--no-edge`)
 
-6. **Edge data availability**: Only available for skaters (not goalies). Only covers 2021-22 season onwards.
+6. **Goalie Edge data**: Now available! Uses EV Save % and Quality Starts % from NHL Stats API (high-danger save % not exposed by NHL API).
 
 ### Name Matching Issues
 
