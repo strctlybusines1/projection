@@ -9,12 +9,23 @@ Fetches advanced player tracking data:
 - Shot speed
 
 These metrics can boost projections for players with elite underlying metrics.
+
+Supports caching to avoid redundant API calls (Edge stats update once daily).
+Use force_refresh=True to fetch fresh data from the API.
 """
 
 import pandas as pd
 from typing import Dict, List, Optional, Tuple
 from nhlpy import NHLClient
 import time
+
+# Import caching module
+try:
+    from edge_cache import EdgeStatsCache, get_cached_edge_stats
+    HAS_EDGE_CACHE = True
+except ImportError:
+    HAS_EDGE_CACHE = False
+    print("Warning: edge_cache.py not found. Edge caching disabled.")
 
 
 class EdgeStatsClient:
@@ -261,7 +272,9 @@ class EdgeStatsClient:
 # Convenience function for integration with main.py
 def apply_edge_boosts(projections_df: pd.DataFrame,
                        edge_client: EdgeStatsClient = None,
-                       player_id_col: str = 'player_id') -> pd.DataFrame:
+                       player_id_col: str = 'player_id',
+                       force_refresh: bool = False,
+                       use_cache: bool = True) -> pd.DataFrame:
     """
     Apply Edge stat boosts to projection DataFrame.
 
@@ -269,9 +282,170 @@ def apply_edge_boosts(projections_df: pd.DataFrame,
         projections_df: DataFrame with projections (must have player_id column)
         edge_client: Optional pre-initialized EdgeStatsClient
         player_id_col: Name of player ID column
+        force_refresh: If True, fetch fresh Edge data from API (ignore cache)
+        use_cache: If True and cache available, use cached data (much faster)
 
     Returns:
         DataFrame with Edge boosts applied to 'projected_fpts' column
+    """
+    # Try cached approach first (much faster - seconds vs minutes)
+    if use_cache and HAS_EDGE_CACHE:
+        return _apply_edge_boosts_cached(projections_df, force_refresh=force_refresh)
+
+    # Fall back to per-player API calls (slow but always works)
+    return _apply_edge_boosts_per_player(projections_df, edge_client, player_id_col)
+
+
+def _apply_edge_boosts_cached(projections_df: pd.DataFrame,
+                               force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Apply Edge boosts using cached bulk data.
+
+    This is the fast path - fetches all Edge data once and caches it for the day.
+    Subsequent runs reuse the cache (seconds instead of minutes).
+    """
+    if not HAS_EDGE_CACHE:
+        print("Warning: Edge cache not available")
+        return projections_df
+
+    # Get cached Edge stats (fetches if needed or cache expired)
+    edge_df = get_cached_edge_stats(force_refresh=force_refresh)
+
+    if edge_df.empty:
+        print("Warning: No Edge data available from cache")
+        return projections_df
+
+    # Build lookup by player name (cached data uses 'Player' column)
+    edge_lookup = {}
+    for _, row in edge_df.iterrows():
+        player_name = row.get('Player', '')
+        if player_name:
+            edge_lookup[player_name.lower()] = row.to_dict()
+
+    # Apply boosts to projections
+    df = projections_df.copy()
+    df['edge_boost'] = 1.0
+    df['edge_boost_reasons'] = ''
+    df['max_speed_mph'] = None
+    df['oz_time_pct'] = None
+    df['oz_time_percentile'] = None
+
+    edge_client = EdgeStatsClient()  # For boost calculation thresholds
+    boosted_count = 0
+
+    for idx, row in df.iterrows():
+        player_name = row.get('name', '')
+        if not player_name:
+            continue
+
+        # Try exact match first, then fuzzy
+        edge_data = edge_lookup.get(player_name.lower())
+        if not edge_data:
+            # Try fuzzy match
+            for cached_name, cached_data in edge_lookup.items():
+                if _fuzzy_match(player_name.lower(), cached_name):
+                    edge_data = cached_data
+                    break
+
+        if not edge_data:
+            continue
+
+        # Map cached columns to expected format for boost calculation
+        summary = _map_cached_to_summary(edge_data)
+
+        if summary:
+            boost, reasons = edge_client.get_edge_projection_boost(summary)
+            df.at[idx, 'edge_boost'] = boost
+            df.at[idx, 'edge_boost_reasons'] = '; '.join(reasons) if reasons else ''
+            df.at[idx, 'max_speed_mph'] = summary.get('max_speed_mph')
+            df.at[idx, 'oz_time_pct'] = summary.get('oz_time_pct')
+            df.at[idx, 'oz_time_percentile'] = summary.get('oz_time_percentile')
+
+            if boost > 1.0:
+                boosted_count += 1
+
+    # Apply boosts to projected points
+    if 'projected_fpts' in df.columns:
+        df['projected_fpts_pre_edge'] = df['projected_fpts']
+        df['projected_fpts'] = df['projected_fpts'] * df['edge_boost']
+
+    print(f"  Edge boosts applied: {boosted_count} players with boosts")
+
+    return df
+
+
+def _map_cached_to_summary(edge_data: dict) -> dict:
+    """
+    Map cached Edge data columns to the summary format expected by boost calculation.
+
+    Cached data comes from bulk API (skater_stats_with_options) which has different
+    column names than the per-player Edge API.
+    """
+    summary = {}
+
+    # Speed metrics (from 'speed' report)
+    # Bulk API columns: skaterSpeedMax, skaterSpeedMaxPercentile
+    if 'skaterSpeedMax' in edge_data:
+        summary['max_speed_mph'] = edge_data.get('skaterSpeedMax', 0)
+    elif 'speedMax' in edge_data:
+        summary['max_speed_mph'] = edge_data.get('speedMax', 0)
+
+    # Speed percentile
+    if 'skaterSpeedMaxPctg' in edge_data:
+        # Convert to 0-1 range if needed
+        pctg = edge_data.get('skaterSpeedMaxPctg', 0)
+        summary['speed_percentile'] = pctg / 100 if pctg > 1 else pctg
+    elif 'speedPercentile' in edge_data:
+        pctg = edge_data.get('speedPercentile', 0)
+        summary['speed_percentile'] = pctg / 100 if pctg > 1 else pctg
+
+    # Bursts (from 'skatingstats' report)
+    # Bulk API columns: burstsOver20mph, burstsOver20mphPercentile
+    if 'burstsOver20mph' in edge_data:
+        summary['bursts_over_20'] = edge_data.get('burstsOver20mph', 0)
+    elif 'bursts20' in edge_data:
+        summary['bursts_over_20'] = edge_data.get('bursts20', 0)
+
+    if 'burstsOver20mphPctg' in edge_data:
+        pctg = edge_data.get('burstsOver20mphPctg', 0)
+        summary['bursts_percentile'] = pctg / 100 if pctg > 1 else pctg
+    elif 'burstsPercentile' in edge_data:
+        pctg = edge_data.get('burstsPercentile', 0)
+        summary['bursts_percentile'] = pctg / 100 if pctg > 1 else pctg
+
+    # OZ time (from 'timeonice' report)
+    # Bulk API columns: offensiveZonePctg, offensiveZonePercentile
+    if 'offensiveZonePctg' in edge_data:
+        oz_pct = edge_data.get('offensiveZonePctg', 0)
+        summary['oz_time_pct'] = oz_pct / 100 if oz_pct > 1 else oz_pct
+    elif 'ozPctg' in edge_data:
+        oz_pct = edge_data.get('ozPctg', 0)
+        summary['oz_time_pct'] = oz_pct / 100 if oz_pct > 1 else oz_pct
+
+    if 'offensiveZonePercentile' in edge_data:
+        pctg = edge_data.get('offensiveZonePercentile', 0)
+        summary['oz_time_percentile'] = pctg / 100 if pctg > 1 else pctg
+    elif 'ozPercentile' in edge_data:
+        pctg = edge_data.get('ozPercentile', 0)
+        summary['oz_time_percentile'] = pctg / 100 if pctg > 1 else pctg
+
+    return summary
+
+
+def _fuzzy_match(name1: str, name2: str, threshold: float = 0.85) -> bool:
+    """Simple fuzzy match for player names."""
+    from difflib import SequenceMatcher
+    return SequenceMatcher(None, name1, name2).ratio() >= threshold
+
+
+def _apply_edge_boosts_per_player(projections_df: pd.DataFrame,
+                                    edge_client: EdgeStatsClient = None,
+                                    player_id_col: str = 'player_id') -> pd.DataFrame:
+    """
+    Apply Edge boosts via per-player API calls (legacy approach).
+
+    This is slower but more accurate since it uses the detailed Edge API endpoint.
+    Use when cache is unavailable or for specific player lookups.
     """
     if player_id_col not in projections_df.columns:
         print("Warning: No player_id column found, cannot apply Edge boosts")

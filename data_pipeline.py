@@ -27,6 +27,13 @@ try:
 except ImportError:
     EDGE_AVAILABLE = False
 
+# Edge caching (optional - much faster when available)
+try:
+    from edge_cache import EdgeStatsCache, get_cached_edge_stats
+    EDGE_CACHE_AVAILABLE = True
+except ImportError:
+    EDGE_CACHE_AVAILABLE = False
+
 
 class NHLDataPipeline:
     """Pipeline for fetching and processing NHL data."""
@@ -611,13 +618,18 @@ class NHLDataPipeline:
 
     # ==================== Edge Stats ====================
 
-    def fetch_edge_stats(self, player_ids: List[int], show_progress: bool = True) -> pd.DataFrame:
+    def fetch_edge_stats(self, player_ids: List[int], show_progress: bool = True,
+                          force_refresh: bool = False) -> pd.DataFrame:
         """
         Fetch NHL Edge tracking stats for skaters.
+
+        Uses caching when available (much faster - seconds vs minutes).
+        Edge stats update once daily, so caching is safe.
 
         Args:
             player_ids: List of NHL player IDs to fetch Edge data for
             show_progress: Whether to show progress updates
+            force_refresh: If True, fetch fresh data from API (ignore cache)
 
         Returns:
             DataFrame with player_id, edge_boost, edge_boost_reasons, and raw Edge metrics
@@ -627,11 +639,96 @@ class NHLDataPipeline:
                 print("  Edge stats: skipped (nhl-api-py not installed)")
             return pd.DataFrame()
 
+        # Try cached approach first (much faster on subsequent runs)
+        if EDGE_CACHE_AVAILABLE:
+            return self._fetch_edge_stats_cached(player_ids, force_refresh=force_refresh,
+                                                   show_progress=show_progress)
+
+        # Fall back to per-player API calls without caching
+        return self._fetch_edge_stats_per_player(player_ids, show_progress)
+
+    def _fetch_edge_stats_cached(self, player_ids: List[int],
+                                   force_refresh: bool = False,
+                                   show_progress: bool = True) -> pd.DataFrame:
+        """
+        Fetch Edge stats using cached data.
+
+        This is the fast path - uses daily cache, completes in seconds if cached.
+        """
+        cache = EdgeStatsCache()
+
+        if show_progress:
+            if cache.is_cache_valid() and not force_refresh:
+                age = cache.get_cache_age_hours()
+                print(f"  Edge stats: using cache (age: {age:.1f} hours)")
+            else:
+                print("  Edge stats: fetching from API (will cache for today)...")
+
+        # Get cached Edge stats (fetches if needed, passing player_ids)
+        edge_df = get_cached_edge_stats(player_ids=player_ids, force_refresh=force_refresh)
+
+        if edge_df.empty:
+            if show_progress:
+                print("  Edge stats: no data available")
+            return pd.DataFrame()
+
+        # Calculate boosts for each player
+        edge_client = EdgeStatsClient(rate_limit_delay=0.3)
+        results = []
+
+        for _, row in edge_df.iterrows():
+            # Build summary dict from cached data
+            summary = {
+                'max_speed_mph': row.get('max_speed_mph', 0),
+                'speed_percentile': row.get('speed_percentile', 0),
+                'bursts_over_20': row.get('bursts_over_20', 0),
+                'bursts_percentile': row.get('bursts_percentile', 0),
+                'oz_time_pct': row.get('oz_time_pct', 0),
+                'oz_time_percentile': row.get('oz_time_percentile', 0),
+            }
+
+            # Normalize percentiles (API returns 0-100, boost calc expects 0-1)
+            for key in ['speed_percentile', 'bursts_percentile', 'oz_time_percentile']:
+                if summary.get(key, 0) > 1:
+                    summary[key] = summary[key] / 100
+
+            boost, reasons = edge_client.get_edge_projection_boost(summary)
+            results.append({
+                'player_id': row.get('player_id'),
+                'player_name': row.get('player_name', ''),
+                'edge_boost': boost,
+                'edge_boost_reasons': '; '.join(reasons) if reasons else '',
+                'max_speed_mph': summary.get('max_speed_mph', 0),
+                'speed_percentile': summary.get('speed_percentile', 0),
+                'bursts_over_20': summary.get('bursts_over_20', 0),
+                'bursts_percentile': summary.get('bursts_percentile', 0),
+                'oz_time_pct': summary.get('oz_time_pct', 0),
+                'oz_time_percentile': summary.get('oz_time_percentile', 0),
+            })
+
+        if not results:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(results)
+
+        if show_progress:
+            boosted = len(df[df['edge_boost'] > 1.0])
+            print(f"    Edge stats: {len(df)} players, {boosted} with boosts")
+
+        return df
+
+    def _fetch_edge_stats_per_player(self, player_ids: List[int],
+                                       show_progress: bool = True) -> pd.DataFrame:
+        """
+        Fetch Edge stats via per-player API calls (legacy approach).
+
+        This is slower but works when caching is unavailable.
+        """
         edge_client = EdgeStatsClient(rate_limit_delay=0.3)
         results = []
 
         if show_progress:
-            print(f"  Fetching Edge stats for {len(player_ids)} skaters...")
+            print(f"  Fetching Edge stats for {len(player_ids)} skaters (no cache)...")
 
         for i, pid in enumerate(player_ids):
             if show_progress and (i + 1) % 50 == 0:
@@ -673,6 +770,7 @@ class NHLDataPipeline:
                                    include_injuries: bool = True,
                                    include_advanced_stats: bool = True,
                                    include_edge_stats: bool = False,
+                                   force_refresh_edge: bool = False,
                                    max_players_for_logs: int = 100) -> Dict[str, pd.DataFrame]:
         """
         Build complete dataset for projections.
@@ -683,6 +781,7 @@ class NHLDataPipeline:
             include_injuries: Whether to fetch injury data from MoneyPuck
             include_advanced_stats: Whether to fetch xG/Corsi from Natural Stat Trick
             include_edge_stats: Whether to fetch NHL Edge tracking data
+            force_refresh_edge: If True, fetch fresh Edge data (ignore cache)
             max_players_for_logs: Max players to fetch game logs for
 
         Returns dict with:
@@ -706,16 +805,23 @@ class NHLDataPipeline:
         print(f"  Skaters: {len(data['skaters'])} players")
 
         # Edge stats (merge into skaters if enabled)
-        if include_edge_stats and not data['skaters'].empty and 'player_id' in data['skaters'].columns:
-            player_ids = data['skaters']['player_id'].dropna().astype(int).unique().tolist()
-            edge_df = self.fetch_edge_stats(player_ids, show_progress=True)
+        if include_edge_stats and not data['skaters'].empty:
+            player_ids = []
+            if 'player_id' in data['skaters'].columns:
+                player_ids = data['skaters']['player_id'].dropna().astype(int).unique().tolist()
+
+            edge_df = self.fetch_edge_stats(player_ids, show_progress=True,
+                                             force_refresh=force_refresh_edge)
 
             if not edge_df.empty:
-                # Merge Edge data into skaters
-                data['skaters'] = data['skaters'].merge(
-                    edge_df, on='player_id', how='left'
-                )
-                data['skaters']['edge_boost'] = data['skaters']['edge_boost'].fillna(1.0)
+                # Merge Edge data into skaters by player_id
+                if 'player_id' in edge_df.columns and 'player_id' in data['skaters'].columns:
+                    # Drop player_name from edge_df to avoid column collision
+                    merge_cols = [c for c in edge_df.columns if c != 'player_name']
+                    data['skaters'] = data['skaters'].merge(
+                        edge_df[merge_cols], on='player_id', how='left'
+                    )
+                    data['skaters']['edge_boost'] = data['skaters']['edge_boost'].fillna(1.0)
 
         # Goalie stats
         data['goalies'] = self.fetch_all_goalie_stats(season)

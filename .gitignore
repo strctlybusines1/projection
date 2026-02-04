@@ -24,3 +24,6 @@ projections_output*.csv
 
 # DraftKings salary files (optional - remove if you want to share)
 DKSalaries*.csv
+
+# Edge stats cache
+cache/

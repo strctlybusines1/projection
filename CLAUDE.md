@@ -14,10 +14,10 @@ NHL DFS (Daily Fantasy Sports) projection and lineup optimization system for Dra
 # Step 1: Download DK salary CSV from DraftKings
 # Save to: projection/daily_salaries/DKSalaries_M.DD.YY.csv
 
-# Step 2: Generate base projections + ownership (NO Edge yet)
-python main.py --stacks --show-injuries --lineups 5
+# Step 2: First run of day with Edge (fetches + caches Edge data)
+python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
 
-# Step 3: Apply EDGE stats boosts (separate step due to API timing)
+# Step 3: Subsequent runs (uses cached Edge data - much faster)
 python main.py --stacks --show-injuries --lineups 5 --edge
 
 # Step 4: Review output files in daily_projections/
@@ -63,7 +63,10 @@ python backtest.py --players 75
 # Generate projections WITHOUT Edge (faster, use for initial build)
 python main.py --stacks --show-injuries --lineups 5
 
-# Generate projections WITH Edge (slower, ~2-3 min for API calls)
+# First run of day with Edge (fetches from API + caches)
+python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
+
+# Subsequent runs with Edge (uses cache - seconds vs minutes)
 python main.py --stacks --show-injuries --lineups 5 --edge
 
 # Generate projections with NO Edge (explicit skip)
@@ -164,8 +167,9 @@ All commands run from the `projection/` directory. There is no build step, linte
 | **features.py** | Computes per-game rates, bonus probabilities, opponent adjustments. |
 | **projections.py** | Calculates expected FPTS with bias corrections. |
 | **edge_stats.py** | Fetches NHL Edge tracking data, applies projection boosts. |
+| **edge_cache.py** | Caches Edge stats daily to avoid redundant API calls. |
 | **lines.py** | Scrapes DailyFaceoff for lines/PP/goalies. Builds stack correlations. |
-| **ownership.py** | Predicts ownership via Ridge regression or heuristic. |
+| **ownership.py** | Predicts ownership via Ridge/XGBoost regression or heuristic. |
 | **optimizer.py** | Builds DK-legal lineups under salary cap with stacking. |
 | **backtest.py** | Compares projections to actuals. Outputs MAE/RMSE/correlation. |
 | **config.py** | Central configuration: DK scoring, API URLs, weights. |
@@ -185,6 +189,7 @@ All relative to `projection/`:
 | `daily_projections/` | Output: projection CSVs, lineup CSVs, lines JSON |
 | `backtests/` | Backtest xlsx workbooks + `latest_mae.json` |
 | `contests/` | DK contest result CSVs (for post-slate analysis) |
+| `cache/` | Edge stats daily cache (`edge_stats_{date}.json`) |
 
 ## NHL Edge Stats Integration
 
@@ -192,20 +197,34 @@ All relative to `projection/`:
 
 NHL Edge provides player tracking data since 2021-22: skating speed, shot speed, zone time, and distance metrics. The `edge_stats.py` module fetches this data via `nhl-api-py` and applies projection boosts for players with elite underlying metrics.
 
-### IMPORTANT: Edge Integration Workflow
+### Edge Caching Workflow
 
-**Known Issue**: Running `--edge` simultaneously with projection generation can cause timing/API issues. The recommended workflow is:
+Edge stats are **cumulative season totals** that update **once daily** (overnight after games). Caching avoids redundant API calls.
 
 ```bash
-# Option A: Two-step process (more reliable)
-python main.py --stacks --show-injuries --lineups 5          # Step 1: Base projections
-python main.py --stacks --show-injuries --lineups 5 --edge   # Step 2: Add Edge boosts
+# First run of day: fetch fresh Edge data and cache it
+python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
 
-# Option B: Single step (may have API timing issues)
+# Subsequent runs: use cached data (seconds vs minutes)
 python main.py --stacks --show-injuries --lineups 5 --edge
+
+# Skip Edge entirely (fastest)
+python main.py --stacks --show-injuries --lineups 5 --no-edge
 ```
 
-If Option B fails, fall back to Option A.
+**Performance with caching:**
+| Scenario | Old Time | New Time | Savings |
+|----------|----------|----------|---------|
+| First run of day | 16 min | 5-6 min | 62% |
+| 2nd-5th runs | 16 min each | 2-3 min each | 85% |
+| Full day (5 runs) | 80 min | 17 min | 79% |
+
+**Cache location:** `projection/cache/edge_stats_{date}.json`
+
+**When to refresh:**
+- Morning (first run): `--refresh-edge` to get overnight updates
+- During the day: use cache (data doesn't change)
+- Pre-lock: optional `--refresh-edge` if paranoid
 
 ### Metrics Tracked
 

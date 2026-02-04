@@ -823,6 +823,9 @@ def main():
                         help='Apply NHL Edge tracking boosts (speed, OZ time, bursts)')
     parser.add_argument('--no-edge', action='store_true',
                         help='Skip NHL Edge stats (faster)')
+    parser.add_argument('--refresh-edge', action='store_true',
+                        help='Force refresh Edge stats from API (ignore cache). '
+                             'Use for first run of day or to get latest data.')
 
     args = parser.parse_args()
 
@@ -878,7 +881,8 @@ def main():
         include_game_logs=False,
         include_injuries=not args.no_injuries,
         include_advanced_stats=not args.no_advanced,
-        include_edge_stats=args.edge and not args.no_edge
+        include_edge_stats=args.edge and not args.no_edge,
+        force_refresh_edge=args.refresh_edge
     )
 
     # Show injury report if requested
