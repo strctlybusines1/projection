@@ -817,6 +817,8 @@ def main():
     # Recent game scoring
     parser.add_argument('--no-recent-scores', action='store_true',
                         help='Skip fetching individual recent game scores (faster)')
+    parser.add_argument('--refresh-recent-scores', action='store_true',
+                        help='Force refresh recent scores from API (ignore cache)')
 
     # NHL Edge stats
     parser.add_argument('--edge', action='store_true',
@@ -1010,7 +1012,16 @@ def main():
         player_ids = [int(pid) for pid in player_ids if pd.notna(pid)]
         if player_ids:
             print("\nFetching recent game scores for ownership model...")
-            recent_scores = pipeline.fetch_recent_game_scores(player_ids)
+            try:
+                from recent_scores_cache import get_cached_recent_scores
+                recent_scores = get_cached_recent_scores(
+                    player_ids,
+                    pipeline,
+                    force_refresh=args.refresh_recent_scores
+                )
+            except ImportError:
+                # Fallback to direct fetch if caching module not available
+                recent_scores = pipeline.fetch_recent_game_scores(player_ids)
 
     # --- Run ownership model on player pool (before lineups when contest EV is used) ---
     print("\nGenerating ownership projections...")
