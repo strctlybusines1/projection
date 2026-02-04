@@ -919,6 +919,20 @@ def main():
     print(f"  Matched {len(skaters_merged)} skaters")
     print(f"  Matched {len(goalies_merged)} goalies")
 
+    # Apply Goalie Edge boosts if enabled
+    if args.edge and not args.no_edge:
+        try:
+            from edge_stats import apply_goalie_edge_boosts
+            print("\nApplying goalie Edge stats...")
+            goalies_merged = apply_goalie_edge_boosts(
+                goalies_merged,
+                force_refresh=args.refresh_edge
+            )
+        except ImportError:
+            print("  Warning: apply_goalie_edge_boosts not available")
+        except Exception as e:
+            print(f"  Warning: Goalie Edge boosts failed: {e}")
+
     # Combine pools
     player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 

@@ -1,5 +1,5 @@
 """
-NHL Edge Stats Integration for DFS Projections.
+NHL Edge Stats Integration for DFS Projections (v2 - with Goalie Edge).
 
 Fetches advanced player tracking data:
 - Skating speed (max, bursts over 20/22 mph)
@@ -7,6 +7,11 @@ Fetches advanced player tracking data:
 - Zone starts (OZ/DZ/NZ %)
 - Distance skated per game
 - Shot speed
+
+NEW IN V2:
+- Goalie Edge stats: High-danger SV%, midrange SV%, shot location details
+- Daily caching for both skaters and goalies
+- Goalie projection boosts based on HD save %
 
 These metrics can boost projections for players with elite underlying metrics.
 
@@ -21,7 +26,11 @@ import time
 
 # Import caching module
 try:
-    from edge_cache import EdgeStatsCache, get_cached_edge_stats
+    from edge_cache import (
+        EdgeStatsCache, 
+        get_cached_edge_stats, 
+        get_cached_goalie_edge_stats
+    )
     HAS_EDGE_CACHE = True
 except ImportError:
     HAS_EDGE_CACHE = False
@@ -53,6 +62,20 @@ class EdgeStatsClient:
         'above_avg_oz_time': 1.04,  # +4% for above-avg OZ time
         'above_avg_speed': 1.01,    # +1% for above-avg speed
     }
+    
+    # Goalie Edge boost factors (NEW)
+    GOALIE_EDGE_BOOST_FACTORS = {
+        'elite_hd_save_pct': 1.08,     # +8% for elite high-danger SV% (top 10%)
+        'above_avg_hd_save_pct': 1.04, # +4% for above-avg HD SV% (top 35%)
+        'elite_consistency': 1.05,     # +5% for 80%+ games above .900
+        'poor_hd_save_pct': 0.94,      # -6% for bottom 25% HD SV%
+    }
+    
+    # Goalie Edge thresholds
+    ELITE_HD_SAVE_PCT = 0.850       # Top goalies save 85%+ of HD shots
+    ABOVE_AVG_HD_SAVE_PCT = 0.820   # Above average
+    POOR_HD_SAVE_PCT = 0.780        # Below average
+    ELITE_CONSISTENCY = 0.80        # 80%+ games above .900 SV%
 
     def __init__(self, rate_limit_delay: float = 0.5):
         self.client = NHLClient()
@@ -191,6 +214,45 @@ class EdgeStatsClient:
             reasons.append(f"Elite bursts ({edge_summary.get('bursts_over_20', 0)} over 20mph)")
 
         return boost, reasons
+    
+    def get_goalie_edge_boost(self, goalie_edge: dict) -> Tuple[float, List[str]]:
+        """
+        Calculate projection boost for goalies based on Edge metrics.
+        
+        Key metrics:
+        - High-danger save percentage (most predictive)
+        - Games above .900 consistency
+        - 5v5 save percentage
+        
+        Returns:
+            (boost_multiplier, list of boost reasons)
+        """
+        if not goalie_edge:
+            return 1.0, []
+        
+        boost = 1.0
+        reasons = []
+        
+        # High-danger save percentage
+        hd_sv_pct = goalie_edge.get('hd_save_pct')
+        if hd_sv_pct is not None:
+            if hd_sv_pct >= self.ELITE_HD_SAVE_PCT:
+                boost *= self.GOALIE_EDGE_BOOST_FACTORS['elite_hd_save_pct']
+                reasons.append(f"Elite HD SV% ({hd_sv_pct:.1%})")
+            elif hd_sv_pct >= self.ABOVE_AVG_HD_SAVE_PCT:
+                boost *= self.GOALIE_EDGE_BOOST_FACTORS['above_avg_hd_save_pct']
+                reasons.append(f"Above-avg HD SV% ({hd_sv_pct:.1%})")
+            elif hd_sv_pct < self.POOR_HD_SAVE_PCT:
+                boost *= self.GOALIE_EDGE_BOOST_FACTORS['poor_hd_save_pct']
+                reasons.append(f"Poor HD SV% ({hd_sv_pct:.1%})")
+        
+        # Consistency (games above .900)
+        pct_above_900 = goalie_edge.get('pct_games_above_900')
+        if pct_above_900 is not None and pct_above_900 >= self.ELITE_CONSISTENCY:
+            boost *= self.GOALIE_EDGE_BOOST_FACTORS['elite_consistency']
+            reasons.append(f"Elite consistency ({pct_above_900:.0%} games >.900)")
+        
+        return boost, reasons
 
     def fetch_edge_for_slate(self, player_ids: List[int],
                               show_progress: bool = True) -> pd.DataFrame:
@@ -269,14 +331,15 @@ class EdgeStatsClient:
                 print(f"  {row['player_name']:25} {row['team']:4} +{boost_pct:.1f}% | {row['edge_boost_reasons']}")
 
 
-# Convenience function for integration with main.py
+# ==================== SKATER EDGE BOOST FUNCTIONS ====================
+
 def apply_edge_boosts(projections_df: pd.DataFrame,
                        edge_client: EdgeStatsClient = None,
                        player_id_col: str = 'player_id',
                        force_refresh: bool = False,
                        use_cache: bool = True) -> pd.DataFrame:
     """
-    Apply Edge stat boosts to projection DataFrame.
+    Apply Edge stat boosts to skater projection DataFrame.
 
     Args:
         projections_df: DataFrame with projections (must have player_id column)
@@ -373,6 +436,88 @@ def _apply_edge_boosts_cached(projections_df: pd.DataFrame,
 
     return df
 
+
+# ==================== GOALIE EDGE BOOST FUNCTIONS (NEW) ====================
+
+def apply_goalie_edge_boosts(projections_df: pd.DataFrame,
+                              force_refresh: bool = False) -> pd.DataFrame:
+    """
+    Apply Edge stat boosts to goalie projections.
+    
+    Uses high-danger save percentage and consistency metrics.
+    
+    Args:
+        projections_df: DataFrame with goalie projections
+        force_refresh: If True, fetch fresh Edge data from API
+        
+    Returns:
+        DataFrame with Edge boosts applied
+    """
+    if not HAS_EDGE_CACHE:
+        print("Warning: Edge cache not available for goalies")
+        return projections_df
+    
+    # Get cached goalie Edge stats
+    goalie_edge_df = get_cached_goalie_edge_stats(force_refresh=force_refresh)
+    
+    if goalie_edge_df.empty:
+        print("Warning: No goalie Edge data available")
+        return projections_df
+    
+    # Build lookup by name
+    edge_lookup = {}
+    for _, row in goalie_edge_df.iterrows():
+        name = row.get('name', '')
+        if name:
+            edge_lookup[name.lower()] = row.to_dict()
+    
+    # Apply boosts
+    df = projections_df.copy()
+    df['goalie_edge_boost'] = 1.0
+    df['goalie_edge_reasons'] = ''
+    df['hd_save_pct'] = None
+    df['pct_games_above_900'] = None
+    
+    edge_client = EdgeStatsClient()
+    boosted_count = 0
+    
+    for idx, row in df.iterrows():
+        goalie_name = row.get('name', '')
+        if not goalie_name:
+            continue
+        
+        # Try exact match first, then fuzzy
+        edge_data = edge_lookup.get(goalie_name.lower())
+        if not edge_data:
+            for cached_name, cached_data in edge_lookup.items():
+                if _fuzzy_match(goalie_name.lower(), cached_name):
+                    edge_data = cached_data
+                    break
+        
+        if not edge_data:
+            continue
+        
+        # Calculate boost
+        boost, reasons = edge_client.get_goalie_edge_boost(edge_data)
+        df.at[idx, 'goalie_edge_boost'] = boost
+        df.at[idx, 'goalie_edge_reasons'] = '; '.join(reasons) if reasons else ''
+        df.at[idx, 'hd_save_pct'] = edge_data.get('hd_save_pct')
+        df.at[idx, 'pct_games_above_900'] = edge_data.get('pct_games_above_900')
+        
+        if boost != 1.0:
+            boosted_count += 1
+    
+    # Apply boosts to projected points
+    if 'projected_fpts' in df.columns:
+        df['projected_fpts_pre_goalie_edge'] = df['projected_fpts']
+        df['projected_fpts'] = df['projected_fpts'] * df['goalie_edge_boost']
+    
+    print(f"  Goalie Edge boosts applied: {boosted_count} goalies with adjustments")
+    
+    return df
+
+
+# ==================== HELPER FUNCTIONS ====================
 
 def _map_cached_to_summary(edge_data: dict) -> dict:
     """
@@ -479,6 +624,8 @@ def _apply_edge_boosts_per_player(projections_df: pd.DataFrame,
     return df
 
 
+# ==================== TEST ====================
+
 if __name__ == "__main__":
     # Test the Edge stats client
     client = EdgeStatsClient()
@@ -512,3 +659,21 @@ if __name__ == "__main__":
                     print(f"    - {r}")
             else:
                 print("  Edge Boost: None (metrics below threshold)")
+    
+    # Test goalie Edge
+    print("\n" + "=" * 60)
+    print("GOALIE EDGE STATS TEST")
+    print("=" * 60)
+    
+    if HAS_EDGE_CACHE:
+        goalie_df = get_cached_goalie_edge_stats(force_refresh=False)
+        if not goalie_df.empty:
+            print(f"Got {len(goalie_df)} goalies with Edge data")
+            print("\nTop 5 by HD Save %:")
+            if 'hd_save_pct' in goalie_df.columns:
+                top = goalie_df.nlargest(5, 'hd_save_pct')[['name', 'team', 'hd_save_pct']]
+                for _, row in top.iterrows():
+                    hd = row['hd_save_pct']
+                    boost, reasons = client.get_goalie_edge_boost(row.to_dict())
+                    boost_str = f"+{(boost-1)*100:.1f}%" if boost > 1 else f"{(boost-1)*100:.1f}%"
+                    print(f"  {row['name']:<25} {row['team']:<4} {hd:.1%} | Boost: {boost_str}")
