@@ -21,6 +21,13 @@ from scipy.stats import spearmanr
 
 from config import DAILY_SALARIES_DIR, CONTESTS_DIR, DAILY_PROJECTIONS_DIR
 
+# XGBoost import (optional)
+try:
+    import xgboost as xgb
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+
 
 @dataclass
 class OwnershipConfig:
@@ -94,11 +101,11 @@ class OwnershipConfig:
 
 
 class OwnershipRegressionModel:
-    """Regression model for ownership prediction (Ridge or TabPFN).
+    """Regression model for ownership prediction (Ridge, TabPFN, or XGBoost).
 
     Trained on historical contest observations. Uses StandardScaler + model.
     Ridge alpha is tuned via leave-one-date-out cross-validation.
-    TabPFN requires no hyperparameter tuning.
+    TabPFN and XGBoost require no hyperparameter tuning (use defaults).
     """
 
     FEATURE_COLS = [
@@ -143,6 +150,20 @@ class OwnershipRegressionModel:
             self.model = TabPFNRegressor(ignore_pretraining_limits=True)
             self.model.fit(X_scaled, y)
             self.alpha_ = None
+        elif self.model_type == 'xgboost':
+            if not XGB_AVAILABLE:
+                raise ImportError("XGBoost not installed. Install with: pip install xgboost")
+            self.model = xgb.XGBRegressor(
+                n_estimators=100,
+                max_depth=4,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                verbosity=0,
+            )
+            self.model.fit(X_scaled, y)
+            self.alpha_ = None
         else:
             from sklearn.linear_model import Ridge
             if alpha is None:
@@ -165,10 +186,12 @@ class OwnershipRegressionModel:
                        alphas: List[float] = None) -> Dict:
         """Leave-one-date-out CV. Returns best alpha and per-fold results.
 
-        Dispatches to Ridge CV (multiple alphas) or TabPFN CV (single pass).
+        Dispatches to Ridge CV (multiple alphas), TabPFN CV, or XGBoost CV.
         """
         if self.model_type == 'tabpfn':
             return self._cross_validate_tabpfn(training_df)
+        elif self.model_type == 'xgboost':
+            return self._cross_validate_xgb(training_df)
         return self._cross_validate_ridge(training_df, alphas)
 
     def _cross_validate_ridge(self, training_df: pd.DataFrame,
@@ -279,6 +302,64 @@ class OwnershipRegressionModel:
             },
         }
 
+    def _cross_validate_xgb(self, training_df: pd.DataFrame) -> Dict:
+        """XGBoost LODOCV — single pass with default hyperparameters."""
+        if not XGB_AVAILABLE:
+            raise ImportError("XGBoost not installed. Install with: pip install xgboost")
+
+        from sklearn.preprocessing import StandardScaler
+
+        if 'date_label' not in training_df.columns:
+            raise ValueError("training_df must have 'date_label' column for LODOCV")
+
+        features = [c for c in self.FEATURE_COLS if c in training_df.columns]
+        dates = sorted(training_df['date_label'].unique())
+
+        fold_results = []
+        for held_out in dates:
+            train_mask = training_df['date_label'] != held_out
+            test_mask = training_df['date_label'] == held_out
+
+            X_train = training_df.loc[train_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+            y_train = training_df.loc[train_mask, 'pct_drafted'].values
+            X_test = training_df.loc[test_mask, features].fillna(0).replace([np.inf, -np.inf], 0).values
+            y_test = training_df.loc[test_mask, 'pct_drafted'].values
+
+            scaler = StandardScaler()
+            X_train_s = scaler.fit_transform(X_train)
+            X_test_s = scaler.transform(X_test)
+
+            model = xgb.XGBRegressor(
+                n_estimators=100,
+                max_depth=4,
+                learning_rate=0.1,
+                subsample=0.8,
+                colsample_bytree=0.8,
+                random_state=42,
+                verbosity=0,
+            )
+            model.fit(X_train_s, y_train)
+            y_pred = model.predict(X_test_s)
+
+            mae = float(np.abs(y_test - y_pred).mean())
+            rmse = float(np.sqrt(((y_test - y_pred) ** 2).mean()))
+            corr, _ = spearmanr(y_test, y_pred)
+
+            fold_results.append({
+                'date': held_out, 'mae': mae, 'rmse': rmse,
+                'spearman': float(corr), 'n': len(y_test),
+            })
+
+        mean_mae = np.mean([f['mae'] for f in fold_results])
+
+        return {
+            'best_alpha': 'xgboost',
+            'best_mean_mae': float(mean_mae),
+            'results_by_alpha': {
+                'xgboost': {'folds': fold_results, 'mean_mae': float(mean_mae)},
+            },
+        }
+
     def predict(self, features_df: pd.DataFrame) -> np.ndarray:
         """Predict ownership percentages from feature DataFrame."""
         if self.model is None:
@@ -327,13 +408,28 @@ class OwnershipRegressionModel:
             return None
 
     def feature_importances(self) -> pd.DataFrame:
-        """Return DataFrame of feature coefficients sorted by abs value.
+        """Return DataFrame of feature coefficients/importances sorted by abs value.
 
         TabPFN has no .coef_ attribute — returns zeroed DataFrame.
+        XGBoost uses feature_importances_ (gain-based).
         """
         if self.model is None or self.feature_names is None:
             return pd.DataFrame()
-        if self.model_type == 'tabpfn' or not hasattr(self.model, 'coef_'):
+        if self.model_type == 'tabpfn':
+            return pd.DataFrame({
+                'feature': self.feature_names,
+                'coefficient': 0.0,
+                'abs_coef': 0.0,
+            })
+        if self.model_type == 'xgboost' and hasattr(self.model, 'feature_importances_'):
+            importances = self.model.feature_importances_
+            df = pd.DataFrame({
+                'feature': self.feature_names,
+                'coefficient': importances,
+                'abs_coef': importances,
+            }).sort_values('abs_coef', ascending=False)
+            return df
+        if not hasattr(self.model, 'coef_'):
             return pd.DataFrame({
                 'feature': self.feature_names,
                 'coefficient': 0.0,

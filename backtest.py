@@ -36,6 +36,13 @@ except ImportError:
     TABPFN_AVAILABLE = False
     print("TabPFN not installed. Install with: pip install tabpfn")
 
+# XGBoost import (optional)
+try:
+    import xgboost as xgb
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+
 # Project root (projection/) for writing latest_mae.json
 _BACKTEST_PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -1620,6 +1627,23 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
         if verbose:
             print("\n  TabPFN not installed — skipping TabPFN CV")
 
+    # --- XGBoost CV (if available) ---
+    xgb_cv = None
+    if XGB_AVAILABLE:
+        print(f"\n{'='*60}")
+        print(" Running XGBoost LODOCV...")
+        print(f"{'='*60}")
+        try:
+            xgb_reg = OwnershipRegressionModel(model_type='xgboost')
+            xgb_cv = xgb_reg.cross_validate(training_df)
+            _print_ownership_cv_results("XGBOOST", xgb_cv, verbose)
+        except Exception as e:
+            print(f"  XGBoost CV failed: {e}")
+            xgb_cv = None
+    else:
+        if verbose:
+            print("\n  XGBoost not installed — skipping XGBoost CV")
+
     # --- Comparison table ---
     if verbose:
         print(f"\n{'='*60}")
@@ -1642,14 +1666,26 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
             tabpfn_mean_spearman = float(np.mean([f['spearman'] for f in tabpfn_folds]))
             print(f"  {'TabPFN':<15} {tabpfn_mean_mae:>10.2f} {tabpfn_mean_rmse:>11.2f} {tabpfn_mean_spearman:>15.3f}")
 
-            # Declare winner
-            diff = ridge_mean_mae - tabpfn_mean_mae
-            if diff > 0:
-                print(f"\n  >>> TabPFN wins by {diff:.2f} MAE")
-            elif diff < 0:
-                print(f"\n  >>> Ridge wins by {-diff:.2f} MAE")
-            else:
-                print(f"\n  >>> Tie")
+        if xgb_cv is not None:
+            xgb_folds = xgb_cv['results_by_alpha']['xgboost']['folds']
+            xgb_mean_mae = xgb_cv['best_mean_mae']
+            xgb_mean_rmse = float(np.mean([f['rmse'] for f in xgb_folds]))
+            xgb_mean_spearman = float(np.mean([f['spearman'] for f in xgb_folds]))
+            print(f"  {'XGBoost':<15} {xgb_mean_mae:>10.2f} {xgb_mean_rmse:>11.2f} {xgb_mean_spearman:>15.3f}")
+
+        # Declare winner among all available models
+        models = {'Ridge': ridge_mean_mae}
+        if tabpfn_cv is not None:
+            models['TabPFN'] = tabpfn_mean_mae
+        if xgb_cv is not None:
+            models['XGBoost'] = xgb_mean_mae
+
+        if len(models) > 1:
+            best_model = min(models, key=models.get)
+            best_mae = models[best_model]
+            second_best = sorted(models.values())[1] if len(models) > 1 else best_mae
+            diff = second_best - best_mae
+            print(f"\n  >>> {best_model} wins by {diff:.2f} MAE")
 
     # Save per-fold details (Ridge, for backward compatibility)
     out_dir = _BACKTEST_PROJECT_ROOT / BACKTESTS_DIR
@@ -1702,6 +1738,8 @@ def run_ownership_backtest(verbose: bool = True) -> Dict:
     }
     if tabpfn_cv is not None:
         result['tabpfn_cv'] = tabpfn_cv
+    if xgb_cv is not None:
+        result['xgb_cv'] = xgb_cv
     return result
 
 
@@ -1709,7 +1747,7 @@ def train_ownership_model(model_type: str = 'ridge', verbose: bool = True) -> Di
     """Train final ownership model on all data and save pickle.
 
     Args:
-        model_type: 'ridge' (default) or 'tabpfn'
+        model_type: 'ridge' (default), 'tabpfn', or 'xgboost'
         verbose: Print progress and metrics
     """
     from ownership import (
@@ -1732,6 +1770,10 @@ def train_ownership_model(model_type: str = 'ridge', verbose: bool = True) -> Di
         # TabPFN: no alpha to tune, train directly
         print(f"\nTraining TabPFN on all {len(training_df)} observations...")
         metrics = reg.train(training_df)
+    elif model_type == 'xgboost':
+        # XGBoost: no alpha to tune, train directly
+        print(f"\nTraining XGBoost on all {len(training_df)} observations...")
+        metrics = reg.train(training_df)
     else:
         # Ridge: run CV to find best alpha, then train
         print("\nRunning CV to find best alpha...")
@@ -1752,7 +1794,7 @@ def train_ownership_model(model_type: str = 'ridge', verbose: bool = True) -> Di
     # Save
     reg.save()
 
-    if verbose and model_type == 'ridge':
+    if verbose and model_type in ('ridge', 'xgboost'):
         print(f"\nTop 10 Feature Importances:")
         fi = reg.feature_importances()
         for _, row in fi.head(10).iterrows():
@@ -2144,6 +2186,8 @@ if __name__ == "__main__":
                         help='Train final ownership regression model and save pickle')
     parser.add_argument('--ownership-tabpfn', action='store_true',
                         help='With --train-ownership: train TabPFN model instead of Ridge')
+    parser.add_argument('--ownership-xgboost', action='store_true',
+                        help='With --train-ownership: train XGBoost model instead of Ridge')
     parser.add_argument('--edge-backtest', action='store_true',
                         help='Run Edge stats backtest to validate/calibrate boost values')
 
@@ -2154,7 +2198,12 @@ if __name__ == "__main__":
         sys.exit(0)
 
     if args.train_ownership:
-        mt = 'tabpfn' if args.ownership_tabpfn else 'ridge'
+        if args.ownership_tabpfn:
+            mt = 'tabpfn'
+        elif args.ownership_xgboost:
+            mt = 'xgboost'
+        else:
+            mt = 'ridge'
         train_ownership_model(model_type=mt)
         sys.exit(0)
 
