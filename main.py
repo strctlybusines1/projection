@@ -36,7 +36,7 @@ from config import (
 )
 from lines import LinesScraper, StackBuilder, print_team_lines, find_player_match
 from ownership import OwnershipModel, print_ownership_report
-from edge_stats import EdgeStatsClient
+# Edge stats now handled in data_pipeline.py
 from contest_roi import (
     ContestProfile,
     recommend_leverage,
@@ -877,7 +877,8 @@ def main():
     data = pipeline.build_projection_dataset(
         include_game_logs=False,
         include_injuries=not args.no_injuries,
-        include_advanced_stats=not args.no_advanced
+        include_advanced_stats=not args.no_advanced,
+        include_edge_stats=args.edge and not args.no_edge
     )
 
     # Show injury report if requested
@@ -916,49 +917,6 @@ def main():
 
     # Combine pools
     player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
-
-    # Apply NHL Edge stat boosts (optional)
-    edge_client = None
-    if args.edge and not args.no_edge:
-        print("\nFetching NHL Edge tracking stats...")
-        edge_client = EdgeStatsClient(rate_limit_delay=0.3)
-
-        # Only fetch for skaters (goalies don't have skating metrics)
-        if 'player_id' in skaters_merged.columns:
-            skater_ids = skaters_merged['player_id'].dropna().astype(int).unique().tolist()
-            edge_df = edge_client.fetch_edge_for_slate(skater_ids, show_progress=True)
-
-            if not edge_df.empty:
-                # Merge Edge boosts into skaters
-                edge_cols = ['player_id', 'edge_boost', 'edge_boost_reasons',
-                             'max_speed_mph', 'speed_percentile',
-                             'oz_time_pct', 'oz_time_percentile']
-                edge_merge = edge_df[[c for c in edge_cols if c in edge_df.columns]]
-
-                skaters_merged = skaters_merged.merge(
-                    edge_merge, on='player_id', how='left'
-                )
-                skaters_merged['edge_boost'] = skaters_merged['edge_boost'].fillna(1.0)
-
-                # Apply Edge boost to projections
-                if 'projected_fpts' in skaters_merged.columns:
-                    skaters_merged['projected_fpts_pre_edge'] = skaters_merged['projected_fpts']
-                    skaters_merged['projected_fpts'] = (
-                        skaters_merged['projected_fpts'] * skaters_merged['edge_boost']
-                    )
-
-                # Show Edge leaders
-                boosted = skaters_merged[skaters_merged['edge_boost'] > 1.0]
-                if len(boosted) > 0:
-                    print(f"\n  Edge boosts applied to {len(boosted)} skaters:")
-                    top_boosted = boosted.nlargest(10, 'edge_boost')
-                    for _, row in top_boosted.iterrows():
-                        boost_pct = (row['edge_boost'] - 1) * 100
-                        reasons = row.get('edge_boost_reasons', '')
-                        print(f"    {row['name']:25} +{boost_pct:.1f}% | {reasons}")
-
-                # Rebuild player pool with Edge-boosted skaters
-                player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
     # Fetch line combinations if stacking enabled
     stack_builder = None

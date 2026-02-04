@@ -20,6 +20,13 @@ from config import (
 )
 from danger_stats import load_team_danger_stats
 
+# Edge stats (optional - requires nhl-api-py)
+try:
+    from edge_stats import EdgeStatsClient
+    EDGE_AVAILABLE = True
+except ImportError:
+    EDGE_AVAILABLE = False
+
 
 class NHLDataPipeline:
     """Pipeline for fetching and processing NHL data."""
@@ -602,12 +609,70 @@ class NHLDataPipeline:
 
         return stats
 
+    # ==================== Edge Stats ====================
+
+    def fetch_edge_stats(self, player_ids: List[int], show_progress: bool = True) -> pd.DataFrame:
+        """
+        Fetch NHL Edge tracking stats for skaters.
+
+        Args:
+            player_ids: List of NHL player IDs to fetch Edge data for
+            show_progress: Whether to show progress updates
+
+        Returns:
+            DataFrame with player_id, edge_boost, edge_boost_reasons, and raw Edge metrics
+        """
+        if not EDGE_AVAILABLE:
+            if show_progress:
+                print("  Edge stats: skipped (nhl-api-py not installed)")
+            return pd.DataFrame()
+
+        edge_client = EdgeStatsClient(rate_limit_delay=0.3)
+        results = []
+
+        if show_progress:
+            print(f"  Fetching Edge stats for {len(player_ids)} skaters...")
+
+        for i, pid in enumerate(player_ids):
+            if show_progress and (i + 1) % 50 == 0:
+                print(f"    Edge progress: {i + 1}/{len(player_ids)}")
+
+            try:
+                summary = edge_client.get_skater_edge_summary(pid)
+                if summary:
+                    boost, reasons = edge_client.get_edge_projection_boost(summary)
+                    results.append({
+                        'player_id': pid,
+                        'edge_boost': boost,
+                        'edge_boost_reasons': '; '.join(reasons) if reasons else '',
+                        'max_speed_mph': summary.get('max_speed_mph', 0),
+                        'speed_percentile': summary.get('speed_percentile', 0),
+                        'bursts_over_20': summary.get('bursts_over_20', 0),
+                        'bursts_percentile': summary.get('bursts_percentile', 0),
+                        'oz_time_pct': summary.get('oz_time_pct', 0),
+                        'oz_time_percentile': summary.get('oz_time_percentile', 0),
+                    })
+            except Exception:
+                continue
+
+        if not results:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(results)
+
+        if show_progress:
+            boosted = len(df[df['edge_boost'] > 1.0])
+            print(f"    Edge stats: {len(df)} players, {boosted} with boosts")
+
+        return df
+
     # ==================== Combined Data ====================
 
     def build_projection_dataset(self, season: str = CURRENT_SEASON,
                                    include_game_logs: bool = False,
                                    include_injuries: bool = True,
                                    include_advanced_stats: bool = True,
+                                   include_edge_stats: bool = False,
                                    max_players_for_logs: int = 100) -> Dict[str, pd.DataFrame]:
         """
         Build complete dataset for projections.
@@ -617,10 +682,11 @@ class NHLDataPipeline:
             include_game_logs: Whether to fetch game-by-game logs (slow)
             include_injuries: Whether to fetch injury data from MoneyPuck
             include_advanced_stats: Whether to fetch xG/Corsi from Natural Stat Trick
+            include_edge_stats: Whether to fetch NHL Edge tracking data
             max_players_for_logs: Max players to fetch game logs for
 
         Returns dict with:
-            - skaters: Season stats for all skaters
+            - skaters: Season stats for all skaters (with edge_boost if include_edge_stats)
             - goalies: Season stats for all goalies
             - teams: Team-level stats
             - schedule: Upcoming games
@@ -638,6 +704,18 @@ class NHLDataPipeline:
         # Skater stats
         data['skaters'] = self.fetch_all_skater_stats(season)
         print(f"  Skaters: {len(data['skaters'])} players")
+
+        # Edge stats (merge into skaters if enabled)
+        if include_edge_stats and not data['skaters'].empty and 'player_id' in data['skaters'].columns:
+            player_ids = data['skaters']['player_id'].dropna().astype(int).unique().tolist()
+            edge_df = self.fetch_edge_stats(player_ids, show_progress=True)
+
+            if not edge_df.empty:
+                # Merge Edge data into skaters
+                data['skaters'] = data['skaters'].merge(
+                    edge_df, on='player_id', how='left'
+                )
+                data['skaters']['edge_boost'] = data['skaters']['edge_boost'].fillna(1.0)
 
         # Goalie stats
         data['goalies'] = self.fetch_all_goalie_stats(season)

@@ -305,6 +305,22 @@ class NHLProjectionModel:
         # Calculate expected fantasy points
         df['projected_fpts'] = df.apply(self.calculate_expected_fantasy_points_skater, axis=1)
 
+        # Apply Edge boost if available (from data pipeline)
+        if 'edge_boost' in df.columns:
+            df['projected_fpts_pre_edge'] = df['projected_fpts']
+            df['projected_fpts'] = df['projected_fpts'] * df['edge_boost']
+
+            # Report Edge boosts applied
+            boosted = df[df['edge_boost'] > 1.0]
+            if len(boosted) > 0:
+                print(f"  Edge boosts applied to {len(boosted)} skaters:")
+                for _, row in boosted.nlargest(5, 'edge_boost').iterrows():
+                    boost_pct = (row['edge_boost'] - 1) * 100
+                    reasons = row.get('edge_boost_reasons', '')
+                    print(f"    {row['name']:25} +{boost_pct:.1f}% | {reasons}")
+                if len(boosted) > 5:
+                    print(f"    ... and {len(boosted) - 5} more")
+
         # Calculate floor/ceiling estimates
         # Floor reduced from 0.4 to 0.25 (30.5% were below floor in backtest)
         df['floor'] = df['projected_fpts'] * FLOOR_MULTIPLIER
