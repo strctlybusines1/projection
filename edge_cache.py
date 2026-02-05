@@ -78,45 +78,80 @@ class EdgeStatsCache:
     # ==================== SKATER EDGE ====================
     
     def _fetch_skater_edge(self) -> Dict[str, pd.DataFrame]:
-        """Fetch skater Edge stats via nhlpy."""
+        """Fetch skater Edge tracking stats (speed, bursts, zone time) via nhlpy."""
         if not HAS_NHLPY:
             print("⚠️ nhl-api-py not installed")
             return {}
-        
-        print("🔄 Fetching skater Edge stats...")
+
+        print("🔄 Fetching skater Edge tracking stats...")
         client = NHLClient()
-        edge_data = {}
-        
+
         try:
-            # Use skater landing which has aggregated Edge metrics
-            # This is more reliable than bulk endpoints
-            print("  → Fetching skater stats summary...")
-            
-            # Get all skaters from stats API first
-            url = f"{NHL_STATS_API}/skater/summary?limit=-1&cayenneExp=seasonId={CURRENT_SEASON} and gameTypeId=2"
+            # Step 1: Get all skaters to find player IDs, sorted by points (descending)
+            print("  → Fetching player list...")
+            sort_param = '[{"property":"points","direction":"DESC"}]'
+            url = f"{NHL_STATS_API}/skater/summary?limit=-1&sort={sort_param}&cayenneExp=seasonId={CURRENT_SEASON} and gameTypeId=2"
             resp = requests.get(url, timeout=60)
-            if resp.status_code == 200:
-                data = resp.json()
-                if 'data' in data:
-                    edge_data['summary'] = pd.DataFrame(data['data'])
-                    print(f"    ✓ Got {len(edge_data['summary'])} skaters")
-            
-            time.sleep(self.rate_limit_delay)
-            
-            # Get time on ice data
-            print("  → Fetching time on ice stats...")
-            toi_url = f"{NHL_STATS_API}/skater/timeonice?limit=-1&cayenneExp=seasonId={CURRENT_SEASON} and gameTypeId=2"
-            toi_resp = requests.get(toi_url, timeout=60)
-            if toi_resp.status_code == 200:
-                toi_data = toi_resp.json()
-                if 'data' in toi_data:
-                    edge_data['timeonice'] = pd.DataFrame(toi_data['data'])
-                    print(f"    ✓ Got {len(edge_data['timeonice'])} skaters")
-            
+            if resp.status_code != 200:
+                print(f"    ⚠️ Failed to get player list: {resp.status_code}")
+                return {}
+
+            all_skaters = resp.json().get('data', [])
+            print(f"    ✓ Got {len(all_skaters)} skaters")
+
+            # Step 2: Fetch Edge tracking data for top 250 players (by points)
+            # This includes speed, bursts, zone time from NHL Edge API
+            top_n = min(250, len(all_skaters))
+            print(f"  → Fetching Edge tracking for top {top_n} players...")
+
+            skater_edge_data = []
+            from tqdm import tqdm
+
+            for skater in tqdm(all_skaters[:top_n], desc="Edge stats"):
+                player_id = skater.get('playerId')
+                if not player_id:
+                    continue
+
+                try:
+                    # Get skating speed data
+                    edge_detail = client.edge.skater_detail(player_id=player_id, season=CURRENT_SEASON)
+                    zone_data = client.edge.skater_zone_time(player_id=player_id, season=CURRENT_SEASON)
+
+                    # Extract speed metrics
+                    skating = edge_detail.get('skatingSpeed', {})
+                    speed_max = skating.get('speedMax', {})
+                    bursts = skating.get('burstsOver20', {})
+
+                    # Extract zone time (all strengths)
+                    zone_details = zone_data.get('zoneTimeDetails', [])
+                    oz_data = next((z for z in zone_details if z.get('strengthCode') == 'all'), {})
+
+                    skater_edge_data.append({
+                        'player_id': player_id,
+                        'player_name': skater.get('skaterFullName', ''),
+                        'team': skater.get('teamAbbrevs', ''),
+                        'max_speed_mph': speed_max.get('imperial'),
+                        'speed_percentile': speed_max.get('percentile'),
+                        'bursts_over_20': bursts.get('value'),
+                        'bursts_percentile': bursts.get('percentile'),
+                        'oz_time_pct': oz_data.get('offensiveZonePctg'),
+                        'oz_time_percentile': oz_data.get('offensiveZonePercentile'),
+                    })
+
+                    time.sleep(self.rate_limit_delay)
+
+                except Exception as e:
+                    # Skip players without Edge data
+                    continue
+
+            print(f"    ✓ Got Edge data for {len(skater_edge_data)} players")
+
+            # Return in old format for compatibility
+            return {'skaters': pd.DataFrame(skater_edge_data)}
+
         except Exception as e:
             print(f"⚠️ Error fetching skater Edge: {e}")
-        
-        return edge_data
+            return {}
     
     def _save_skater_cache(self, edge_data: Dict[str, pd.DataFrame]):
         cache_content = {k: df.to_dict('records') for k, df in edge_data.items()}
