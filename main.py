@@ -44,6 +44,7 @@ from contest_roi import (
     print_leverage_recommendation,
     PAYOUT_PRESETS,
 )
+from single_entry import SingleEntrySelector, print_se_lineup
 
 
 def normalize_position(pos: str) -> str:
@@ -810,6 +811,12 @@ def main():
     parser.add_argument('--sim-lift', type=float, nargs='?', const=0.15, default=None,
                         help='Run two-pass lift-adjusted simulation (blend factor, default 0.15)')
 
+    # Single-entry mode
+    parser.add_argument('--single-entry', action='store_true',
+                        help='Single-entry mode: generate N candidates then select best via '
+                             'SE scoring (goalie quality, stack correlation, salary efficiency). '
+                             'Use with --lineups 20-50 for best results.')
+
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
@@ -1128,35 +1135,65 @@ def main():
     # Generate optimized lineup
     lineups = []
     if len(skaters_merged) > 0 and len(goalies_merged) > 0:
-        print("\nOptimizing lineup...")
 
-        # Pass stack builder to optimizer if available
-        optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
+        # ── Single-Entry Mode ──────────────────────────────────────────────
+        # Generate many candidates with randomness, then pick the best one
+        # using the SE scoring engine (goalie quality, stack correlation, etc.)
+        if args.single_entry:
+            n_candidates = max(args.lineups, 20)  # At least 20 candidates
+            print(f"\nSingle-Entry Mode: generating {n_candidates} candidate lineups...")
 
-        lineups = optimizer.optimize_lineup(
-            player_pool,
-            n_lineups=args.lineups,
-            randomness=0.05 if args.lineups > 1 else 0,
-            stack_teams=[args.force_stack] if args.force_stack else None
-        )
+            optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
+            candidates = optimizer.optimize_lineup(
+                player_pool,
+                n_lineups=n_candidates,
+                randomness=0.08,  # Moderate randomness to explore the space
+                stack_teams=[args.force_stack] if args.force_stack else None,
+            )
 
-        # Contest EV: score and re-rank lineups by expected payout
-        if contest_profile and lineups:
-            scored = contest_score_lineups(lineups, contest_profile, player_pool)
-            lineups = [lu for lu, _ in scored]
-            # Attach EV to each lineup for display (store as list of (lineup, ev))
-            lineup_ev_pairs = [(lu, ev) for lu, ev in scored]
-        else:
-            lineup_ev_pairs = [(lu, None) for lu in lineups]
-
-        for i, (lineup, contest_ev) in enumerate(lineup_ev_pairs):
-            if args.lineups > 1:
-                ev_str = f" (Contest EV: ${contest_ev:.2f})" if contest_ev is not None else ""
-                print(f"\n--- Lineup {i+1}{ev_str} ---")
+            if candidates:
+                selector = SingleEntrySelector(
+                    player_pool,
+                    stack_builder=stack_builder,
+                    team_totals=team_totals if team_totals else {},
+                )
+                best_lineup, best_scores = selector.select(candidates, verbose=True)
+                print_se_lineup(best_lineup, best_scores)
+                lineups = [best_lineup]
             else:
-                if contest_ev is not None:
-                    print(f"\nContest EV: ${contest_ev:.2f}")
-            print_lineup(lineup)
+                print("  Warning: No candidate lineups generated")
+
+        # ── Standard Mode (multi-entry or default) ────────────────────────
+        else:
+            print("\nOptimizing lineup...")
+
+            # Pass stack builder to optimizer if available
+            optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
+
+            lineups = optimizer.optimize_lineup(
+                player_pool,
+                n_lineups=args.lineups,
+                randomness=0.05 if args.lineups > 1 else 0,
+                stack_teams=[args.force_stack] if args.force_stack else None
+            )
+
+            # Contest EV: score and re-rank lineups by expected payout
+            if contest_profile and lineups:
+                scored = contest_score_lineups(lineups, contest_profile, player_pool)
+                lineups = [lu for lu, _ in scored]
+                # Attach EV to each lineup for display (store as list of (lineup, ev))
+                lineup_ev_pairs = [(lu, ev) for lu, ev in scored]
+            else:
+                lineup_ev_pairs = [(lu, None) for lu in lineups]
+
+            for i, (lineup, contest_ev) in enumerate(lineup_ev_pairs):
+                if args.lineups > 1:
+                    ev_str = f" (Contest EV: ${contest_ev:.2f})" if contest_ev is not None else ""
+                    print(f"\n--- Lineup {i+1}{ev_str} ---")
+                else:
+                    if contest_ev is not None:
+                        print(f"\nContest EV: ${contest_ev:.2f}")
+                print_lineup(lineup)
 
     # --- Auto-export projections + ownership with timestamp ---
     date_str = datetime.strptime(target_date, '%Y-%m-%d').strftime('%m_%d_%y')

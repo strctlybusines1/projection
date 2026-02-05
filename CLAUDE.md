@@ -20,7 +20,10 @@ python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
 # Step 3: Subsequent runs (uses cached Edge data - much faster)
 python main.py --stacks --show-injuries --lineups 5 --edge
 
-# Step 4: Review output files in daily_projections/
+# Step 4: Single-entry mode — generate 40 candidates, auto-select best
+python main.py --stacks --show-injuries --lineups 40 --edge --single-entry
+
+# Step 5: Review output files in daily_projections/
 #   - {date}_projections_{timestamp}.csv  (player projections)
 #   - {date}_lineups_{timestamp}.csv      (optimized lineups)
 #   - {date}_lines.json                   (line combos/stacks)
@@ -71,6 +74,14 @@ python main.py --stacks --show-injuries --lineups 5 --edge
 
 # Generate projections with NO Edge (explicit skip)
 python main.py --stacks --show-injuries --lineups 5 --no-edge
+
+# === SINGLE-ENTRY MODE ===
+
+# Generate 40 candidates, score via SE engine, select best lineup
+python main.py --stacks --show-injuries --lineups 40 --edge --single-entry
+
+# SE with forced stack (e.g., force a MIN stack)
+python main.py --stacks --show-injuries --lineups 40 --edge --single-entry --force-stack PP1
 
 # === CONTEST-AWARE MODE ===
 
@@ -152,6 +163,9 @@ All commands run from the `projection/` directory. There is no build step, linte
 │  8. OPTIMIZE LINEUPS                                                    │
 │     └── optimizer.py → salary cap, stacks, correlation                  │
 │                              ↓                                          │
+│  8b. SINGLE-ENTRY SELECTION (if --single-entry)                         │
+│     └── single_entry.py → score candidates on 6 dimensions, pick best   │
+│                              ↓                                          │
 │  9. EXPORT                                                              │
 │     └── daily_projections/*.csv                                         │
 │                                                                         │
@@ -172,6 +186,7 @@ All commands run from the `projection/` directory. There is no build step, linte
 | **lines.py** | Scrapes DailyFaceoff for lines/PP/goalies. Builds stack correlations. |
 | **ownership.py** | Predicts ownership via Ridge/XGBoost regression or heuristic. |
 | **optimizer.py** | Builds DK-legal lineups under salary cap with stacking. |
+| **single_entry.py** | Scores candidate lineups for SE contests (goalie quality, stack correlation, salary efficiency, leverage). |
 | **backtest.py** | Compares projections to actuals. Outputs MAE/RMSE/correlation. |
 | **config.py** | Central configuration: DK scoring, API URLs, weights. |
 
@@ -401,6 +416,15 @@ ODDS_API_KEY=<the-odds-api-key>
 Key Python dependencies: `pandas`, `numpy`, `requests`, `nhl-api-py`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`, `scipy`.
 
 ## Quick Reference: Contest Strategy
+
+### Single-Entry GPP (use --single-entry flag)
+- Generate 40+ candidates, let SE selector pick best construction
+- Goalie is highest-leverage decision — SE scorer weights floor + matchup heavily
+- 3-4 man primary stack with LINE-MATE correlation (not just same team)
+- Moderate leverage: 1-2 contrarian plays, rest solid mid-owned
+- D should be in a stack OR cheap — no expensive one-off D
+- Target $49,400-$50,000 salary usage
+- Scoring: projection (35%), ceiling (15%), goalie (15%), stacks (15%), salary (10%), leverage (10%)
 
 ### WTA (Winner-Take-All) - 10 person
 - Maximum differentiation required
