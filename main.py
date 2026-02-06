@@ -836,6 +836,14 @@ def main():
                         help='Force refresh Edge stats from API (ignore cache). '
                              'Use for first run of day or to get latest data.')
 
+    # Linemate correlation boosts
+    parser.add_argument('--linemates', action='store_true',
+                        help='Apply linemate chemistry boosts from play-by-play correlation')
+    parser.add_argument('--linemate-games', type=int, default=10,
+                        help='Number of recent games to analyze per team (default: 10)')
+    parser.add_argument('--linemate-report', action='store_true',
+                        help='Print full linemate chemistry report for slate teams')
+
     args = parser.parse_args()
 
     # Determine date
@@ -941,6 +949,46 @@ def main():
             print("  Warning: apply_goalie_edge_boosts not available")
         except Exception as e:
             print(f"  Warning: Goalie Edge boosts failed: {e}")
+
+    # Apply linemate chemistry boosts if enabled
+    if args.linemates and len(skaters_merged) > 0:
+        try:
+            from linemate_corr import get_linemate_boosts, print_team_report
+            print("\nApplying linemate chemistry boosts...")
+            n_lg = args.linemate_games
+
+            # Build player name + team lists from merged skaters
+            lm_names = skaters_merged['name'].tolist()
+            lm_teams = skaters_merged['team'].tolist()
+
+            boosts = get_linemate_boosts(lm_names, lm_teams, n_games=n_lg)
+
+            # Apply boosts to projected_fpts
+            boosted_count = 0
+            for idx, row in skaters_merged.iterrows():
+                mult = boosts.get(row['name'], 1.0)
+                if mult > 1.0:
+                    skaters_merged.at[idx, 'projected_fpts'] *= mult
+                    boosted_count += 1
+
+            # Recalculate value after boost
+            if 'salary' in skaters_merged.columns:
+                skaters_merged['value'] = skaters_merged['projected_fpts'] / (skaters_merged['salary'] / 1000)
+            if 'dk_avg_fpts' in skaters_merged.columns:
+                skaters_merged['edge'] = skaters_merged['projected_fpts'] - skaters_merged['dk_avg_fpts']
+
+            print(f"  Linemate boosts applied to {boosted_count} skaters (from {n_lg}-game window)")
+
+            # Print full report if requested
+            if args.linemate_report:
+                for team in sorted(set(lm_teams)):
+                    print_team_report(team, n_lg)
+
+        except ImportError:
+            print("  Warning: linemate_corr module not found — skipping linemate boosts")
+            print("  Place linemate_corr.py in projection/ directory")
+        except Exception as e:
+            print(f"  Warning: Linemate chemistry boosts failed: {e}")
 
     # Combine pools
     player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)

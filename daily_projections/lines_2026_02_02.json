@@ -2,7 +2,7 @@
 "COL": {
 "team": "COL",
 "team_name": "Colorado Avalanche",
-"updated_at": "2026-02-01T14:27:07.509Z",
+"updated_at": "2026-02-02T20:13:57.787Z",
 "forward_lines": [
 {
 "line": 1,
@@ -52,10 +52,10 @@
 "defense_pairs": [
 {
 "pair": 1,
-"LD": "Sam Malinski",
+"LD": "Devon Toews",
 "RD": "Cale Makar",
 "players": [
-"Sam Malinski",
+"Devon Toews",
 "Cale Makar"
 ]
 },
@@ -71,10 +71,10 @@
 {
 "pair": 3,
 "LD": "Samuel Girard",
-"RD": "Keaton Middleton",
+"RD": "Sam Malinski",
 "players": [
 "Samuel Girard",
-"Keaton Middleton"
+"Sam Malinski"
 ]
 }
 ],
@@ -92,10 +92,10 @@
 {
 "unit": 2,
 "players": [
-"Valeri Nichushkin",
-"Ross Colton",
-"Gavin Brindley",
 "Victor Olofsson",
+"Ross Colton",
+"Valeri Nichushkin",
+"Devon Toews",
 "Brent Burns"
 ]
 }
@@ -115,7 +115,7 @@
 "players": [
 "Parker Kelly",
 "Joel Kiviranta",
-"Samuel Girard",
+"Devon Toews",
 "Cale Makar"
 ]
 }
@@ -508,32 +508,32 @@
 }
 },
 {
-"name": "Sam Malinski",
+"name": "Devon Toews",
 "position": "ld",
 "group": "d1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 3,
-"assists": 22,
-"points": 25,
-"blocks": 61,
-"toiMinutes": 898,
-"toiSeconds": 13,
-"shots": 105,
+"gamesPlayed": 40,
+"goals": 1,
+"assists": 12,
+"points": 13,
+"blocks": 58,
+"toiMinutes": 893,
+"toiSeconds": 15,
+"shots": 69,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
 "assists": 1,
 "points": 1,
-"blocks": 6,
-"toiMinutes": 101,
-"toiSeconds": 32,
-"shots": 15,
+"blocks": 7,
+"toiMinutes": 105,
+"toiSeconds": 6,
+"shots": 8,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -668,32 +668,32 @@
 }
 },
 {
-"name": "Keaton Middleton",
+"name": "Sam Malinski",
 "position": "rd",
 "group": "d3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 3,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 1,
-"toiMinutes": 32,
-"toiSeconds": 16,
-"shots": 0,
+"gamesPlayed": 53,
+"goals": 3,
+"assists": 22,
+"points": 25,
+"blocks": 61,
+"toiMinutes": 898,
+"toiSeconds": 13,
+"shots": 105,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 5,
-"toiMinutes": 66,
-"toiSeconds": 25,
-"shots": 2,
+"assists": 1,
+"points": 1,
+"blocks": 6,
+"toiMinutes": 101,
+"toiSeconds": 32,
+"shots": 15,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -928,32 +928,32 @@
 }
 },
 {
-"name": "Valeri Nichushkin",
+"name": "Victor Olofsson",
 "position": "sk1",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 44,
-"goals": 12,
-"assists": 19,
-"points": 31,
-"blocks": 14,
-"toiMinutes": 786,
-"toiSeconds": 57,
-"shots": 102,
-"powerplayGoals": 1,
-"powerplayAssists": 2,
-"powerplayPoints": 3
+"gamesPlayed": 53,
+"goals": 10,
+"assists": 14,
+"points": 24,
+"blocks": 13,
+"toiMinutes": 717,
+"toiSeconds": 51,
+"shots": 101,
+"powerplayGoals": 2,
+"powerplayAssists": 5,
+"powerplayPoints": 7
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 3,
-"points": 4,
+"assists": 0,
+"points": 1,
 "blocks": 2,
-"toiMinutes": 87,
-"toiSeconds": 42,
-"shots": 8,
+"toiMinutes": 82,
+"toiSeconds": 6,
+"shots": 10,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -992,19 +992,51 @@
 }
 },
 {
-"name": "Gavin Brindley",
+"name": "Valeri Nichushkin",
 "position": "sk3",
 "group": "pp2",
 "injury": null,
 "season_stats": {
+"gamesPlayed": 44,
+"goals": 12,
+"assists": 19,
+"points": 31,
+"blocks": 14,
+"toiMinutes": 786,
+"toiSeconds": 57,
+"shots": 102,
+"powerplayGoals": 1,
+"powerplayAssists": 2,
+"powerplayPoints": 3
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 2,
+"toiMinutes": 87,
+"toiSeconds": 42,
+"shots": 8,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Devon Toews",
+"position": "sk4",
+"group": "pp2",
+"injury": null,
+"season_stats": {
 "gamesPlayed": 40,
-"goals": 5,
-"assists": 6,
-"points": 11,
-"blocks": 11,
-"toiMinutes": 409,
+"goals": 1,
+"assists": 12,
+"points": 13,
+"blocks": 58,
+"toiMinutes": 893,
 "toiSeconds": 15,
-"shots": 47,
+"shots": 69,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1012,44 +1044,12 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 1,
-"toiMinutes": 49,
-"toiSeconds": 59,
-"shots": 7,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Victor Olofsson",
-"position": "sk4",
-"group": "pp2",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 53,
-"goals": 10,
-"assists": 14,
-"points": 24,
-"blocks": 13,
-"toiMinutes": 717,
-"toiSeconds": 51,
-"shots": 101,
-"powerplayGoals": 2,
-"powerplayAssists": 5,
-"powerplayPoints": 7
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 0,
+"assists": 1,
 "points": 1,
-"blocks": 2,
-"toiMinutes": 82,
+"blocks": 7,
+"toiMinutes": 105,
 "toiSeconds": 6,
-"shots": 10,
+"shots": 8,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1088,32 +1088,32 @@
 }
 },
 {
-"name": "Devon Toews",
+"name": "Gabriel Landeskog",
 "position": "ir1",
 "group": "ir",
 "injury": "out",
 "season_stats": {
-"gamesPlayed": 40,
-"goals": 1,
-"assists": 12,
-"points": 13,
-"blocks": 58,
-"toiMinutes": 893,
-"toiSeconds": 15,
-"shots": 69,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"gamesPlayed": 41,
+"goals": 7,
+"assists": 15,
+"points": 22,
+"blocks": 18,
+"toiMinutes": 649,
+"toiSeconds": 38,
+"shots": 86,
+"powerplayGoals": 1,
+"powerplayAssists": 2,
+"powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 7,
-"toiMinutes": 105,
-"toiSeconds": 6,
-"shots": 8,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 1,
+"toiMinutes": 76,
+"toiSeconds": 51,
+"shots": 7,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1152,40 +1152,8 @@
 }
 },
 {
-"name": "Gabriel Landeskog",
-"position": "ir3",
-"group": "ir",
-"injury": "out",
-"season_stats": {
-"gamesPlayed": 41,
-"goals": 7,
-"assists": 15,
-"points": 22,
-"blocks": 18,
-"toiMinutes": 649,
-"toiSeconds": 38,
-"shots": 86,
-"powerplayGoals": 1,
-"powerplayAssists": 2,
-"powerplayPoints": 3
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 3,
-"points": 4,
-"blocks": 1,
-"toiMinutes": 76,
-"toiSeconds": 51,
-"shots": 7,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
 "name": "Martin Necas",
-"position": "ir4",
+"position": "ir3",
 "group": "ir",
 "injury": "dtd",
 "season_stats": {
@@ -1408,19 +1376,19 @@
 }
 },
 {
-"name": "Samuel Girard",
+"name": "Devon Toews",
 "position": "sk3",
 "group": "pk2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 38,
-"goals": 3,
-"assists": 9,
-"points": 12,
-"blocks": 36,
-"toiMinutes": 675,
-"toiSeconds": 23,
-"shots": 31,
+"gamesPlayed": 40,
+"goals": 1,
+"assists": 12,
+"points": 13,
+"blocks": 58,
+"toiMinutes": 893,
+"toiSeconds": 15,
+"shots": 69,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1430,10 +1398,10 @@
 "goals": 0,
 "assists": 1,
 "points": 1,
-"blocks": 4,
-"toiMinutes": 90,
-"toiSeconds": 42,
-"shots": 5,
+"blocks": 7,
+"toiMinutes": 105,
+"toiSeconds": 6,
+"shots": 8,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1476,49 +1444,49 @@
 "SJS": {
 "team": "SJS",
 "team_name": "San Jose Sharks",
-"updated_at": "2026-02-01T14:59:42.593Z",
+"updated_at": "2026-02-02T17:43:58.810Z",
 "forward_lines": [
 {
 "line": 1,
-"LW": "Collin Graf",
+"LW": "Will Smith",
 "C": "Macklin Celebrini",
-"RW": "Will Smith",
-"players": [
-"Collin Graf",
-"Macklin Celebrini",
-"Will Smith"
-]
-},
-{
-"line": 2,
-"LW": "Philipp Kurashev",
-"C": "Alexander Wennberg",
 "RW": "Tyler Toffoli",
 "players": [
-"Philipp Kurashev",
-"Alexander Wennberg",
+"Will Smith",
+"Macklin Celebrini",
 "Tyler Toffoli"
 ]
 },
 {
-"line": 3,
+"line": 2,
 "LW": "William Eklund",
-"C": "Michael Misa",
-"RW": "Adam Gaudette",
+"C": "Alexander Wennberg",
+"RW": "Collin Graf",
 "players": [
 "William Eklund",
+"Alexander Wennberg",
+"Collin Graf"
+]
+},
+{
+"line": 3,
+"LW": "Pavol Regenda",
+"C": "Michael Misa",
+"RW": "Philipp Kurashev",
+"players": [
+"Pavol Regenda",
 "Michael Misa",
-"Adam Gaudette"
+"Philipp Kurashev"
 ]
 },
 {
 "line": 4,
 "LW": "Barclay Goodrow",
-"C": "Zack Ostapchuk",
+"C": "Adam Gaudette",
 "RW": "Ryan Reaves",
 "players": [
 "Barclay Goodrow",
-"Zack Ostapchuk",
+"Adam Gaudette",
 "Ryan Reaves"
 ]
 }
@@ -1527,10 +1495,10 @@
 {
 "pair": 1,
 "LD": "Dmitry Orlov",
-"RD": "John Klingberg",
+"RD": "Timothy Liljegren",
 "players": [
 "Dmitry Orlov",
-"John Klingberg"
+"Timothy Liljegren"
 ]
 },
 {
@@ -1560,17 +1528,17 @@
 "Alexander Wennberg",
 "Will Smith",
 "Macklin Celebrini",
-"John Klingberg"
+"Dmitry Orlov"
 ]
 },
 {
 "unit": 2,
 "players": [
-"Collin Graf",
+"Pavol Regenda",
 "Michael Misa",
-"William Eklund",
 "Philipp Kurashev",
-"Dmitry Orlov"
+"William Eklund",
+"Timothy Liljegren"
 ]
 }
 ],
@@ -1594,39 +1562,39 @@
 ]
 }
 ],
-"starting_goalie": "Alex Nedeljkovic",
-"backup_goalie": "Yaroslav Askarov",
+"starting_goalie": "Yaroslav Askarov",
+"backup_goalie": "Alex Nedeljkovic",
 "all_players": [
 {
-"name": "Collin Graf",
+"name": "Will Smith",
 "position": "lw",
 "group": "f1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 52,
-"goals": 15,
-"assists": 15,
-"points": 30,
-"blocks": 35,
-"toiMinutes": 859,
-"toiSeconds": 26,
-"shots": 62,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"gamesPlayed": 40,
+"goals": 16,
+"assists": 22,
+"points": 38,
+"blocks": 9,
+"toiMinutes": 723,
+"toiSeconds": 36,
+"shots": 98,
+"powerplayGoals": 5,
+"powerplayAssists": 7,
+"powerplayPoints": 12
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 2,
-"points": 3,
-"blocks": 2,
-"toiMinutes": 89,
-"toiSeconds": 30,
-"shots": 6,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"goals": 2,
+"assists": 5,
+"points": 7,
+"blocks": 1,
+"toiMinutes": 93,
+"toiSeconds": 42,
+"shots": 14,
+"powerplayGoals": 2,
+"powerplayAssists": 2,
+"powerplayPoints": 4
 }
 },
 {
@@ -1662,64 +1630,64 @@
 }
 },
 {
-"name": "Will Smith",
+"name": "Tyler Toffoli",
 "position": "rw",
 "group": "f1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 40,
-"goals": 16,
-"assists": 22,
-"points": 38,
-"blocks": 9,
-"toiMinutes": 723,
-"toiSeconds": 36,
-"shots": 98,
+"gamesPlayed": 53,
+"goals": 15,
+"assists": 20,
+"points": 35,
+"blocks": 27,
+"toiMinutes": 837,
+"toiSeconds": 44,
+"shots": 122,
 "powerplayGoals": 5,
-"powerplayAssists": 7,
-"powerplayPoints": 12
+"powerplayAssists": 5,
+"powerplayPoints": 10
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 2,
-"assists": 5,
-"points": 7,
-"blocks": 1,
-"toiMinutes": 93,
-"toiSeconds": 42,
-"shots": 14,
-"powerplayGoals": 2,
-"powerplayAssists": 2,
-"powerplayPoints": 4
+"assists": 1,
+"points": 3,
+"blocks": 4,
+"toiMinutes": 78,
+"toiSeconds": 0,
+"shots": 13,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
-"name": "Philipp Kurashev",
+"name": "William Eklund",
 "position": "lw",
 "group": "f2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 32,
-"goals": 6,
-"assists": 9,
-"points": 15,
-"blocks": 10,
-"toiMinutes": 510,
-"toiSeconds": 27,
-"shots": 49,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"gamesPlayed": 49,
+"goals": 11,
+"assists": 23,
+"points": 34,
+"blocks": 34,
+"toiMinutes": 957,
+"toiSeconds": 36,
+"shots": 124,
+"powerplayGoals": 3,
+"powerplayAssists": 9,
+"powerplayPoints": 12
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 2,
-"toiMinutes": 68,
-"toiSeconds": 5,
-"shots": 2,
+"assists": 4,
+"points": 4,
+"blocks": 4,
+"toiMinutes": 85,
+"toiSeconds": 28,
+"shots": 9,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1758,67 +1726,67 @@
 }
 },
 {
-"name": "Tyler Toffoli",
+"name": "Collin Graf",
 "position": "rw",
 "group": "f2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
+"gamesPlayed": 52,
 "goals": 15,
-"assists": 20,
-"points": 35,
-"blocks": 27,
-"toiMinutes": 837,
-"toiSeconds": 44,
-"shots": 122,
-"powerplayGoals": 5,
-"powerplayAssists": 5,
-"powerplayPoints": 10
+"assists": 15,
+"points": 30,
+"blocks": 35,
+"toiMinutes": 859,
+"toiSeconds": 26,
+"shots": 62,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 2,
-"assists": 1,
+"goals": 1,
+"assists": 2,
 "points": 3,
-"blocks": 4,
-"toiMinutes": 78,
-"toiSeconds": 0,
-"shots": 13,
+"blocks": 2,
+"toiMinutes": 89,
+"toiSeconds": 30,
+"shots": 6,
 "powerplayGoals": 0,
 "powerplayAssists": 1,
 "powerplayPoints": 1
 }
 },
 {
-"name": "William Eklund",
+"name": "Pavol Regenda",
 "position": "lw",
 "group": "f3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 49,
-"goals": 11,
-"assists": 23,
-"points": 34,
-"blocks": 34,
-"toiMinutes": 957,
-"toiSeconds": 36,
-"shots": 124,
-"powerplayGoals": 3,
-"powerplayAssists": 9,
-"powerplayPoints": 12
+"gamesPlayed": 15,
+"goals": 8,
+"assists": 1,
+"points": 9,
+"blocks": 3,
+"toiMinutes": 213,
+"toiSeconds": 5,
+"shots": 32,
+"powerplayGoals": 4,
+"powerplayAssists": 0,
+"powerplayPoints": 4
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
-"assists": 4,
-"points": 4,
-"blocks": 4,
-"toiMinutes": 85,
-"toiSeconds": 28,
-"shots": 9,
-"powerplayGoals": 0,
+"goals": 1,
+"assists": 0,
+"points": 1,
+"blocks": 0,
+"toiMinutes": 72,
+"toiSeconds": 54,
+"shots": 6,
+"powerplayGoals": 1,
 "powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayPoints": 1
 }
 },
 {
@@ -1854,32 +1822,32 @@
 }
 },
 {
-"name": "Adam Gaudette",
+"name": "Philipp Kurashev",
 "position": "rw",
 "group": "f3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 43,
-"goals": 13,
-"assists": 7,
-"points": 20,
-"blocks": 17,
-"toiMinutes": 512,
-"toiSeconds": 28,
-"shots": 65,
-"powerplayGoals": 3,
-"powerplayAssists": 3,
-"powerplayPoints": 6
+"gamesPlayed": 32,
+"goals": 6,
+"assists": 9,
+"points": 15,
+"blocks": 10,
+"toiMinutes": 510,
+"toiSeconds": 27,
+"shots": 49,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 3,
-"assists": 0,
-"points": 3,
-"blocks": 1,
-"toiMinutes": 56,
-"toiSeconds": 35,
-"shots": 7,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 2,
+"toiMinutes": 68,
+"toiSeconds": 5,
+"shots": 2,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -1918,32 +1886,32 @@
 }
 },
 {
-"name": "Zack Ostapchuk",
+"name": "Adam Gaudette",
 "position": "c",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 31,
-"goals": 3,
-"assists": 1,
-"points": 4,
-"blocks": 12,
-"toiMinutes": 303,
+"gamesPlayed": 43,
+"goals": 13,
+"assists": 7,
+"points": 20,
+"blocks": 17,
+"toiMinutes": 512,
 "toiSeconds": 28,
-"shots": 23,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"shots": 65,
+"powerplayGoals": 3,
+"powerplayAssists": 3,
+"powerplayPoints": 6
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
+"goals": 3,
 "assists": 0,
-"points": 0,
-"blocks": 2,
-"toiMinutes": 53,
-"toiSeconds": 7,
-"shots": 2,
+"points": 3,
+"blocks": 1,
+"toiMinutes": 56,
+"toiSeconds": 35,
+"shots": 7,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -2014,35 +1982,35 @@
 }
 },
 {
-"name": "John Klingberg",
+"name": "Timothy Liljegren",
 "position": "rd",
 "group": "d1",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 40,
-"goals": 10,
-"assists": 9,
-"points": 19,
-"blocks": 53,
-"toiMinutes": 847,
-"toiSeconds": 1,
-"shots": 67,
-"powerplayGoals": 5,
-"powerplayAssists": 4,
-"powerplayPoints": 9
+"goals": 0,
+"assists": 10,
+"points": 10,
+"blocks": 80,
+"toiMinutes": 810,
+"toiSeconds": 54,
+"shots": 29,
+"powerplayGoals": 0,
+"powerplayAssists": 2,
+"powerplayPoints": 2
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
+"goals": 0,
+"assists": 2,
 "points": 2,
-"blocks": 4,
-"toiMinutes": 97,
-"toiSeconds": 44,
-"shots": 15,
-"powerplayGoals": 1,
-"powerplayAssists": 1,
-"powerplayPoints": 2
+"blocks": 5,
+"toiMinutes": 104,
+"toiSeconds": 3,
+"shots": 9,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -2174,42 +2142,8 @@
 }
 },
 {
-"name": "Alex Nedeljkovic",
-"position": "g1",
-"group": "g",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 23,
-"goalieWins": 10,
-"goalieLosses": 9,
-"goalieOvertimeLosses": 2,
-"goalieShotsAgainst": 655,
-"goalieGoalsAgainst": 63,
-"goalieMinutes": 1328,
-"goalieSeconds": 41,
-"goalieSaves": 592,
-"goalieShutouts": 0,
-"goalieSavePercentage": "0.904",
-"goalieGoalsAgainstAvg": "2.84"
-},
-"last5": {
-"gamesPlayed": 5,
-"goalieWins": 4,
-"goalieLosses": 1,
-"goalieOvertimeLosses": 0,
-"goalieShotsAgainst": 150,
-"goalieGoalsAgainst": 11,
-"goalieMinutes": 299,
-"goalieSeconds": 36,
-"goalieSaves": 139,
-"goalieShutouts": 0,
-"goalieSavePercentage": "0.927",
-"goalieGoalsAgainstAvg": "2.2"
-}
-},
-{
 "name": "Yaroslav Askarov",
-"position": "g2",
+"position": "g1",
 "group": "g",
 "injury": null,
 "season_stats": {
@@ -2239,6 +2173,40 @@
 "goalieShutouts": 0,
 "goalieSavePercentage": "0.864",
 "goalieGoalsAgainstAvg": "3.64"
+}
+},
+{
+"name": "Alex Nedeljkovic",
+"position": "g2",
+"group": "g",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 23,
+"goalieWins": 10,
+"goalieLosses": 9,
+"goalieOvertimeLosses": 2,
+"goalieShotsAgainst": 655,
+"goalieGoalsAgainst": 63,
+"goalieMinutes": 1328,
+"goalieSeconds": 41,
+"goalieSaves": 592,
+"goalieShutouts": 0,
+"goalieSavePercentage": "0.904",
+"goalieGoalsAgainstAvg": "2.84"
+},
+"last5": {
+"gamesPlayed": 5,
+"goalieWins": 4,
+"goalieLosses": 1,
+"goalieOvertimeLosses": 0,
+"goalieShotsAgainst": 150,
+"goalieGoalsAgainst": 11,
+"goalieMinutes": 299,
+"goalieSeconds": 36,
+"goalieSaves": 139,
+"goalieShutouts": 0,
+"goalieSavePercentage": "0.927",
+"goalieGoalsAgainstAvg": "2.2"
 }
 },
 {
@@ -2370,66 +2338,66 @@
 }
 },
 {
-"name": "John Klingberg",
+"name": "Dmitry Orlov",
 "position": "sk5",
 "group": "pp1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 40,
-"goals": 10,
-"assists": 9,
-"points": 19,
+"gamesPlayed": 53,
+"goals": 1,
+"assists": 22,
+"points": 23,
 "blocks": 53,
-"toiMinutes": 847,
-"toiSeconds": 1,
-"shots": 67,
-"powerplayGoals": 5,
-"powerplayAssists": 4,
-"powerplayPoints": 9
+"toiMinutes": 1132,
+"toiSeconds": 0,
+"shots": 50,
+"powerplayGoals": 0,
+"powerplayAssists": 11,
+"powerplayPoints": 11
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
-"points": 2,
+"goals": 0,
+"assists": 0,
+"points": 0,
 "blocks": 4,
-"toiMinutes": 97,
-"toiSeconds": 44,
-"shots": 15,
-"powerplayGoals": 1,
-"powerplayAssists": 1,
-"powerplayPoints": 2
+"toiMinutes": 96,
+"toiSeconds": 52,
+"shots": 3,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
-"name": "Collin Graf",
+"name": "Pavol Regenda",
 "position": "sk1",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 52,
-"goals": 15,
-"assists": 15,
-"points": 30,
-"blocks": 35,
-"toiMinutes": 859,
-"toiSeconds": 26,
-"shots": 62,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"gamesPlayed": 15,
+"goals": 8,
+"assists": 1,
+"points": 9,
+"blocks": 3,
+"toiMinutes": 213,
+"toiSeconds": 5,
+"shots": 32,
+"powerplayGoals": 4,
+"powerplayAssists": 0,
+"powerplayPoints": 4
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 2,
-"points": 3,
-"blocks": 2,
-"toiMinutes": 89,
-"toiSeconds": 30,
+"assists": 0,
+"points": 1,
+"blocks": 0,
+"toiMinutes": 72,
+"toiSeconds": 54,
 "shots": 6,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
+"powerplayGoals": 1,
+"powerplayAssists": 0,
 "powerplayPoints": 1
 }
 },
@@ -2466,40 +2434,8 @@
 }
 },
 {
-"name": "William Eklund",
-"position": "sk3",
-"group": "pp2",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 49,
-"goals": 11,
-"assists": 23,
-"points": 34,
-"blocks": 34,
-"toiMinutes": 957,
-"toiSeconds": 36,
-"shots": 124,
-"powerplayGoals": 3,
-"powerplayAssists": 9,
-"powerplayPoints": 12
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 4,
-"points": 4,
-"blocks": 4,
-"toiMinutes": 85,
-"toiSeconds": 28,
-"shots": 9,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
 "name": "Philipp Kurashev",
-"position": "sk4",
+"position": "sk3",
 "group": "pp2",
 "injury": null,
 "season_stats": {
@@ -2530,32 +2466,64 @@
 }
 },
 {
-"name": "Dmitry Orlov",
-"position": "sk5",
+"name": "William Eklund",
+"position": "sk4",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 1,
-"assists": 22,
-"points": 23,
-"blocks": 53,
-"toiMinutes": 1132,
-"toiSeconds": 0,
-"shots": 50,
-"powerplayGoals": 0,
-"powerplayAssists": 11,
-"powerplayPoints": 11
+"gamesPlayed": 49,
+"goals": 11,
+"assists": 23,
+"points": 34,
+"blocks": 34,
+"toiMinutes": 957,
+"toiSeconds": 36,
+"shots": 124,
+"powerplayGoals": 3,
+"powerplayAssists": 9,
+"powerplayPoints": 12
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
+"assists": 4,
+"points": 4,
 "blocks": 4,
-"toiMinutes": 96,
-"toiSeconds": 52,
-"shots": 3,
+"toiMinutes": 85,
+"toiSeconds": 28,
+"shots": 9,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Timothy Liljegren",
+"position": "sk5",
+"group": "pp2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 40,
+"goals": 0,
+"assists": 10,
+"points": 10,
+"blocks": 80,
+"toiMinutes": 810,
+"toiSeconds": 54,
+"shots": 29,
+"powerplayGoals": 0,
+"powerplayAssists": 2,
+"powerplayPoints": 2
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 2,
+"points": 2,
+"blocks": 5,
+"toiMinutes": 104,
+"toiSeconds": 3,
+"shots": 9,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -2886,7 +2854,7 @@
 "TOR": {
 "team": "TOR",
 "team_name": "Toronto Maple Leafs",
-"updated_at": "2026-02-01T15:40:15.608Z",
+"updated_at": "2026-02-02T18:47:52.845Z",
 "forward_lines": [
 {
 "line": 1,
@@ -2937,28 +2905,28 @@
 {
 "pair": 1,
 "LD": "Jake McCabe",
-"RD": "Oliver Ekman-Larsson",
-"players": [
-"Jake McCabe",
-"Oliver Ekman-Larsson"
-]
-},
-{
-"pair": 2,
-"LD": "Morgan Rielly",
 "RD": "Brandon Carlo",
 "players": [
-"Morgan Rielly",
+"Jake McCabe",
 "Brandon Carlo"
 ]
 },
 {
-"pair": 3,
-"LD": "Marshall Rifai",
+"pair": 2,
+"LD": "Oliver Ekman-Larsson",
 "RD": "Troy Stecher",
 "players": [
-"Marshall Rifai",
+"Oliver Ekman-Larsson",
 "Troy Stecher"
+]
+},
+{
+"pair": 3,
+"LD": "Simon Benoit",
+"RD": "Philippe Myers",
+"players": [
+"Simon Benoit",
+"Philippe Myers"
 ]
 }
 ],
@@ -2970,7 +2938,7 @@
 "John Tavares",
 "William Nylander",
 "Auston Matthews",
-"Morgan Rielly"
+"Oliver Ekman-Larsson"
 ]
 },
 {
@@ -2980,7 +2948,7 @@
 "Max Domi",
 "Nicholas Robertson",
 "Matias Maccelli",
-"Oliver Ekman-Larsson"
+"Jake McCabe"
 ]
 }
 ],
@@ -3004,8 +2972,8 @@
 ]
 }
 ],
-"starting_goalie": "Joseph Woll",
-"backup_goalie": "Anthony Stolarz",
+"starting_goalie": "Anthony Stolarz",
+"backup_goalie": "Joseph Woll",
 "all_players": [
 {
 "name": "Bobby McMann",
@@ -3424,73 +3392,9 @@
 }
 },
 {
-"name": "Oliver Ekman-Larsson",
-"position": "rd",
-"group": "d1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 55,
-"goals": 8,
-"assists": 25,
-"points": 33,
-"blocks": 46,
-"toiMinutes": 1142,
-"toiSeconds": 12,
-"shots": 80,
-"powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 5,
-"toiMinutes": 116,
-"toiSeconds": 40,
-"shots": 8,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Morgan Rielly",
-"position": "ld",
-"group": "d2",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 54,
-"goals": 7,
-"assists": 24,
-"points": 31,
-"blocks": 74,
-"toiMinutes": 1164,
-"toiSeconds": 17,
-"shots": 105,
-"powerplayGoals": 1,
-"powerplayAssists": 5,
-"powerplayPoints": 6
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 8,
-"toiMinutes": 99,
-"toiSeconds": 25,
-"shots": 10,
-"powerplayGoals": 1,
-"powerplayAssists": 0,
-"powerplayPoints": 1
-}
-},
-{
 "name": "Brandon Carlo",
 "position": "rd",
-"group": "d2",
+"group": "d1",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 32,
@@ -3520,32 +3424,32 @@
 }
 },
 {
-"name": "Marshall Rifai",
+"name": "Oliver Ekman-Larsson",
 "position": "ld",
-"group": "d3",
+"group": "d2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 1,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 1,
-"toiMinutes": 9,
-"toiSeconds": 40,
-"shots": 1,
+"gamesPlayed": 55,
+"goals": 8,
+"assists": 25,
+"points": 33,
+"blocks": 46,
+"toiMinutes": 1142,
+"toiSeconds": 12,
+"shots": 80,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 3,
+"powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 1,
-"toiMinutes": 14,
-"toiSeconds": 15,
-"shots": 2,
+"assists": 2,
+"points": 2,
+"blocks": 5,
+"toiMinutes": 116,
+"toiSeconds": 40,
+"shots": 8,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -3554,7 +3458,7 @@
 {
 "name": "Troy Stecher",
 "position": "rd",
-"group": "d3",
+"group": "d2",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 42,
@@ -3584,42 +3488,72 @@
 }
 },
 {
-"name": "Joseph Woll",
-"position": "g1",
-"group": "g",
+"name": "Simon Benoit",
+"position": "ld",
+"group": "d3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 24,
-"goalieWins": 12,
-"goalieLosses": 7,
-"goalieOvertimeLosses": 4,
-"goalieShotsAgainst": 724,
-"goalieGoalsAgainst": 67,
-"goalieMinutes": 1359,
-"goalieSeconds": 42,
-"goalieSaves": 658,
-"goalieShutouts": 2,
-"goalieSavePercentage": "0.907",
-"goalieGoalsAgainstAvg": "2.96"
+"gamesPlayed": 47,
+"goals": 0,
+"assists": 3,
+"points": 3,
+"blocks": 72,
+"toiMinutes": 813,
+"toiSeconds": 11,
+"shots": 29,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goalieWins": 1,
-"goalieLosses": 3,
-"goalieOvertimeLosses": 1,
-"goalieShotsAgainst": 166,
-"goalieGoalsAgainst": 18,
-"goalieMinutes": 282,
-"goalieSeconds": 49,
-"goalieSaves": 148,
-"goalieShutouts": 0,
-"goalieSavePercentage": "0.892",
-"goalieGoalsAgainstAvg": "3.82"
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 5,
+"toiMinutes": 81,
+"toiSeconds": 3,
+"shots": 4,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Philippe Myers",
+"position": "rd",
+"group": "d3",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 25,
+"goals": 0,
+"assists": 2,
+"points": 2,
+"blocks": 30,
+"toiMinutes": 345,
+"toiSeconds": 20,
+"shots": 30,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 3,
+"toiMinutes": 62,
+"toiSeconds": 55,
+"shots": 9,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
 "name": "Anthony Stolarz",
-"position": "g2",
+"position": "g1",
 "group": "g",
 "injury": null,
 "season_stats": {
@@ -3649,6 +3583,40 @@
 "goalieShutouts": 0,
 "goalieSavePercentage": "0.819",
 "goalieGoalsAgainstAvg": "5.14"
+}
+},
+{
+"name": "Joseph Woll",
+"position": "g2",
+"group": "g",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 24,
+"goalieWins": 12,
+"goalieLosses": 7,
+"goalieOvertimeLosses": 4,
+"goalieShotsAgainst": 724,
+"goalieGoalsAgainst": 67,
+"goalieMinutes": 1359,
+"goalieSeconds": 42,
+"goalieSaves": 658,
+"goalieShutouts": 2,
+"goalieSavePercentage": "0.907",
+"goalieGoalsAgainstAvg": "2.96"
+},
+"last5": {
+"gamesPlayed": 5,
+"goalieWins": 1,
+"goalieLosses": 3,
+"goalieOvertimeLosses": 1,
+"goalieShotsAgainst": 166,
+"goalieGoalsAgainst": 18,
+"goalieMinutes": 282,
+"goalieSeconds": 49,
+"goalieSaves": 148,
+"goalieShutouts": 0,
+"goalieSavePercentage": "0.892",
+"goalieGoalsAgainstAvg": "3.82"
 }
 },
 {
@@ -3780,35 +3748,35 @@
 }
 },
 {
-"name": "Morgan Rielly",
+"name": "Oliver Ekman-Larsson",
 "position": "sk5",
 "group": "pp1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 54,
-"goals": 7,
-"assists": 24,
-"points": 31,
-"blocks": 74,
-"toiMinutes": 1164,
-"toiSeconds": 17,
-"shots": 105,
-"powerplayGoals": 1,
-"powerplayAssists": 5,
-"powerplayPoints": 6
+"gamesPlayed": 55,
+"goals": 8,
+"assists": 25,
+"points": 33,
+"blocks": 46,
+"toiMinutes": 1142,
+"toiSeconds": 12,
+"shots": 80,
+"powerplayGoals": 0,
+"powerplayAssists": 3,
+"powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
+"goals": 0,
+"assists": 2,
 "points": 2,
-"blocks": 8,
-"toiMinutes": 99,
-"toiSeconds": 25,
-"shots": 10,
-"powerplayGoals": 1,
+"blocks": 5,
+"toiMinutes": 116,
+"toiSeconds": 40,
+"shots": 8,
+"powerplayGoals": 0,
 "powerplayAssists": 0,
-"powerplayPoints": 1
+"powerplayPoints": 0
 }
 },
 {
@@ -3940,32 +3908,32 @@
 }
 },
 {
-"name": "Oliver Ekman-Larsson",
+"name": "Jake McCabe",
 "position": "sk5",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 55,
-"goals": 8,
-"assists": 25,
-"points": 33,
-"blocks": 46,
-"toiMinutes": 1142,
-"toiSeconds": 12,
-"shots": 80,
+"gamesPlayed": 53,
+"goals": 3,
+"assists": 14,
+"points": 17,
+"blocks": 125,
+"toiMinutes": 1178,
+"toiSeconds": 1,
+"shots": 46,
 "powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 5,
-"toiMinutes": 116,
-"toiSeconds": 40,
-"shots": 8,
+"assists": 0,
+"points": 0,
+"blocks": 4,
+"toiMinutes": 113,
+"toiSeconds": 35,
+"shots": 7,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -4360,7 +4328,7 @@
 "MIN": {
 "team": "MIN",
 "team_name": "Minnesota Wild",
-"updated_at": "2026-02-01T15:46:09.606Z",
+"updated_at": "2026-02-02T17:12:50.710Z",
 "forward_lines": [
 {
 "line": 1,
@@ -4398,11 +4366,11 @@
 {
 "line": 4,
 "LW": "Marcus Foligno",
-"C": "Tyler Pitlick",
+"C": "Nico Sturm",
 "RW": "Yakov Trenin",
 "players": [
 "Marcus Foligno",
-"Tyler Pitlick",
+"Nico Sturm",
 "Yakov Trenin"
 ]
 }
@@ -4429,10 +4397,10 @@
 {
 "pair": 3,
 "LD": "Daemon Hunt",
-"RD": "David Jiricek",
+"RD": "Zach Bogosian",
 "players": [
 "Daemon Hunt",
-"David Jiricek"
+"Zach Bogosian"
 ]
 }
 ],
@@ -4802,32 +4770,32 @@
 }
 },
 {
-"name": "Tyler Pitlick",
+"name": "Nico Sturm",
 "position": "c",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 26,
-"goals": 2,
-"assists": 0,
-"points": 2,
-"blocks": 17,
-"toiMinutes": 202,
-"toiSeconds": 23,
-"shots": 23,
+"gamesPlayed": 33,
+"goals": 3,
+"assists": 6,
+"points": 9,
+"blocks": 14,
+"toiMinutes": 373,
+"toiSeconds": 6,
+"shots": 28,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
+"goals": 0,
 "assists": 0,
-"points": 1,
-"blocks": 4,
-"toiMinutes": 37,
-"toiSeconds": 18,
-"shots": 4,
+"points": 0,
+"blocks": 3,
+"toiMinutes": 47,
+"toiSeconds": 32,
+"shots": 2,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -5026,19 +4994,19 @@
 }
 },
 {
-"name": "David Jiricek",
+"name": "Zach Bogosian",
 "position": "rd",
 "group": "d3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 25,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 19,
-"toiMinutes": 292,
-"toiSeconds": 47,
-"shots": 15,
+"gamesPlayed": 23,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 20,
+"toiMinutes": 342,
+"toiSeconds": 7,
+"shots": 20,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -5046,11 +5014,11 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 3,
-"toiMinutes": 52,
-"toiSeconds": 30,
+"assists": 2,
+"points": 2,
+"blocks": 2,
+"toiMinutes": 75,
+"toiSeconds": 15,
 "shots": 4,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
@@ -5770,7 +5738,7 @@
 "PIT": {
 "team": "PIT",
 "team_name": "Pittsburgh Penguins",
-"updated_at": "2026-02-01T14:29:37.785Z",
+"updated_at": "2026-02-02T16:40:01.708Z",
 "forward_lines": [
 {
 "line": 1,
@@ -7342,7 +7310,7 @@
 "BUF": {
 "team": "BUF",
 "team_name": "Buffalo Sabres",
-"updated_at": "2026-02-01T15:02:18.412Z",
+"updated_at": "2026-02-02T17:11:06.450Z",
 "forward_lines": [
 {
 "line": 1,
@@ -7369,22 +7337,22 @@
 {
 "line": 3,
 "LW": "Josh Doan",
-"C": "Noah Ostlund",
-"RW": "Konsta Helenius",
+"C": "Peyton Krebs",
+"RW": "Noah Ostlund",
 "players": [
 "Josh Doan",
-"Noah Ostlund",
-"Konsta Helenius"
+"Peyton Krebs",
+"Noah Ostlund"
 ]
 },
 {
 "line": 4,
 "LW": "Tyson Kozak",
-"C": "Peyton Krebs",
+"C": "Isak Rosen",
 "RW": "Beck Malenstyn",
 "players": [
 "Tyson Kozak",
-"Peyton Krebs",
+"Isak Rosen",
 "Beck Malenstyn"
 ]
 }
@@ -7664,8 +7632,40 @@
 }
 },
 {
-"name": "Noah Ostlund",
+"name": "Peyton Krebs",
 "position": "c",
+"group": "f3",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 54,
+"goals": 6,
+"assists": 16,
+"points": 22,
+"blocks": 31,
+"toiMinutes": 732,
+"toiSeconds": 3,
+"shots": 61,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 2,
+"points": 3,
+"blocks": 1,
+"toiMinutes": 57,
+"toiSeconds": 39,
+"shots": 4,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Noah Ostlund",
+"position": "rw",
 "group": "f3",
 "injury": null,
 "season_stats": {
@@ -7694,14 +7694,6 @@
 "powerplayAssists": 0,
 "powerplayPoints": 1
 }
-},
-{
-"name": "Konsta Helenius",
-"position": "rw",
-"group": "f3",
-"injury": null,
-"season_stats": {},
-"last5": {}
 },
 {
 "name": "Tyson Kozak",
@@ -7736,32 +7728,32 @@
 }
 },
 {
-"name": "Peyton Krebs",
+"name": "Isak Rosen",
 "position": "c",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 54,
-"goals": 6,
-"assists": 16,
-"points": 22,
-"blocks": 31,
-"toiMinutes": 732,
-"toiSeconds": 3,
-"shots": 61,
+"gamesPlayed": 13,
+"goals": 3,
+"assists": 4,
+"points": 7,
+"blocks": 9,
+"toiMinutes": 178,
+"toiSeconds": 57,
+"shots": 14,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 2,
+"powerplayPoints": 2
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 2,
-"points": 3,
-"blocks": 1,
-"toiMinutes": 57,
-"toiSeconds": 39,
-"shots": 4,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 2,
+"toiMinutes": 54,
+"toiSeconds": 16,
+"shots": 2,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -8842,7 +8834,7 @@
 "UTA": {
 "team": "UTA",
 "team_name": "Utah Mammoth",
-"updated_at": "2026-02-01T15:44:45.242Z",
+"updated_at": "2026-02-02T17:49:04.301Z",
 "forward_lines": [
 {
 "line": 1,
@@ -8881,11 +8873,11 @@
 "line": 4,
 "LW": "Brandon Tanev",
 "C": "Kevin Stenlund",
-"RW": "Daniil But",
+"RW": "Liam O'Brien",
 "players": [
 "Brandon Tanev",
 "Kevin Stenlund",
-"Daniil But"
+"Liam O'Brien"
 ]
 }
 ],
@@ -8933,7 +8925,7 @@
 "unit": 2,
 "players": [
 "Lawson Crouse",
-"Daniil But",
+"Kailer Yamamoto",
 "JJ Peterka",
 "Sean Durzi",
 "Michael Carcone"
@@ -9316,32 +9308,32 @@
 }
 },
 {
-"name": "Daniil But",
+"name": "Liam O'Brien",
 "position": "rw",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 27,
-"goals": 3,
-"assists": 3,
-"points": 6,
-"blocks": 18,
-"toiMinutes": 339,
-"toiSeconds": 39,
-"shots": 41,
-"powerplayGoals": 1,
-"powerplayAssists": 2,
-"powerplayPoints": 3
+"gamesPlayed": 30,
+"goals": 2,
+"assists": 1,
+"points": 3,
+"blocks": 11,
+"toiMinutes": 271,
+"toiSeconds": 50,
+"shots": 25,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
 "assists": 0,
 "points": 0,
-"blocks": 3,
-"toiMinutes": 58,
-"toiSeconds": 40,
-"shots": 6,
+"blocks": 0,
+"toiMinutes": 45,
+"toiSeconds": 55,
+"shots": 2,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -9800,32 +9792,32 @@
 }
 },
 {
-"name": "Daniil But",
+"name": "Kailer Yamamoto",
 "position": "sk2",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 27,
-"goals": 3,
-"assists": 3,
-"points": 6,
-"blocks": 18,
-"toiMinutes": 339,
-"toiSeconds": 39,
-"shots": 41,
-"powerplayGoals": 1,
-"powerplayAssists": 2,
-"powerplayPoints": 3
+"gamesPlayed": 32,
+"goals": 9,
+"assists": 7,
+"points": 16,
+"blocks": 8,
+"toiMinutes": 370,
+"toiSeconds": 51,
+"shots": 30,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 3,
-"toiMinutes": 58,
-"toiSeconds": 40,
-"shots": 6,
+"goals": 5,
+"assists": 2,
+"points": 7,
+"blocks": 2,
+"toiMinutes": 61,
+"toiSeconds": 54,
+"shots": 10,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -10252,7 +10244,7 @@
 "DAL": {
 "team": "DAL",
 "team_name": "Dallas Stars",
-"updated_at": "2026-02-01T15:43:03.157Z",
+"updated_at": "2026-02-02T17:11:40.486Z",
 "forward_lines": [
 {
 "line": 1,
@@ -10370,8 +10362,8 @@
 ]
 }
 ],
-"starting_goalie": "Casey DeSmith",
-"backup_goalie": "Jake Oettinger",
+"starting_goalie": "Jake Oettinger",
+"backup_goalie": "Casey DeSmith",
 "all_players": [
 {
 "name": "Justin Hryckowian",
@@ -10926,42 +10918,8 @@
 "last5": {}
 },
 {
-"name": "Casey DeSmith",
-"position": "g1",
-"group": "g",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 21,
-"goalieWins": 11,
-"goalieLosses": 4,
-"goalieOvertimeLosses": 5,
-"goalieShotsAgainst": 552,
-"goalieGoalsAgainst": 49,
-"goalieMinutes": 1239,
-"goalieSeconds": 49,
-"goalieSaves": 503,
-"goalieShutouts": 1,
-"goalieSavePercentage": "0.911",
-"goalieGoalsAgainstAvg": "2.37"
-},
-"last5": {
-"gamesPlayed": 5,
-"goalieWins": 2,
-"goalieLosses": 2,
-"goalieOvertimeLosses": 1,
-"goalieShotsAgainst": 115,
-"goalieGoalsAgainst": 11,
-"goalieMinutes": 295,
-"goalieSeconds": 36,
-"goalieSaves": 104,
-"goalieShutouts": 0,
-"goalieSavePercentage": "0.904",
-"goalieGoalsAgainstAvg": "2.23"
-}
-},
-{
 "name": "Jake Oettinger",
-"position": "g2",
+"position": "g1",
 "group": "g",
 "injury": null,
 "season_stats": {
@@ -10991,6 +10949,40 @@
 "goalieShutouts": 0,
 "goalieSavePercentage": "0.875",
 "goalieGoalsAgainstAvg": "2.77"
+}
+},
+{
+"name": "Casey DeSmith",
+"position": "g2",
+"group": "g",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 21,
+"goalieWins": 11,
+"goalieLosses": 4,
+"goalieOvertimeLosses": 5,
+"goalieShotsAgainst": 552,
+"goalieGoalsAgainst": 49,
+"goalieMinutes": 1239,
+"goalieSeconds": 49,
+"goalieSaves": 503,
+"goalieShutouts": 1,
+"goalieSavePercentage": "0.911",
+"goalieGoalsAgainstAvg": "2.37"
+},
+"last5": {
+"gamesPlayed": 5,
+"goalieWins": 2,
+"goalieLosses": 2,
+"goalieOvertimeLosses": 1,
+"goalieShotsAgainst": 115,
+"goalieGoalsAgainst": 11,
+"goalieMinutes": 295,
+"goalieSeconds": 36,
+"goalieSaves": 104,
+"goalieShutouts": 0,
+"goalieSavePercentage": "0.904",
+"goalieGoalsAgainstAvg": "2.23"
 }
 },
 {
@@ -15956,39 +15948,39 @@
 "WSH": {
 "team": "WSH",
 "team_name": "Washington Capitals",
-"updated_at": "2026-02-01T13:30:35.025Z",
+"updated_at": "2026-02-02T22:42:33.044Z",
 "forward_lines": [
 {
 "line": 1,
-"LW": "Aliaksei Protas",
+"LW": "Anthony Beauvillier",
 "C": "Dylan Strome",
-"RW": "Tom Wilson",
+"RW": "Alex Ovechkin",
 "players": [
-"Aliaksei Protas",
+"Anthony Beauvillier",
 "Dylan Strome",
-"Tom Wilson"
+"Alex Ovechkin"
 ]
 },
 {
 "line": 2,
-"LW": "Alex Ovechkin",
+"LW": "Aliaksei Protas",
 "C": "Justin Sourdif",
-"RW": "Anthony Beauvillier",
+"RW": "Tom Wilson",
 "players": [
-"Alex Ovechkin",
+"Aliaksei Protas",
 "Justin Sourdif",
-"Anthony Beauvillier"
+"Tom Wilson"
 ]
 },
 {
 "line": 3,
-"LW": "Ethen Frank",
+"LW": "Ryan Leonard",
 "C": "Nic Dowd",
-"RW": "Ryan Leonard",
+"RW": "Ethen Frank",
 "players": [
-"Ethen Frank",
+"Ryan Leonard",
 "Nic Dowd",
-"Ryan Leonard"
+"Ethen Frank"
 ]
 },
 {
@@ -16006,29 +15998,29 @@
 "defense_pairs": [
 {
 "pair": 1,
-"LD": "Rasmus Sandin",
+"LD": "Martin Fehervary",
 "RD": "John Carlson",
 "players": [
-"Rasmus Sandin",
+"Martin Fehervary",
 "John Carlson"
 ]
 },
 {
 "pair": 2,
 "LD": "Jakob Chychrun",
-"RD": "Trevor van Riemsdyk",
+"RD": "Matt Roy",
 "players": [
 "Jakob Chychrun",
-"Trevor van Riemsdyk"
+"Matt Roy"
 ]
 },
 {
 "pair": 3,
-"LD": "Declan Chisholm",
-"RD": "Dylan McIlrath",
+"LD": "Rasmus Sandin",
+"RD": "Trevor van Riemsdyk",
 "players": [
-"Declan Chisholm",
-"Dylan McIlrath"
+"Rasmus Sandin",
+"Trevor van Riemsdyk"
 ]
 }
 ],
@@ -16060,7 +16052,7 @@
 "players": [
 "Aliaksei Protas",
 "Tom Wilson",
-"Rasmus Sandin",
+"Martin Fehervary",
 "John Carlson"
 ]
 },
@@ -16069,8 +16061,8 @@
 "players": [
 "Nic Dowd",
 "Brandon Duhaime",
-"Jakob Chychrun",
-"Trevor van Riemsdyk"
+"Rasmus Sandin",
+"Matt Roy"
 ]
 }
 ],
@@ -16078,32 +16070,32 @@
 "backup_goalie": "Garin Bjorklund",
 "all_players": [
 {
-"name": "Aliaksei Protas",
+"name": "Anthony Beauvillier",
 "position": "lw",
 "group": "f1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 18,
-"assists": 18,
-"points": 36,
-"blocks": 31,
-"toiMinutes": 975,
-"toiSeconds": 12,
-"shots": 116,
+"gamesPlayed": 56,
+"goals": 10,
+"assists": 7,
+"points": 17,
+"blocks": 29,
+"toiMinutes": 877,
+"toiSeconds": 13,
+"shots": 118,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 2,
-"assists": 2,
-"points": 4,
+"goals": 1,
+"assists": 0,
+"points": 1,
 "blocks": 4,
-"toiMinutes": 94,
-"toiSeconds": 45,
-"shots": 13,
+"toiMinutes": 74,
+"toiSeconds": 43,
+"shots": 9,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -16142,41 +16134,9 @@
 }
 },
 {
-"name": "Tom Wilson",
+"name": "Alex Ovechkin",
 "position": "rw",
 "group": "f1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 47,
-"goals": 22,
-"assists": 25,
-"points": 47,
-"blocks": 28,
-"toiMinutes": 911,
-"toiSeconds": 50,
-"shots": 102,
-"powerplayGoals": 7,
-"powerplayAssists": 4,
-"powerplayPoints": 11
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 4,
-"points": 4,
-"blocks": 4,
-"toiMinutes": 97,
-"toiSeconds": 19,
-"shots": 4,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
-}
-},
-{
-"name": "Alex Ovechkin",
-"position": "lw",
-"group": "f2",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 56,
@@ -16203,6 +16163,38 @@
 "powerplayGoals": 1,
 "powerplayAssists": 0,
 "powerplayPoints": 1
+}
+},
+{
+"name": "Aliaksei Protas",
+"position": "lw",
+"group": "f2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 53,
+"goals": 18,
+"assists": 18,
+"points": 36,
+"blocks": 31,
+"toiMinutes": 975,
+"toiSeconds": 12,
+"shots": 116,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 2,
+"assists": 2,
+"points": 4,
+"blocks": 4,
+"toiMinutes": 94,
+"toiSeconds": 45,
+"shots": 13,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -16238,67 +16230,67 @@
 }
 },
 {
-"name": "Anthony Beauvillier",
+"name": "Tom Wilson",
 "position": "rw",
 "group": "f2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 56,
-"goals": 10,
-"assists": 7,
-"points": 17,
-"blocks": 29,
-"toiMinutes": 877,
-"toiSeconds": 13,
-"shots": 118,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 0,
-"points": 1,
-"blocks": 4,
-"toiMinutes": 74,
-"toiSeconds": 43,
-"shots": 9,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Ethen Frank",
-"position": "lw",
-"group": "f3",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 45,
-"goals": 11,
-"assists": 11,
-"points": 22,
-"blocks": 27,
-"toiMinutes": 570,
-"toiSeconds": 37,
-"shots": 70,
-"powerplayGoals": 2,
-"powerplayAssists": 2,
-"powerplayPoints": 4
+"gamesPlayed": 47,
+"goals": 22,
+"assists": 25,
+"points": 47,
+"blocks": 28,
+"toiMinutes": 911,
+"toiSeconds": 50,
+"shots": 102,
+"powerplayGoals": 7,
+"powerplayAssists": 4,
+"powerplayPoints": 11
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 2,
-"toiMinutes": 63,
-"toiSeconds": 21,
+"assists": 4,
+"points": 4,
+"blocks": 4,
+"toiMinutes": 97,
+"toiSeconds": 19,
 "shots": 4,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
+}
+},
+{
+"name": "Ryan Leonard",
+"position": "lw",
+"group": "f3",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 49,
+"goals": 10,
+"assists": 20,
+"points": 30,
+"blocks": 18,
+"toiMinutes": 708,
+"toiSeconds": 11,
+"shots": 97,
+"powerplayGoals": 1,
+"powerplayAssists": 8,
+"powerplayPoints": 9
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 4,
+"toiMinutes": 79,
+"toiSeconds": 24,
+"shots": 13,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
@@ -16334,35 +16326,35 @@
 }
 },
 {
-"name": "Ryan Leonard",
+"name": "Ethen Frank",
 "position": "rw",
 "group": "f3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 49,
-"goals": 10,
-"assists": 20,
-"points": 30,
-"blocks": 18,
-"toiMinutes": 708,
-"toiSeconds": 11,
-"shots": 97,
-"powerplayGoals": 1,
-"powerplayAssists": 8,
-"powerplayPoints": 9
+"gamesPlayed": 45,
+"goals": 11,
+"assists": 11,
+"points": 22,
+"blocks": 27,
+"toiMinutes": 570,
+"toiSeconds": 37,
+"shots": 70,
+"powerplayGoals": 2,
+"powerplayAssists": 2,
+"powerplayPoints": 4
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 4,
-"toiMinutes": 79,
-"toiSeconds": 24,
-"shots": 13,
+"assists": 2,
+"points": 2,
+"blocks": 2,
+"toiMinutes": 63,
+"toiSeconds": 21,
+"shots": 4,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -16462,19 +16454,19 @@
 }
 },
 {
-"name": "Rasmus Sandin",
+"name": "Martin Fehervary",
 "position": "ld",
 "group": "d1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 49,
-"goals": 2,
-"assists": 15,
-"points": 17,
-"blocks": 82,
-"toiMinutes": 924,
-"toiSeconds": 31,
-"shots": 61,
+"gamesPlayed": 55,
+"goals": 3,
+"assists": 16,
+"points": 19,
+"blocks": 115,
+"toiMinutes": 1044,
+"toiSeconds": 50,
+"shots": 57,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -16482,12 +16474,12 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 9,
-"toiMinutes": 85,
-"toiSeconds": 31,
-"shots": 9,
+"assists": 2,
+"points": 2,
+"blocks": 14,
+"toiMinutes": 97,
+"toiSeconds": 0,
+"shots": 5,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -16558,9 +16550,73 @@
 }
 },
 {
-"name": "Trevor van Riemsdyk",
+"name": "Matt Roy",
 "position": "rd",
 "group": "d2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 53,
+"goals": 1,
+"assists": 13,
+"points": 14,
+"blocks": 106,
+"toiMinutes": 1100,
+"toiSeconds": 45,
+"shots": 67,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 8,
+"toiMinutes": 103,
+"toiSeconds": 8,
+"shots": 5,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Rasmus Sandin",
+"position": "ld",
+"group": "d3",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 49,
+"goals": 2,
+"assists": 15,
+"points": 17,
+"blocks": 82,
+"toiMinutes": 924,
+"toiSeconds": 31,
+"shots": 61,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 9,
+"toiMinutes": 85,
+"toiSeconds": 31,
+"shots": 9,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Trevor van Riemsdyk",
+"position": "rd",
+"group": "d3",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 42,
@@ -16584,70 +16640,6 @@
 "toiMinutes": 84,
 "toiSeconds": 41,
 "shots": 3,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Declan Chisholm",
-"position": "ld",
-"group": "d3",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 21,
-"goals": 1,
-"assists": 3,
-"points": 4,
-"blocks": 19,
-"toiMinutes": 292,
-"toiSeconds": 8,
-"shots": 19,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 0,
-"points": 1,
-"blocks": 5,
-"toiMinutes": 55,
-"toiSeconds": 21,
-"shots": 4,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Dylan McIlrath",
-"position": "rd",
-"group": "d3",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 11,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 6,
-"toiMinutes": 101,
-"toiSeconds": 5,
-"shots": 4,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 2,
-"toiMinutes": 39,
-"toiSeconds": 19,
-"shots": 2,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -17206,38 +17198,6 @@
 }
 },
 {
-"name": "Martin Fehervary",
-"position": "ir6",
-"group": "ir",
-"injury": "out",
-"season_stats": {
-"gamesPlayed": 55,
-"goals": 3,
-"assists": 16,
-"points": 19,
-"blocks": 115,
-"toiMinutes": 1044,
-"toiSeconds": 50,
-"shots": 57,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 14,
-"toiMinutes": 97,
-"toiSeconds": 0,
-"shots": 5,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
 "name": "Aliaksei Protas",
 "position": "sk1",
 "group": "pk1",
@@ -17302,19 +17262,19 @@
 }
 },
 {
-"name": "Rasmus Sandin",
+"name": "Martin Fehervary",
 "position": "sk3",
 "group": "pk1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 49,
-"goals": 2,
-"assists": 15,
-"points": 17,
-"blocks": 82,
-"toiMinutes": 924,
-"toiSeconds": 31,
-"shots": 61,
+"gamesPlayed": 55,
+"goals": 3,
+"assists": 16,
+"points": 19,
+"blocks": 115,
+"toiMinutes": 1044,
+"toiSeconds": 50,
+"shots": 57,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -17322,12 +17282,12 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 9,
-"toiMinutes": 85,
-"toiSeconds": 31,
-"shots": 9,
+"assists": 2,
+"points": 2,
+"blocks": 14,
+"toiMinutes": 97,
+"toiSeconds": 0,
+"shots": 5,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -17430,51 +17390,51 @@
 }
 },
 {
-"name": "Jakob Chychrun",
+"name": "Rasmus Sandin",
 "position": "sk3",
 "group": "pk2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 54,
-"goals": 19,
-"assists": 24,
-"points": 43,
-"blocks": 74,
-"toiMinutes": 1271,
-"toiSeconds": 47,
-"shots": 173,
-"powerplayGoals": 5,
-"powerplayAssists": 7,
-"powerplayPoints": 12
+"gamesPlayed": 49,
+"goals": 2,
+"assists": 15,
+"points": 17,
+"blocks": 82,
+"toiMinutes": 924,
+"toiSeconds": 31,
+"shots": 61,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 6,
-"points": 7,
-"blocks": 8,
-"toiMinutes": 124,
-"toiSeconds": 18,
-"shots": 12,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 9,
+"toiMinutes": 85,
+"toiSeconds": 31,
+"shots": 9,
 "powerplayGoals": 0,
-"powerplayAssists": 2,
-"powerplayPoints": 2
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
-"name": "Trevor van Riemsdyk",
+"name": "Matt Roy",
 "position": "sk4",
 "group": "pk2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 42,
+"gamesPlayed": 53,
 "goals": 1,
-"assists": 5,
-"points": 6,
-"blocks": 58,
-"toiMinutes": 653,
-"toiSeconds": 18,
-"shots": 23,
+"assists": 13,
+"points": 14,
+"blocks": 106,
+"toiMinutes": 1100,
+"toiSeconds": 45,
+"shots": 67,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -17484,10 +17444,10 @@
 "goals": 0,
 "assists": 0,
 "points": 0,
-"blocks": 10,
-"toiMinutes": 84,
-"toiSeconds": 41,
-"shots": 3,
+"blocks": 8,
+"toiMinutes": 103,
+"toiSeconds": 8,
+"shots": 5,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -17498,7 +17458,7 @@
 "CHI": {
 "team": "CHI",
 "team_name": "Chicago Blackhawks",
-"updated_at": "2026-01-31T01:11:11.179Z",
+"updated_at": "2026-02-02T17:10:33.127Z",
 "forward_lines": [
 {
 "line": 1,
@@ -17535,13 +17495,13 @@
 },
 {
 "line": 4,
-"LW": "Landon Slaggert",
+"LW": "Colton Dach",
 "C": "Oliver Moore",
-"RW": "Sam Lafferty",
+"RW": "Landon Slaggert",
 "players": [
-"Landon Slaggert",
+"Colton Dach",
 "Oliver Moore",
-"Sam Lafferty"
+"Landon Slaggert"
 ]
 }
 ],
@@ -17579,7 +17539,7 @@
 "unit": 1,
 "players": [
 "Tyler Bertuzzi",
-"Oliver Moore",
+"Frank Nazar",
 "Teuvo Teravainen",
 "Connor Bedard",
 "Sam Rinzel"
@@ -17588,11 +17548,11 @@
 {
 "unit": 2,
 "players": [
-"Colton Dach",
-"Frank Nazar",
+"Ryan Greene",
+"Oliver Moore",
 "Ryan Donato",
-"Matt Grzelcyk",
-"Andre Burakovsky"
+"Andre Burakovsky",
+"Matt Grzelcyk"
 ]
 }
 ],
@@ -17908,12 +17868,36 @@
 }
 },
 {
-"name": "Landon Slaggert",
+"name": "Colton Dach",
 "position": "lw",
 "group": "f4",
 "injury": null,
-"season_stats": {},
-"last5": {}
+"season_stats": {
+"gamesPlayed": 50,
+"goals": 3,
+"assists": 6,
+"points": 9,
+"blocks": 27,
+"toiMinutes": 596,
+"toiSeconds": 46,
+"shots": 50,
+"powerplayGoals": 1,
+"powerplayAssists": 1,
+"powerplayPoints": 2
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 3,
+"toiMinutes": 50,
+"toiSeconds": 11,
+"shots": 3,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
 },
 {
 "name": "Oliver Moore",
@@ -17948,36 +17932,12 @@
 }
 },
 {
-"name": "Sam Lafferty",
+"name": "Landon Slaggert",
 "position": "rw",
 "group": "f4",
 "injury": null,
-"season_stats": {
-"gamesPlayed": 19,
-"goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 3,
-"toiMinutes": 168,
-"toiSeconds": 55,
-"shots": 6,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 2,
-"toiMinutes": 45,
-"toiSeconds": 5,
-"shots": 4,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
+"season_stats": {},
+"last5": {}
 },
 {
 "name": "Alex Vlasic",
@@ -18248,32 +18208,32 @@
 }
 },
 {
-"name": "Oliver Moore",
+"name": "Frank Nazar",
 "position": "sk2",
 "group": "pp1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 43,
-"goals": 5,
-"assists": 11,
-"points": 16,
-"blocks": 13,
-"toiMinutes": 566,
-"toiSeconds": 15,
-"shots": 50,
-"powerplayGoals": 2,
-"powerplayAssists": 3,
-"powerplayPoints": 5
+"gamesPlayed": 39,
+"goals": 7,
+"assists": 17,
+"points": 24,
+"blocks": 26,
+"toiMinutes": 720,
+"toiSeconds": 52,
+"shots": 84,
+"powerplayGoals": 1,
+"powerplayAssists": 5,
+"powerplayPoints": 6
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
+"goals": 1,
+"assists": 2,
+"points": 3,
 "blocks": 1,
-"toiMinutes": 68,
-"toiSeconds": 43,
-"shots": 4,
+"toiMinutes": 100,
+"toiSeconds": 8,
+"shots": 14,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -18376,64 +18336,64 @@
 }
 },
 {
-"name": "Colton Dach",
+"name": "Ryan Greene",
 "position": "sk1",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 50,
-"goals": 3,
-"assists": 6,
-"points": 9,
-"blocks": 27,
-"toiMinutes": 596,
-"toiSeconds": 46,
-"shots": 50,
+"gamesPlayed": 55,
+"goals": 7,
+"assists": 13,
+"points": 20,
+"blocks": 25,
+"toiMinutes": 909,
+"toiSeconds": 28,
+"shots": 73,
 "powerplayGoals": 1,
-"powerplayAssists": 1,
-"powerplayPoints": 2
+"powerplayAssists": 3,
+"powerplayPoints": 4
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
+"goals": 1,
 "assists": 1,
-"points": 1,
-"blocks": 3,
-"toiMinutes": 50,
-"toiSeconds": 11,
-"shots": 3,
+"points": 2,
+"blocks": 2,
+"toiMinutes": 70,
+"toiSeconds": 7,
+"shots": 6,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
 }
 },
 {
-"name": "Frank Nazar",
+"name": "Oliver Moore",
 "position": "sk2",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 39,
-"goals": 7,
-"assists": 17,
-"points": 24,
-"blocks": 26,
-"toiMinutes": 720,
-"toiSeconds": 52,
-"shots": 84,
-"powerplayGoals": 1,
-"powerplayAssists": 5,
-"powerplayPoints": 6
+"gamesPlayed": 43,
+"goals": 5,
+"assists": 11,
+"points": 16,
+"blocks": 13,
+"toiMinutes": 566,
+"toiSeconds": 15,
+"shots": 50,
+"powerplayGoals": 2,
+"powerplayAssists": 3,
+"powerplayPoints": 5
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 2,
-"points": 3,
+"goals": 0,
+"assists": 1,
+"points": 1,
 "blocks": 1,
-"toiMinutes": 100,
-"toiSeconds": 8,
-"shots": 14,
+"toiMinutes": 68,
+"toiSeconds": 43,
+"shots": 4,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -18472,40 +18432,8 @@
 }
 },
 {
-"name": "Matt Grzelcyk",
-"position": "sk4",
-"group": "pp2",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 55,
-"goals": 0,
-"assists": 11,
-"points": 11,
-"blocks": 41,
-"toiMinutes": 935,
-"toiSeconds": 16,
-"shots": 57,
-"powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 4,
-"toiMinutes": 86,
-"toiSeconds": 41,
-"shots": 4,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
 "name": "Andre Burakovsky",
-"position": "sk5",
+"position": "sk4",
 "group": "pp2",
 "injury": null,
 "season_stats": {
@@ -18530,6 +18458,38 @@
 "toiMinutes": 72,
 "toiSeconds": 30,
 "shots": 6,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Matt Grzelcyk",
+"position": "sk5",
+"group": "pp2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 55,
+"goals": 0,
+"assists": 11,
+"points": 11,
+"blocks": 41,
+"toiMinutes": 935,
+"toiSeconds": 16,
+"shots": 57,
+"powerplayGoals": 0,
+"powerplayAssists": 3,
+"powerplayPoints": 3
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 4,
+"toiMinutes": 86,
+"toiSeconds": 41,
+"shots": 4,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -18780,7 +18740,7 @@
 "CGY": {
 "team": "CGY",
 "team_name": "Calgary Flames",
-"updated_at": "2026-02-01T14:58:32.826Z",
+"updated_at": "2026-02-02T17:46:16.414Z",
 "forward_lines": [
 {
 "line": 1,
@@ -18849,10 +18809,10 @@
 {
 "pair": 3,
 "LD": "Joel Hanley",
-"RD": "Brayden Pachal",
+"RD": "Zayne Parekh",
 "players": [
 "Joel Hanley",
-"Brayden Pachal"
+"Zayne Parekh"
 ]
 }
 ],
@@ -18873,7 +18833,7 @@
 "Morgan Frost",
 "Mikael Backlund",
 "Connor Zary",
-"Kevin Bahl",
+"Zayne Parekh",
 "Yegor Sharangovich"
 ]
 }
@@ -19446,35 +19406,35 @@
 }
 },
 {
-"name": "Brayden Pachal",
+"name": "Zayne Parekh",
 "position": "rd",
 "group": "d3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 26,
+"gamesPlayed": 11,
 "goals": 0,
-"assists": 3,
-"points": 3,
-"blocks": 22,
-"toiMinutes": 341,
-"toiSeconds": 0,
-"shots": 19,
+"assists": 1,
+"points": 1,
+"blocks": 5,
+"toiMinutes": 162,
+"toiSeconds": 24,
+"shots": 11,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 4,
-"toiMinutes": 59,
-"toiSeconds": 38,
-"shots": 6,
+"assists": 1,
+"points": 1,
+"blocks": 1,
+"toiMinutes": 66,
+"toiSeconds": 20,
+"shots": 2,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
@@ -19802,35 +19762,35 @@
 }
 },
 {
-"name": "Kevin Bahl",
+"name": "Zayne Parekh",
 "position": "sk4",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 3,
-"assists": 10,
-"points": 13,
-"blocks": 79,
-"toiMinutes": 1156,
-"toiSeconds": 36,
-"shots": 44,
+"gamesPlayed": 11,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 5,
+"toiMinutes": 162,
+"toiSeconds": 24,
+"shots": 11,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 7,
-"toiMinutes": 123,
-"toiSeconds": 59,
-"shots": 4,
+"assists": 1,
+"points": 1,
+"blocks": 1,
+"toiMinutes": 66,
+"toiSeconds": 20,
+"shots": 2,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
@@ -19991,38 +19951,6 @@
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
-}
-},
-{
-"name": "Zayne Parekh",
-"position": "ir5",
-"group": "ir",
-"injury": "out",
-"season_stats": {
-"gamesPlayed": 11,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 5,
-"toiMinutes": 162,
-"toiSeconds": 24,
-"shots": 11,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 1,
-"toiMinutes": 66,
-"toiSeconds": 20,
-"shots": 2,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
 }
 },
 {
@@ -20286,17 +20214,17 @@
 "WPG": {
 "team": "WPG",
 "team_name": "Winnipeg Jets",
-"updated_at": "2026-02-01T14:45:25.725Z",
+"updated_at": "2026-02-02T20:52:20.018Z",
 "forward_lines": [
 {
 "line": 1,
 "LW": "Kyle Connor",
 "C": "Mark Scheifele",
-"RW": "Alex Iafallo",
+"RW": "Gustav Nyquist",
 "players": [
 "Kyle Connor",
 "Mark Scheifele",
-"Alex Iafallo"
+"Gustav Nyquist"
 ]
 },
 {
@@ -20325,11 +20253,11 @@
 "line": 4,
 "LW": "Cole Koepke",
 "C": "Morgan Barron",
-"RW": "Gustav Nyquist",
+"RW": "Alex Iafallo",
 "players": [
 "Cole Koepke",
 "Morgan Barron",
-"Gustav Nyquist"
+"Alex Iafallo"
 ]
 }
 ],
@@ -20472,35 +20400,35 @@
 }
 },
 {
-"name": "Alex Iafallo",
+"name": "Gustav Nyquist",
 "position": "rw",
 "group": "f1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 54,
-"goals": 9,
-"assists": 11,
-"points": 20,
-"blocks": 39,
-"toiMinutes": 825,
-"toiSeconds": 47,
-"shots": 69,
-"powerplayGoals": 2,
-"powerplayAssists": 2,
-"powerplayPoints": 4
+"gamesPlayed": 33,
+"goals": 0,
+"assists": 9,
+"points": 9,
+"blocks": 15,
+"toiMinutes": 427,
+"toiSeconds": 50,
+"shots": 41,
+"powerplayGoals": 0,
+"powerplayAssists": 5,
+"powerplayPoints": 5
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 4,
-"toiMinutes": 78,
-"toiSeconds": 15,
-"shots": 1,
+"assists": 2,
+"points": 2,
+"blocks": 2,
+"toiMinutes": 68,
+"toiSeconds": 56,
+"shots": 4,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
@@ -20760,35 +20688,35 @@
 }
 },
 {
-"name": "Gustav Nyquist",
+"name": "Alex Iafallo",
 "position": "rw",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 33,
-"goals": 0,
-"assists": 9,
-"points": 9,
-"blocks": 15,
-"toiMinutes": 427,
-"toiSeconds": 50,
-"shots": 41,
-"powerplayGoals": 0,
-"powerplayAssists": 5,
-"powerplayPoints": 5
+"gamesPlayed": 54,
+"goals": 9,
+"assists": 11,
+"points": 20,
+"blocks": 39,
+"toiMinutes": 825,
+"toiSeconds": 47,
+"shots": 69,
+"powerplayGoals": 2,
+"powerplayAssists": 2,
+"powerplayPoints": 4
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 2,
-"toiMinutes": 68,
-"toiSeconds": 56,
-"shots": 4,
+"assists": 1,
+"points": 1,
+"blocks": 4,
+"toiMinutes": 78,
+"toiSeconds": 15,
+"shots": 1,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -21728,39 +21656,39 @@
 "NYI": {
 "team": "NYI",
 "team_name": "New York Islanders",
-"updated_at": "2026-02-01T15:31:56.953Z",
+"updated_at": "2026-02-02T16:42:37.928Z",
 "forward_lines": [
 {
 "line": 1,
 "LW": "Ondrej Palat",
 "C": "Bo Horvat",
-"RW": "Emil Heineman",
+"RW": "Mathew Barzal",
 "players": [
 "Ondrej Palat",
 "Bo Horvat",
-"Emil Heineman"
+"Mathew Barzal"
 ]
 },
 {
 "line": 2,
-"LW": "Maxim Shabanov",
-"C": "Mathew Barzal",
-"RW": "Anthony Duclair",
+"LW": "Emil Heineman",
+"C": "Jonathan Drouin",
+"RW": "Simon Holmstrom",
 "players": [
-"Maxim Shabanov",
-"Mathew Barzal",
-"Anthony Duclair"
+"Emil Heineman",
+"Jonathan Drouin",
+"Simon Holmstrom"
 ]
 },
 {
 "line": 3,
 "LW": "Anders Lee",
 "C": "Jean-Gabriel Pageau",
-"RW": "Simon Holmstrom",
+"RW": "Anthony Duclair",
 "players": [
 "Anders Lee",
 "Jean-Gabriel Pageau",
-"Simon Holmstrom"
+"Anthony Duclair"
 ]
 },
 {
@@ -21808,21 +21736,21 @@
 {
 "unit": 1,
 "players": [
-"Anders Lee",
-"Mathew Barzal",
-"Maxim Shabanov",
-"Tony DeAngelo",
-"Anthony Duclair"
+"Ondrej Palat",
+"Bo Horvat",
+"Simon Holmstrom",
+"Matthew Schaefer",
+"Mathew Barzal"
 ]
 },
 {
 "unit": 2,
 "players": [
-"Ondrej Palat",
-"Bo Horvat",
 "Emil Heineman",
-"Matthew Schaefer",
-"Simon Holmstrom"
+"Anders Lee",
+"Anthony Duclair",
+"Tony DeAngelo",
+"Jonathan Drouin"
 ]
 }
 ],
@@ -21914,73 +21842,9 @@
 }
 },
 {
-"name": "Emil Heineman",
+"name": "Mathew Barzal",
 "position": "rw",
 "group": "f1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 54,
-"goals": 15,
-"assists": 8,
-"points": 23,
-"blocks": 37,
-"toiMinutes": 911,
-"toiSeconds": 29,
-"shots": 121,
-"powerplayGoals": 2,
-"powerplayAssists": 0,
-"powerplayPoints": 2
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 0,
-"points": 1,
-"blocks": 1,
-"toiMinutes": 92,
-"toiSeconds": 1,
-"shots": 15,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Maxim Shabanov",
-"position": "lw",
-"group": "f2",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 39,
-"goals": 4,
-"assists": 12,
-"points": 16,
-"blocks": 13,
-"toiMinutes": 543,
-"toiSeconds": 27,
-"shots": 51,
-"powerplayGoals": 0,
-"powerplayAssists": 5,
-"powerplayPoints": 5
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 2,
-"toiMinutes": 63,
-"toiSeconds": 4,
-"shots": 12,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Mathew Barzal",
-"position": "c",
-"group": "f2",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 53,
@@ -22010,35 +21874,99 @@
 }
 },
 {
-"name": "Anthony Duclair",
-"position": "rw",
+"name": "Emil Heineman",
+"position": "lw",
 "group": "f2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 51,
-"goals": 12,
-"assists": 12,
-"points": 24,
-"blocks": 34,
-"toiMinutes": 693,
-"toiSeconds": 32,
-"shots": 64,
-"powerplayGoals": 4,
-"powerplayAssists": 1,
-"powerplayPoints": 5
+"gamesPlayed": 54,
+"goals": 15,
+"assists": 8,
+"points": 23,
+"blocks": 37,
+"toiMinutes": 911,
+"toiSeconds": 29,
+"shots": 121,
+"powerplayGoals": 2,
+"powerplayAssists": 0,
+"powerplayPoints": 2
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 6,
-"toiMinutes": 76,
-"toiSeconds": 10,
-"shots": 4,
-"powerplayGoals": 1,
+"assists": 0,
+"points": 1,
+"blocks": 1,
+"toiMinutes": 92,
+"toiSeconds": 1,
+"shots": 15,
+"powerplayGoals": 0,
 "powerplayAssists": 0,
-"powerplayPoints": 1
+"powerplayPoints": 0
+}
+},
+{
+"name": "Jonathan Drouin",
+"position": "c",
+"group": "f2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 47,
+"goals": 3,
+"assists": 17,
+"points": 20,
+"blocks": 19,
+"toiMinutes": 823,
+"toiSeconds": 39,
+"shots": 63,
+"powerplayGoals": 0,
+"powerplayAssists": 4,
+"powerplayPoints": 4
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 4,
+"toiMinutes": 82,
+"toiSeconds": 6,
+"shots": 7,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Simon Holmstrom",
+"position": "rw",
+"group": "f2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 53,
+"goals": 13,
+"assists": 14,
+"points": 27,
+"blocks": 36,
+"toiMinutes": 872,
+"toiSeconds": 40,
+"shots": 60,
+"powerplayGoals": 0,
+"powerplayAssists": 3,
+"powerplayPoints": 3
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 2,
+"toiMinutes": 90,
+"toiSeconds": 6,
+"shots": 6,
+"powerplayGoals": 0,
+"powerplayAssists": 2,
+"powerplayPoints": 2
 }
 },
 {
@@ -22106,35 +22034,35 @@
 }
 },
 {
-"name": "Simon Holmstrom",
+"name": "Anthony Duclair",
 "position": "rw",
 "group": "f3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 13,
-"assists": 14,
-"points": 27,
-"blocks": 36,
-"toiMinutes": 872,
-"toiSeconds": 40,
-"shots": 60,
-"powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
+"gamesPlayed": 51,
+"goals": 12,
+"assists": 12,
+"points": 24,
+"blocks": 34,
+"toiMinutes": 693,
+"toiSeconds": 32,
+"shots": 64,
+"powerplayGoals": 4,
+"powerplayAssists": 1,
+"powerplayPoints": 5
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 3,
-"points": 4,
-"blocks": 2,
-"toiMinutes": 90,
-"toiSeconds": 6,
-"shots": 6,
-"powerplayGoals": 0,
-"powerplayAssists": 2,
-"powerplayPoints": 2
+"assists": 1,
+"points": 2,
+"blocks": 6,
+"toiMinutes": 76,
+"toiSeconds": 10,
+"shots": 4,
+"powerplayGoals": 1,
+"powerplayAssists": 0,
+"powerplayPoints": 1
 }
 },
 {
@@ -22470,169 +22398,9 @@
 }
 },
 {
-"name": "Anders Lee",
-"position": "sk1",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 54,
-"goals": 11,
-"assists": 18,
-"points": 29,
-"blocks": 27,
-"toiMinutes": 839,
-"toiSeconds": 40,
-"shots": 133,
-"powerplayGoals": 3,
-"powerplayAssists": 2,
-"powerplayPoints": 5
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 2,
-"toiMinutes": 72,
-"toiSeconds": 38,
-"shots": 10,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Mathew Barzal",
-"position": "sk2",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 53,
-"goals": 13,
-"assists": 31,
-"points": 44,
-"blocks": 35,
-"toiMinutes": 1101,
-"toiSeconds": 0,
-"shots": 117,
-"powerplayGoals": 2,
-"powerplayAssists": 11,
-"powerplayPoints": 13
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 2,
-"assists": 2,
-"points": 4,
-"blocks": 4,
-"toiMinutes": 89,
-"toiSeconds": 52,
-"shots": 11,
-"powerplayGoals": 1,
-"powerplayAssists": 1,
-"powerplayPoints": 2
-}
-},
-{
-"name": "Maxim Shabanov",
-"position": "sk3",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 39,
-"goals": 4,
-"assists": 12,
-"points": 16,
-"blocks": 13,
-"toiMinutes": 543,
-"toiSeconds": 27,
-"shots": 51,
-"powerplayGoals": 0,
-"powerplayAssists": 5,
-"powerplayPoints": 5
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 1,
-"points": 1,
-"blocks": 2,
-"toiMinutes": 63,
-"toiSeconds": 4,
-"shots": 12,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Tony DeAngelo",
-"position": "sk4",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 54,
-"goals": 3,
-"assists": 20,
-"points": 23,
-"blocks": 45,
-"toiMinutes": 1002,
-"toiSeconds": 38,
-"shots": 101,
-"powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 0,
-"assists": 2,
-"points": 2,
-"blocks": 3,
-"toiMinutes": 104,
-"toiSeconds": 9,
-"shots": 14,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Anthony Duclair",
-"position": "sk5",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 51,
-"goals": 12,
-"assists": 12,
-"points": 24,
-"blocks": 34,
-"toiMinutes": 693,
-"toiSeconds": 32,
-"shots": 64,
-"powerplayGoals": 4,
-"powerplayAssists": 1,
-"powerplayPoints": 5
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 6,
-"toiMinutes": 76,
-"toiSeconds": 10,
-"shots": 4,
-"powerplayGoals": 1,
-"powerplayAssists": 0,
-"powerplayPoints": 1
-}
-},
-{
 "name": "Ondrej Palat",
 "position": "sk1",
-"group": "pp2",
+"group": "pp1",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 54,
@@ -22664,7 +22432,7 @@
 {
 "name": "Bo Horvat",
 "position": "sk2",
-"group": "pp2",
+"group": "pp1",
 "injury": null,
 "season_stats": {
 "gamesPlayed": 40,
@@ -22694,8 +22462,80 @@
 }
 },
 {
-"name": "Emil Heineman",
+"name": "Simon Holmstrom",
 "position": "sk3",
+"group": "pp1",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 53,
+"goals": 13,
+"assists": 14,
+"points": 27,
+"blocks": 36,
+"toiMinutes": 872,
+"toiSeconds": 40,
+"shots": 60,
+"powerplayGoals": 0,
+"powerplayAssists": 3,
+"powerplayPoints": 3
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 2,
+"toiMinutes": 90,
+"toiSeconds": 6,
+"shots": 6,
+"powerplayGoals": 0,
+"powerplayAssists": 2,
+"powerplayPoints": 2
+}
+},
+{
+"name": "Matthew Schaefer",
+"position": "sk4",
+"group": "pp1",
+"injury": null,
+"season_stats": {},
+"last5": {}
+},
+{
+"name": "Mathew Barzal",
+"position": "sk5",
+"group": "pp1",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 53,
+"goals": 13,
+"assists": 31,
+"points": 44,
+"blocks": 35,
+"toiMinutes": 1101,
+"toiSeconds": 0,
+"shots": 117,
+"powerplayGoals": 2,
+"powerplayAssists": 11,
+"powerplayPoints": 13
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 2,
+"assists": 2,
+"points": 4,
+"blocks": 4,
+"toiMinutes": 89,
+"toiSeconds": 52,
+"shots": 11,
+"powerplayGoals": 1,
+"powerplayAssists": 1,
+"powerplayPoints": 2
+}
+},
+{
+"name": "Emil Heineman",
+"position": "sk1",
 "group": "pp2",
 "injury": null,
 "season_stats": {
@@ -22726,43 +22566,131 @@
 }
 },
 {
-"name": "Matthew Schaefer",
-"position": "sk4",
-"group": "pp2",
-"injury": null,
-"season_stats": {},
-"last5": {}
-},
-{
-"name": "Simon Holmstrom",
-"position": "sk5",
+"name": "Anders Lee",
+"position": "sk2",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 53,
-"goals": 13,
-"assists": 14,
-"points": 27,
-"blocks": 36,
-"toiMinutes": 872,
+"gamesPlayed": 54,
+"goals": 11,
+"assists": 18,
+"points": 29,
+"blocks": 27,
+"toiMinutes": 839,
 "toiSeconds": 40,
-"shots": 60,
+"shots": 133,
+"powerplayGoals": 3,
+"powerplayAssists": 2,
+"powerplayPoints": 5
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 1,
+"points": 1,
+"blocks": 2,
+"toiMinutes": 72,
+"toiSeconds": 38,
+"shots": 10,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Anthony Duclair",
+"position": "sk3",
+"group": "pp2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 51,
+"goals": 12,
+"assists": 12,
+"points": 24,
+"blocks": 34,
+"toiMinutes": 693,
+"toiSeconds": 32,
+"shots": 64,
+"powerplayGoals": 4,
+"powerplayAssists": 1,
+"powerplayPoints": 5
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 1,
+"points": 2,
+"blocks": 6,
+"toiMinutes": 76,
+"toiSeconds": 10,
+"shots": 4,
+"powerplayGoals": 1,
+"powerplayAssists": 0,
+"powerplayPoints": 1
+}
+},
+{
+"name": "Tony DeAngelo",
+"position": "sk4",
+"group": "pp2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 54,
+"goals": 3,
+"assists": 20,
+"points": 23,
+"blocks": 45,
+"toiMinutes": 1002,
+"toiSeconds": 38,
+"shots": 101,
 "powerplayGoals": 0,
 "powerplayAssists": 3,
 "powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 3,
-"points": 4,
-"blocks": 2,
-"toiMinutes": 90,
-"toiSeconds": 6,
-"shots": 6,
+"goals": 0,
+"assists": 2,
+"points": 2,
+"blocks": 3,
+"toiMinutes": 104,
+"toiSeconds": 9,
+"shots": 14,
 "powerplayGoals": 0,
-"powerplayAssists": 2,
-"powerplayPoints": 2
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Jonathan Drouin",
+"position": "sk5",
+"group": "pp2",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 47,
+"goals": 3,
+"assists": 17,
+"points": 20,
+"blocks": 19,
+"toiMinutes": 823,
+"toiSeconds": 39,
+"shots": 63,
+"powerplayGoals": 0,
+"powerplayAssists": 4,
+"powerplayPoints": 4
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 4,
+"toiMinutes": 82,
+"toiSeconds": 6,
+"shots": 7,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -24694,7 +24622,7 @@
 "STL": {
 "team": "STL",
 "team_name": "St Louis Blues",
-"updated_at": "2026-02-01T15:36:59.357Z",
+"updated_at": "2026-02-02T18:46:35.585Z",
 "forward_lines": [
 {
 "line": 1,
@@ -24709,11 +24637,11 @@
 },
 {
 "line": 2,
-"LW": "Oskar Sundqvist",
+"LW": "Jake Neighbours",
 "C": "Pavel Buchnevich",
 "RW": "Jordan Kyrou",
 "players": [
-"Oskar Sundqvist",
+"Jake Neighbours",
 "Pavel Buchnevich",
 "Jordan Kyrou"
 ]
@@ -24732,12 +24660,12 @@
 {
 "line": 4,
 "LW": "Alexey Toropchenko",
-"C": "Nathan Walker",
-"RW": "Robby Fabbri",
+"C": "Oskar Sundqvist",
+"RW": "Mathieu Joseph",
 "players": [
 "Alexey Toropchenko",
-"Nathan Walker",
-"Robby Fabbri"
+"Oskar Sundqvist",
+"Mathieu Joseph"
 ]
 }
 ],
@@ -24774,9 +24702,9 @@
 {
 "unit": 1,
 "players": [
+"Pavel Buchnevich",
 "Dalibor Dvorsky",
 "Jordan Kyrou",
-"Pavel Buchnevich",
 "Cam Fowler",
 "Justin Faulk"
 ]
@@ -24784,7 +24712,7 @@
 {
 "unit": 2,
 "players": [
-"Pius Suter",
+"Jake Neighbours",
 "Brayden Schenn",
 "Jonatan Berggren",
 "Jimmy Snuggerud",
@@ -24806,14 +24734,14 @@
 "unit": 2,
 "players": [
 "Brayden Schenn",
-"Nathan Walker",
+"Mathieu Joseph",
 "Tyler Tucker",
 "Justin Faulk"
 ]
 }
 ],
-"starting_goalie": "Jordan Binnington",
-"backup_goalie": "Joel Hofer",
+"starting_goalie": "Joel Hofer",
+"backup_goalie": "Jordan Binnington",
 "all_players": [
 {
 "name": "Brayden Schenn",
@@ -24912,32 +24840,32 @@
 }
 },
 {
-"name": "Oskar Sundqvist",
+"name": "Jake Neighbours",
 "position": "lw",
 "group": "f2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 41,
-"goals": 4,
-"assists": 10,
-"points": 14,
-"blocks": 24,
-"toiMinutes": 547,
-"toiSeconds": 33,
-"shots": 34,
-"powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"gamesPlayed": 42,
+"goals": 13,
+"assists": 9,
+"points": 22,
+"blocks": 22,
+"toiMinutes": 657,
+"toiSeconds": 46,
+"shots": 56,
+"powerplayGoals": 1,
+"powerplayAssists": 2,
+"powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 0,
-"points": 1,
-"blocks": 5,
-"toiMinutes": 70,
-"toiSeconds": 38,
-"shots": 5,
+"assists": 1,
+"points": 2,
+"blocks": 3,
+"toiMinutes": 75,
+"toiSeconds": 4,
+"shots": 6,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -25136,19 +25064,51 @@
 }
 },
 {
-"name": "Nathan Walker",
+"name": "Oskar Sundqvist",
 "position": "c",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 36,
+"gamesPlayed": 41,
 "goals": 4,
-"assists": 7,
+"assists": 10,
+"points": 14,
+"blocks": 24,
+"toiMinutes": 547,
+"toiSeconds": 33,
+"shots": 34,
+"powerplayGoals": 0,
+"powerplayAssists": 1,
+"powerplayPoints": 1
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 0,
+"points": 1,
+"blocks": 5,
+"toiMinutes": 70,
+"toiSeconds": 38,
+"shots": 5,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
+}
+},
+{
+"name": "Mathieu Joseph",
+"position": "rw",
+"group": "f4",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 38,
+"goals": 2,
+"assists": 9,
 "points": 11,
-"blocks": 27,
-"toiMinutes": 440,
-"toiSeconds": 9,
-"shots": 33,
+"blocks": 28,
+"toiMinutes": 485,
+"toiSeconds": 20,
+"shots": 28,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -25156,44 +25116,12 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 3,
-"toiMinutes": 52,
-"toiSeconds": 45,
-"shots": 1,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
-"name": "Robby Fabbri",
-"position": "rw",
-"group": "f4",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 14,
-"goals": 1,
 "assists": 3,
-"points": 4,
-"blocks": 8,
-"toiMinutes": 175,
-"toiSeconds": 28,
-"shots": 17,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 0,
-"points": 1,
-"blocks": 4,
-"toiMinutes": 61,
-"toiSeconds": 1,
-"shots": 7,
+"points": 3,
+"blocks": 6,
+"toiMinutes": 60,
+"toiSeconds": 22,
+"shots": 1,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -25392,42 +25320,8 @@
 }
 },
 {
-"name": "Jordan Binnington",
-"position": "g1",
-"group": "g",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 31,
-"goalieWins": 8,
-"goalieLosses": 15,
-"goalieOvertimeLosses": 6,
-"goalieShotsAgainst": 766,
-"goalieGoalsAgainst": 103,
-"goalieMinutes": 1714,
-"goalieSeconds": 55,
-"goalieSaves": 663,
-"goalieShutouts": 1,
-"goalieSavePercentage": "0.866",
-"goalieGoalsAgainstAvg": "3.6"
-},
-"last5": {
-"gamesPlayed": 5,
-"goalieWins": 0,
-"goalieLosses": 5,
-"goalieOvertimeLosses": 0,
-"goalieShotsAgainst": 117,
-"goalieGoalsAgainst": 19,
-"goalieMinutes": 296,
-"goalieSeconds": 13,
-"goalieSaves": 98,
-"goalieShutouts": 0,
-"goalieSavePercentage": "0.838",
-"goalieGoalsAgainstAvg": "3.84"
-}
-},
-{
 "name": "Joel Hofer",
-"position": "g2",
+"position": "g1",
 "group": "g",
 "injury": null,
 "season_stats": {
@@ -25460,8 +25354,74 @@
 }
 },
 {
-"name": "Dalibor Dvorsky",
+"name": "Jordan Binnington",
+"position": "g2",
+"group": "g",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 31,
+"goalieWins": 8,
+"goalieLosses": 15,
+"goalieOvertimeLosses": 6,
+"goalieShotsAgainst": 766,
+"goalieGoalsAgainst": 103,
+"goalieMinutes": 1714,
+"goalieSeconds": 55,
+"goalieSaves": 663,
+"goalieShutouts": 1,
+"goalieSavePercentage": "0.866",
+"goalieGoalsAgainstAvg": "3.6"
+},
+"last5": {
+"gamesPlayed": 5,
+"goalieWins": 0,
+"goalieLosses": 5,
+"goalieOvertimeLosses": 0,
+"goalieShotsAgainst": 117,
+"goalieGoalsAgainst": 19,
+"goalieMinutes": 296,
+"goalieSeconds": 13,
+"goalieSaves": 98,
+"goalieShutouts": 0,
+"goalieSavePercentage": "0.838",
+"goalieGoalsAgainstAvg": "3.84"
+}
+},
+{
+"name": "Pavel Buchnevich",
 "position": "sk1",
+"group": "pp1",
+"injury": null,
+"season_stats": {
+"gamesPlayed": 55,
+"goals": 9,
+"assists": 21,
+"points": 30,
+"blocks": 23,
+"toiMinutes": 1006,
+"toiSeconds": 55,
+"shots": 98,
+"powerplayGoals": 2,
+"powerplayAssists": 9,
+"powerplayPoints": 11
+},
+"last5": {
+"gamesPlayed": 5,
+"goals": 1,
+"assists": 4,
+"points": 5,
+"blocks": 4,
+"toiMinutes": 101,
+"toiSeconds": 9,
+"shots": 13,
+"powerplayGoals": 0,
+"powerplayAssists": 3,
+"powerplayPoints": 3
+}
+},
+{
+"name": "Dalibor Dvorsky",
+"position": "sk2",
 "group": "pp1",
 "injury": null,
 "season_stats": {
@@ -25493,7 +25453,7 @@
 },
 {
 "name": "Jordan Kyrou",
-"position": "sk2",
+"position": "sk3",
 "group": "pp1",
 "injury": null,
 "season_stats": {
@@ -25521,38 +25481,6 @@
 "powerplayGoals": 0,
 "powerplayAssists": 2,
 "powerplayPoints": 2
-}
-},
-{
-"name": "Pavel Buchnevich",
-"position": "sk3",
-"group": "pp1",
-"injury": null,
-"season_stats": {
-"gamesPlayed": 55,
-"goals": 9,
-"assists": 21,
-"points": 30,
-"blocks": 23,
-"toiMinutes": 1006,
-"toiSeconds": 55,
-"shots": 98,
-"powerplayGoals": 2,
-"powerplayAssists": 9,
-"powerplayPoints": 11
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 4,
-"points": 5,
-"blocks": 4,
-"toiMinutes": 101,
-"toiSeconds": 9,
-"shots": 13,
-"powerplayGoals": 0,
-"powerplayAssists": 3,
-"powerplayPoints": 3
 }
 },
 {
@@ -25620,35 +25548,35 @@
 }
 },
 {
-"name": "Pius Suter",
+"name": "Jake Neighbours",
 "position": "sk1",
 "group": "pp2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 38,
-"goals": 7,
-"assists": 8,
-"points": 15,
-"blocks": 13,
-"toiMinutes": 624,
-"toiSeconds": 31,
-"shots": 62,
+"gamesPlayed": 42,
+"goals": 13,
+"assists": 9,
+"points": 22,
+"blocks": 22,
+"toiMinutes": 657,
+"toiSeconds": 46,
+"shots": 56,
 "powerplayGoals": 1,
 "powerplayAssists": 2,
 "powerplayPoints": 3
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
+"goals": 1,
 "assists": 1,
-"points": 1,
+"points": 2,
 "blocks": 3,
 "toiMinutes": 75,
-"toiSeconds": 36,
-"shots": 4,
+"toiSeconds": 4,
+"shots": 6,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
@@ -25844,38 +25772,6 @@
 }
 },
 {
-"name": "Jake Neighbours",
-"position": "ir3",
-"group": "ir",
-"injury": "dtd",
-"season_stats": {
-"gamesPlayed": 42,
-"goals": 13,
-"assists": 9,
-"points": 22,
-"blocks": 22,
-"toiMinutes": 657,
-"toiSeconds": 46,
-"shots": 56,
-"powerplayGoals": 1,
-"powerplayAssists": 2,
-"powerplayPoints": 3
-},
-"last5": {
-"gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 3,
-"toiMinutes": 75,
-"toiSeconds": 4,
-"shots": 6,
-"powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
-}
-},
-{
 "name": "Nick Bjugstad",
 "position": "sk1",
 "group": "pk1",
@@ -26036,19 +25932,19 @@
 }
 },
 {
-"name": "Nathan Walker",
+"name": "Mathieu Joseph",
 "position": "sk2",
 "group": "pk2",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 36,
-"goals": 4,
-"assists": 7,
+"gamesPlayed": 38,
+"goals": 2,
+"assists": 9,
 "points": 11,
-"blocks": 27,
-"toiMinutes": 440,
-"toiSeconds": 9,
-"shots": 33,
+"blocks": 28,
+"toiMinutes": 485,
+"toiSeconds": 20,
+"shots": 28,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
@@ -26056,11 +25952,11 @@
 "last5": {
 "gamesPlayed": 5,
 "goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 3,
-"toiMinutes": 52,
-"toiSeconds": 45,
+"assists": 3,
+"points": 3,
+"blocks": 6,
+"toiMinutes": 60,
+"toiSeconds": 22,
 "shots": 1,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
@@ -27514,17 +27410,17 @@
 "VAN": {
 "team": "VAN",
 "team_name": "Vancouver Canucks",
-"updated_at": "2026-02-01T15:41:41.139Z",
+"updated_at": "2026-02-02T18:38:31.355Z",
 "forward_lines": [
 {
 "line": 1,
 "LW": "Evander Kane",
 "C": "Elias Pettersson",
-"RW": "Conor Garland",
+"RW": "Jake DeBrusk",
 "players": [
 "Evander Kane",
 "Elias Pettersson",
-"Conor Garland"
+"Jake DeBrusk"
 ]
 },
 {
@@ -27542,22 +27438,22 @@
 "line": 3,
 "LW": "Liam Ohgren",
 "C": "Teddy Blueger",
-"RW": "Jonathan Lekkerimaki",
+"RW": "Aatu Raty",
 "players": [
 "Liam Ohgren",
 "Teddy Blueger",
-"Jonathan Lekkerimaki"
+"Aatu Raty"
 ]
 },
 {
 "line": 4,
 "LW": "Drew O'Connor",
-"C": "Aatu Raty",
-"RW": "Jake DeBrusk",
+"C": "Max Sasson",
+"RW": "Jonathan Lekkerimaki",
 "players": [
 "Drew O'Connor",
-"Aatu Raty",
-"Jake DeBrusk"
+"Max Sasson",
+"Jonathan Lekkerimaki"
 ]
 }
 ],
@@ -27700,35 +27596,35 @@
 }
 },
 {
-"name": "Conor Garland",
+"name": "Jake DeBrusk",
 "position": "rw",
 "group": "f1",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 44,
-"goals": 7,
+"gamesPlayed": 54,
+"goals": 13,
 "assists": 15,
-"points": 22,
-"blocks": 24,
-"toiMinutes": 846,
-"toiSeconds": 51,
-"shots": 93,
-"powerplayGoals": 1,
-"powerplayAssists": 8,
-"powerplayPoints": 9
+"points": 28,
+"blocks": 22,
+"toiMinutes": 934,
+"toiSeconds": 12,
+"shots": 154,
+"powerplayGoals": 11,
+"powerplayAssists": 3,
+"powerplayPoints": 14
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
-"assists": 0,
-"points": 0,
-"blocks": 5,
-"toiMinutes": 86,
-"toiSeconds": 20,
-"shots": 11,
+"goals": 1,
+"assists": 3,
+"points": 4,
+"blocks": 3,
+"toiMinutes": 79,
+"toiSeconds": 46,
+"shots": 17,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 }
 },
 {
@@ -27892,31 +27788,31 @@
 }
 },
 {
-"name": "Jonathan Lekkerimaki",
+"name": "Aatu Raty",
 "position": "rw",
 "group": "f3",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 11,
-"goals": 2,
-"assists": 1,
-"points": 3,
-"blocks": 3,
-"toiMinutes": 126,
-"toiSeconds": 49,
-"shots": 10,
+"gamesPlayed": 44,
+"goals": 3,
+"assists": 9,
+"points": 12,
+"blocks": 9,
+"toiMinutes": 534,
+"toiSeconds": 26,
+"shots": 43,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 1,
-"assists": 1,
-"points": 2,
-"blocks": 0,
-"toiMinutes": 58,
-"toiSeconds": 18,
+"goals": 0,
+"assists": 0,
+"points": 0,
+"blocks": 1,
+"toiMinutes": 66,
+"toiSeconds": 30,
 "shots": 6,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
@@ -27956,67 +27852,67 @@
 }
 },
 {
-"name": "Aatu Raty",
+"name": "Max Sasson",
 "position": "c",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 44,
-"goals": 3,
-"assists": 9,
+"gamesPlayed": 48,
+"goals": 10,
+"assists": 2,
 "points": 12,
-"blocks": 9,
-"toiMinutes": 534,
-"toiSeconds": 26,
-"shots": 43,
+"blocks": 27,
+"toiMinutes": 546,
+"toiSeconds": 24,
+"shots": 47,
 "powerplayGoals": 0,
-"powerplayAssists": 0,
-"powerplayPoints": 0
+"powerplayAssists": 1,
+"powerplayPoints": 1
 },
 "last5": {
 "gamesPlayed": 5,
-"goals": 0,
+"goals": 1,
 "assists": 0,
-"points": 0,
-"blocks": 1,
-"toiMinutes": 66,
-"toiSeconds": 30,
-"shots": 6,
+"points": 1,
+"blocks": 2,
+"toiMinutes": 52,
+"toiSeconds": 39,
+"shots": 3,
 "powerplayGoals": 0,
 "powerplayAssists": 0,
 "powerplayPoints": 0
 }
 },
 {
-"name": "Jake DeBrusk",
+"name": "Jonathan Lekkerimaki",
 "position": "rw",
 "group": "f4",
 "injury": null,
 "season_stats": {
-"gamesPlayed": 54,
-"goals": 13,
-"assists": 15,
-"points": 28,
-"blocks": 22,
-"toiMinutes": 934,
-"toiSeconds": 12,
-"shots": 154,
-"powerplayGoals": 11,
-"powerplayAssists": 3,
-"powerplayPoints": 14
+"gamesPlayed": 11,
+"goals": 2,
+"assists": 1,
+"points": 3,
+"blocks": 3,
+"toiMinutes": 126,
+"toiSeconds": 49,
+"shots": 10,
+"powerplayGoals": 0,
+"powerplayAssists": 0,
+"powerplayPoints": 0
 },
 "last5": {
 "gamesPlayed": 5,
 "goals": 1,
-"assists": 3,
-"points": 4,
-"blocks": 3,
-"toiMinutes": 79,
-"toiSeconds": 46,
-"shots": 17,
+"assists": 1,
+"points": 2,
+"blocks": 0,
+"toiMinutes": 58,
+"toiSeconds": 18,
+"shots": 6,
 "powerplayGoals": 0,
-"powerplayAssists": 1,
-"powerplayPoints": 1
+"powerplayAssists": 0,
+"powerplayPoints": 0
 }
 },
 {
