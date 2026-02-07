@@ -45,6 +45,7 @@ from contest_roi import (
     PAYOUT_PRESETS,
 )
 from single_entry import SingleEntrySelector, print_se_lineup
+from validate import run_validation
 
 
 def normalize_position(pos: str) -> str:
@@ -837,6 +838,11 @@ def main():
                              'Use for first run of day or to get latest data.')
 
     # Linemate correlation boosts
+    parser.add_argument('--validate', action='store_true',
+                        help='Run pre-flight validation checks before generating lineups')
+    parser.add_argument('--validate-only', action='store_true',
+                        help='Run pre-flight validation and exit (no projections)')
+
     parser.add_argument('--linemates', action='store_true',
                         help='Apply linemate chemistry boosts from play-by-play correlation')
     parser.add_argument('--linemate-games', type=int, default=10,
@@ -891,6 +897,18 @@ def main():
     if team_totals:
         print(f"  Vegas team totals mapped for {len(team_totals)} teams")
 
+    # --- Pre-flight: validate-only quick check (exit before data fetch) ---
+    if args.validate_only:
+        report = run_validation(
+            salary_path=salary_path,
+            target_date=target_date,
+            vegas_games=vegas_games,
+            slate_teams=slate_teams,
+            quick=True
+        )
+        report.print_report()
+        sys.exit(0 if report.is_go else 1)
+
     # Fetch NHL data
     print("\nFetching NHL data...")
     pipeline = NHLDataPipeline()
@@ -908,9 +926,10 @@ def main():
 
     # Generate projections
     print("\nGenerating projections...")
-    model = NHLProjectionModel()
+    # Pass Vegas data through for goalie danger-zone model
     data['team_totals'] = team_totals
     data['team_game_totals'] = team_game_totals
+    model = NHLProjectionModel()
     projections = model.generate_projections(
         data,
         target_date=target_date,
@@ -1038,6 +1057,24 @@ def main():
         # Show stacking recommendations if requested
         if args.stacks:
             print_stacking_recommendations(stack_builder, player_pool, slate_teams)
+
+    # --- Pre-flight: full validation (after all data loaded) ---
+    if args.validate or args.validate_only:
+        report = run_validation(
+            salary_path=salary_path,
+            target_date=target_date,
+            vegas_games=vegas_games,
+            data=data,
+            skaters_merged=skaters_merged,
+            goalies_merged=goalies_merged,
+            player_pool=player_pool,
+            stack_builder=stack_builder,
+            slate_teams=slate_teams,
+            quick=False
+        )
+        report.print_report()
+        if not report.is_go:
+            print("  ⚠️  Fix failures above before trusting these projections.\n")
 
     # Print projections
     if len(skaters_merged) > 0:
