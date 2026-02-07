@@ -909,6 +909,8 @@ def main():
     # Generate projections
     print("\nGenerating projections...")
     model = NHLProjectionModel()
+    data['team_totals'] = team_totals
+    data['team_game_totals'] = team_game_totals
     projections = model.generate_projections(
         data,
         target_date=target_date,
