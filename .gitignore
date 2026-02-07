@@ -50,3 +50,6 @@ logs/
 # Misc
 .mcp.json.backup
 NHL_DFS_Research_Integration.md
+.linemate_cache/
+cleanup.sh
+Lock_Own*.csv
