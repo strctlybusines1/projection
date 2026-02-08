@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IceEdge DFS</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ice: #d4edf7;
+            --ice-blue: #7ec8e3;
+            --deep-ice: #0077b6;
+            --rink-blue: #003459;
+            --red-line: #d62828;
+            --goal-light: #fcbf49;
+            --puck: #0d1117;
+            --boards: #3a2d1f;
+            --glass: rgba(255,255,255,0.06);
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            /* The rink! */
+            background: #1a3a4a;
+        }
+
+        /* SVG rink drawn with CSS */
+        .rink {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0;
+        }
+
+        .rink svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Scanline CRT overlay */
+        .scanlines {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg, transparent, transparent 2px,
+                rgba(0,0,0,0.04) 2px, rgba(0,0,0,0.04) 4px
+            );
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        /* Pixel noise overlay */
+        .noise {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            opacity: 0.015;
+            pointer-events: none;
+            z-index: 999;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        }
+
+        .login-container {
+            position: relative;
+            z-index: 10;
+            width: 100%;
+            max-width: 420px;
+            padding: 20px;
+        }
+
+        .logo {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo-puck {
+            width: 72px; height: 72px;
+            margin: 0 auto 16px;
+            background: radial-gradient(circle at 35% 35%, #333, #0d0d0d);
+            border-radius: 50%;
+            border: 3px solid var(--ice-blue);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 18px;
+            color: var(--goal-light);
+            box-shadow:
+                0 0 30px rgba(126, 200, 227, 0.4),
+                0 4px 20px rgba(0,0,0,0.6);
+            animation: puck-glow 3s ease-in-out infinite;
+        }
+
+        @keyframes puck-glow {
+            0%, 100% { box-shadow: 0 0 30px rgba(126,200,227,0.3), 0 4px 20px rgba(0,0,0,0.6); }
+            50% { box-shadow: 0 0 50px rgba(126,200,227,0.6), 0 4px 20px rgba(0,0,0,0.6); }
+        }
+
+        .logo h1 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 20px;
+            color: #fff;
+            text-shadow: 2px 2px 0 var(--rink-blue), 0 0 20px rgba(126,200,227,0.3);
+            margin-bottom: 6px;
+        }
+        .logo .tagline {
+            font-size: 11px;
+            color: var(--ice-blue);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        .form-card {
+            background: rgba(0, 20, 40, 0.85);
+            border: 2px solid rgba(126, 200, 227, 0.25);
+            border-radius: 4px;
+            padding: 32px 28px;
+            backdrop-filter: blur(12px);
+            position: relative;
+        }
+
+        /* Faceoff circle corners */
+        .form-card::before, .form-card::after {
+            content: '';
+            position: absolute;
+            width: 18px; height: 18px;
+            border: 2px solid var(--red-line);
+            opacity: 0.5;
+        }
+        .form-card::before { top: 6px; left: 6px; border-right: none; border-bottom: none; }
+        .form-card::after { bottom: 6px; right: 6px; border-left: none; border-top: none; }
+
+        .form-card h2 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 11px;
+            text-align: center;
+            margin-bottom: 24px;
+            color: var(--ice-blue);
+            letter-spacing: 2px;
+        }
+
+        .form-group { margin-bottom: 18px; }
+        .form-group label {
+            display: block; font-size: 10px; letter-spacing: 2px;
+            text-transform: uppercase; color: var(--ice-blue); margin-bottom: 6px;
+        }
+        .form-group input {
+            width: 100%; padding: 12px 14px;
+            background: rgba(0,0,0,0.5);
+            border: 2px solid rgba(126,200,227,0.15);
+            border-radius: 2px;
+            color: #e8f4f8;
+            font-family: 'Share Tech Mono', monospace;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus { outline: none; border-color: var(--ice-blue); box-shadow: 0 0 10px rgba(126,200,227,0.2); }
+        .form-group input::placeholder { color: rgba(232,244,248,0.2); }
+
+        .submit-btn {
+            width: 100%; padding: 14px;
+            background: linear-gradient(180deg, var(--deep-ice), var(--rink-blue));
+            border: 2px solid var(--ice-blue);
+            border-radius: 2px;
+            color: #fff;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 10px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            margin-top: 6px;
+        }
+        .submit-btn:hover { background: linear-gradient(180deg, var(--ice-blue), var(--deep-ice)); box-shadow: 0 0 20px rgba(126,200,227,0.4); }
+        .submit-btn:active { transform: translateY(1px); }
+
+        .alt-link { text-align: center; margin-top: 18px; font-size: 12px; color: rgba(232,244,248,0.4); }
+        .alt-link a { color: var(--ice-blue); text-decoration: none; }
+        .alt-link a:hover { text-decoration: underline; }
+
+        .flash { padding: 10px 14px; margin-bottom: 16px; border-radius: 2px; font-size: 12px; text-align: center; }
+        .flash.error { background: rgba(214,40,40,0.15); border: 1px solid rgba(214,40,40,0.4); color: #ff6b6b; }
+        .flash.success { background: rgba(72,202,228,0.15); border: 1px solid rgba(72,202,228,0.4); color: #48cae4; }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="noise"></div>
+
+    <!-- Rink background drawn in SVG -->
+    <div class="rink">
+        <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+            <!-- Ice surface -->
+            <rect x="0" y="0" width="1200" height="800" fill="#b8d8e8" opacity="0.12"/>
+            <!-- Boards -->
+            <rect x="40" y="20" width="1120" height="760" rx="120" ry="120"
+                  fill="none" stroke="#5a4a3a" stroke-width="8" opacity="0.3"/>
+            <!-- Inner board edge (glass) -->
+            <rect x="48" y="28" width="1104" height="744" rx="116" ry="116"
+                  fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+            <!-- Center red line -->
+            <line x1="600" y1="30" x2="600" y2="770" stroke="#d62828" stroke-width="5" opacity="0.25"/>
+            <!-- Blue lines -->
+            <line x1="400" y1="30" x2="400" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.15"/>
+            <line x1="800" y1="30" x2="800" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.15"/>
+            <!-- Center circle -->
+            <circle cx="600" cy="400" r="60" fill="none" stroke="#0077b6" stroke-width="3" opacity="0.15"/>
+            <circle cx="600" cy="400" r="4" fill="#0077b6" opacity="0.25"/>
+            <!-- Faceoff circles -->
+            <circle cx="280" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <circle cx="280" cy="260" r="3" fill="#d62828" opacity="0.2"/>
+            <circle cx="920" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <circle cx="920" cy="260" r="3" fill="#d62828" opacity="0.2"/>
+            <circle cx="280" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <circle cx="280" cy="540" r="3" fill="#d62828" opacity="0.2"/>
+            <circle cx="920" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <circle cx="920" cy="540" r="3" fill="#d62828" opacity="0.2"/>
+            <!-- Goal creases -->
+            <path d="M 90 370 Q 110 400 90 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.15"/>
+            <path d="M 1110 370 Q 1090 400 1110 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.15"/>
+            <!-- Goal lines -->
+            <line x1="100" y1="140" x2="100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <line x1="1100" y1="140" x2="1100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+        </svg>
+    </div>
+
+    <div class="login-container">
+        <div class="logo">
+            <div class="logo-puck">IE</div>
+            <h1>ICEEDGE</h1>
+            <div class="tagline">DFS Projections Engine</div>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                <div class="flash {{ category }}">{{ message }}</div>
+            {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        <div class="form-card">
+            <h2>{{ "CREATE ACCOUNT" if request.path == '/register' else "SIGN IN" }}</h2>
+            <form method="POST" action="{{ url_for('register') if request.path == '/register' else url_for('login') }}">
+                <div class="form-group">
+                    <label>Username</label>
+                    <input type="text" name="username" placeholder="Enter username" required autofocus>
+                </div>
+                <div class="form-group">
+                    <label>Password</label>
+                    <input type="password" name="password" placeholder="Enter password" required>
+                </div>
+                {% if request.path == '/register' %}
+                <div class="form-group">
+                    <label>Confirm Password</label>
+                    <input type="password" name="confirm_password" placeholder="Confirm password" required>
+                </div>
+                {% endif %}
+                <button type="submit" class="submit-btn">
+                    {{ "CREATE ACCOUNT" if request.path == '/register' else "DROP THE PUCK" }}
+                </button>
+            </form>
+            <div class="alt-link">
+                {% if request.path == '/register' %}
+                    Already have an account? <a href="{{ url_for('login') }}">Sign in</a>
+                {% else %}
+                    New here? <a href="{{ url_for('register') }}">Create account</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</body>
+</html>

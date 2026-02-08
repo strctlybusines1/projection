@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IceEdge DFS — Lineups</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --ice: #d4edf7;
+            --ice-blue: #7ec8e3;
+            --deep-ice: #0077b6;
+            --rink-blue: #003459;
+            --red-line: #d62828;
+            --goal-light: #fcbf49;
+            --green: #06d6a0;
+            --puck: #0d1117;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background: #0c1a24;
+            color: #e8f4f8;
+            min-height: 100vh;
+        }
+
+        /* Fixed rink background */
+        .rink-bg {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: 0;
+            opacity: 0.7;
+        }
+        .rink-bg svg { width: 100%; height: 100%; }
+
+        .scanlines {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
+            pointer-events: none; z-index: 1000;
+        }
+
+        /* ── Top Bar ── */
+        .topbar {
+            position: sticky; top: 0; z-index: 100;
+            background: rgba(10, 18, 28, 0.95);
+            border-bottom: 3px solid var(--red-line);
+            padding: 10px 20px;
+            display: flex; align-items: center; justify-content: space-between;
+            backdrop-filter: blur(8px);
+        }
+        .topbar-left { display: flex; align-items: center; gap: 14px; }
+        .topbar-logo {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 13px; color: var(--goal-light);
+        }
+        .topbar-sep { width: 2px; height: 18px; background: rgba(126,200,227,0.2); }
+        .slate-label {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 9px; color: var(--ice-blue);
+        }
+        .topbar-right { display: flex; align-items: center; gap: 16px; }
+        .user-tag { font-size: 11px; color: rgba(232,244,248,0.5); }
+        .user-tag strong { color: var(--ice-blue); }
+        .logout-link {
+            font-size: 11px; color: var(--red-line);
+            text-decoration: none; border: 1px solid rgba(214,40,40,0.3);
+            padding: 5px 12px; border-radius: 2px; transition: all 0.2s;
+        }
+        .logout-link:hover { background: rgba(214,40,40,0.1); border-color: var(--red-line); }
+
+        /* ── Controls ── */
+        .controls {
+            position: relative; z-index: 10;
+            padding: 14px 20px;
+            display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+            background: rgba(10, 18, 28, 0.7);
+            border-bottom: 1px solid rgba(126,200,227,0.08);
+            backdrop-filter: blur(6px);
+        }
+        .controls label {
+            font-size: 9px; letter-spacing: 2px; text-transform: uppercase;
+            color: rgba(232,244,248,0.4);
+        }
+        .controls select {
+            font-family: 'Share Tech Mono', monospace; font-size: 12px;
+            background: rgba(0,52,89,0.5); border: 1px solid rgba(126,200,227,0.2);
+            color: #e8f4f8; padding: 7px 10px; border-radius: 2px; cursor: pointer;
+        }
+        .controls select:focus { outline: none; border-color: var(--ice-blue); }
+        .lineup-count {
+            margin-left: auto; font-size: 11px; color: rgba(232,244,248,0.4);
+        }
+        .lineup-count strong {
+            color: var(--goal-light); font-family: 'Press Start 2P', cursive; font-size: 9px;
+        }
+
+        /* ── Lineup Cards Container ── */
+        .lineups-grid {
+            position: relative; z-index: 10;
+            padding: 16px 20px 40px;
+            display: flex; flex-direction: column; gap: 8px;
+        }
+
+        /* ── Lineup Summary Row (collapsed) ── */
+        .lineup-row {
+            background: rgba(10, 22, 36, 0.88);
+            border: 1px solid rgba(126,200,227,0.1);
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+            backdrop-filter: blur(4px);
+            overflow: hidden;
+        }
+        .lineup-row:hover {
+            border-color: rgba(126,200,227,0.25);
+            background: rgba(10, 22, 36, 0.95);
+        }
+        .lineup-row.expanded {
+            border-color: var(--ice-blue);
+            box-shadow: 0 0 20px rgba(126,200,227,0.1);
+        }
+        .lineup-row.rank-1 { border-left: 3px solid var(--goal-light); }
+        .lineup-row.rank-2, .lineup-row.rank-3 { border-left: 3px solid var(--ice-blue); }
+
+        .lineup-summary {
+            display: grid;
+            grid-template-columns: 50px 1fr 100px 100px 100px 100px 120px;
+            align-items: center;
+            padding: 10px 16px;
+            gap: 8px;
+        }
+
+        @media (max-width: 900px) {
+            .lineup-summary {
+                grid-template-columns: 40px 1fr 80px 80px 80px;
+            }
+            .lineup-summary .col-own, .lineup-summary .col-actual { display: none; }
+        }
+
+        .rank-num {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 10px; color: rgba(232,244,248,0.4);
+            text-align: center;
+        }
+        .rank-1 .rank-num { color: var(--goal-light); }
+        .rank-2 .rank-num, .rank-3 .rank-num { color: var(--ice-blue); }
+
+        .lineup-preview {
+            font-size: 12px;
+            color: rgba(232,244,248,0.7);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .lineup-preview .goalie { color: var(--red-line); opacity: 0.7; }
+        .lineup-preview .stack-tag {
+            display: inline-block;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 7px;
+            padding: 2px 6px;
+            background: rgba(0,119,182,0.2);
+            border: 1px solid rgba(126,200,227,0.2);
+            border-radius: 2px;
+            color: var(--ice-blue);
+            margin-left: 6px;
+            vertical-align: middle;
+        }
+
+        .col-sal, .col-proj, .col-own, .col-actual {
+            text-align: right; font-size: 12px;
+        }
+        .col-sal { color: var(--green); }
+        .col-proj {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 9px; color: var(--goal-light);
+        }
+        .col-own { color: var(--ice-blue); }
+        .col-actual { color: #ff6b6b; }
+        .col-actual.has-actual { color: var(--green); }
+
+        .expand-icon {
+            text-align: center; font-size: 10px;
+            color: rgba(232,244,248,0.3);
+            transition: transform 0.2s;
+        }
+        .expanded .expand-icon { transform: rotate(180deg); }
+
+        /* ── Expanded Lineup Detail ── */
+        .lineup-detail {
+            display: none;
+            padding: 0 16px 14px;
+        }
+        .expanded .lineup-detail { display: block; }
+
+        .lineup-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .lineup-table thead th {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 7px;
+            color: var(--ice-blue);
+            padding: 8px 6px;
+            text-align: left;
+            border-bottom: 1px solid rgba(126,200,227,0.1);
+            letter-spacing: 1px;
+        }
+        .lineup-table thead th.r { text-align: right; }
+        .lineup-table tbody td {
+            padding: 7px 6px;
+            font-size: 12px;
+            border-bottom: 1px solid rgba(126,200,227,0.04);
+        }
+        .lineup-table tbody td.r { text-align: right; }
+
+        .pos-tag {
+            display: inline-block;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 6px;
+            padding: 2px 6px;
+            border-radius: 2px;
+            letter-spacing: 1px;
+        }
+        .pos-C { background: rgba(0,119,182,0.25); color: var(--ice-blue); }
+        .pos-W { background: rgba(6,214,160,0.15); color: var(--green); }
+        .pos-D { background: rgba(252,191,73,0.15); color: var(--goal-light); }
+        .pos-G { background: rgba(214,40,40,0.15); color: #ff6b6b; }
+
+        .p-name { font-weight: bold; }
+        .p-team { font-size: 10px; color: rgba(232,244,248,0.3); margin-left: 4px; }
+
+        /* Column headers row for summary grid */
+        .summary-header {
+            display: grid;
+            grid-template-columns: 50px 1fr 100px 100px 100px 100px 120px;
+            padding: 6px 16px;
+            gap: 8px;
+            font-family: 'Press Start 2P', cursive;
+            font-size: 7px;
+            color: rgba(126,200,227,0.5);
+            letter-spacing: 1px;
+            background: rgba(10, 18, 28, 0.6);
+            border-radius: 3px;
+            margin-bottom: 4px;
+        }
+        .summary-header span { text-align: right; }
+        .summary-header span:first-child { text-align: center; }
+        .summary-header span:nth-child(2) { text-align: left; }
+
+        @media (max-width: 900px) {
+            .summary-header {
+                grid-template-columns: 40px 1fr 80px 80px 80px;
+            }
+            .summary-header .sh-own, .summary-header .sh-actual { display: none; }
+        }
+
+        /* No data */
+        .no-data {
+            text-align: center; padding: 80px 20px;
+            position: relative; z-index: 10;
+        }
+        .no-data h2 {
+            font-family: 'Press Start 2P', cursive;
+            font-size: 13px; color: var(--red-line); margin-bottom: 14px;
+        }
+        .no-data p { color: rgba(232,244,248,0.4); font-size: 13px; margin-bottom: 8px; }
+        .no-data code {
+            background: rgba(0,0,0,0.4); padding: 2px 8px; border-radius: 2px;
+            font-family: 'Share Tech Mono', monospace; color: var(--ice-blue);
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+
+    <!-- Rink background -->
+    <div class="rink-bg">
+        <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+            <rect x="0" y="0" width="1200" height="800" fill="#b8d8e8" opacity="0.06"/>
+            <rect x="40" y="20" width="1120" height="760" rx="120" ry="120" fill="none" stroke="#5a4a3a" stroke-width="8" opacity="0.18"/>
+            <rect x="48" y="28" width="1104" height="744" rx="116" ry="116" fill="none" stroke="rgba(255,255,255,0.04)" stroke-width="2"/>
+            <line x1="600" y1="30" x2="600" y2="770" stroke="#d62828" stroke-width="5" opacity="0.12"/>
+            <line x1="400" y1="30" x2="400" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.08"/>
+            <line x1="800" y1="30" x2="800" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.08"/>
+            <circle cx="600" cy="400" r="60" fill="none" stroke="#0077b6" stroke-width="3" opacity="0.08"/>
+            <circle cx="600" cy="400" r="4" fill="#0077b6" opacity="0.12"/>
+            <circle cx="280" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+            <circle cx="920" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+            <circle cx="280" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+            <circle cx="920" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+            <path d="M 90 370 Q 110 400 90 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.08"/>
+            <path d="M 1110 370 Q 1090 400 1110 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.08"/>
+            <line x1="100" y1="140" x2="100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+            <line x1="1100" y1="140" x2="1100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.07"/>
+        </svg>
+    </div>
+
+    <!-- Top bar -->
+    <div class="topbar">
+        <div class="topbar-left">
+            <span class="topbar-logo">ICEEDGE</span>
+            <div class="topbar-sep"></div>
+            <span class="slate-label">
+                {% if slate_date %}SLATE: {{ slate_date }}{% else %}NO ACTIVE SLATE{% endif %}
+            </span>
+        </div>
+        <div class="topbar-right">
+            <span class="user-tag">Signed in as <strong>{{ username }}</strong></span>
+            <a href="{{ url_for('logout') }}" class="logout-link">LOGOUT</a>
+        </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+        <label>Date</label>
+        <select onchange="window.location.href='/dashboard?date='+this.value">
+            {% for d in dates %}
+            <option value="{{ d }}" {% if d == slate_date %}selected{% endif %}>{{ d }}</option>
+            {% endfor %}
+        </select>
+        <div class="lineup-count">
+            <strong>{{ n_lineups }}</strong> lineups ranked
+        </div>
+    </div>
+
+    {% if lineups %}
+    <div class="lineups-grid">
+        <!-- Column headers -->
+        <div class="summary-header">
+            <span>#</span>
+            <span>LINEUP</span>
+            <span>SALARY</span>
+            <span>PROJ</span>
+            <span class="sh-own">OWN%</span>
+            <span class="sh-actual">ACTUAL</span>
+            <span></span>
+        </div>
+
+        {% for lu in lineups %}
+        <div class="lineup-row {% if lu.rank == 1 %}rank-1{% elif lu.rank <= 3 %}rank-{{ lu.rank }}{% endif %}"
+             onclick="toggleLineup(this)">
+            <div class="lineup-summary">
+                <div class="rank-num">#{{ lu.rank }}</div>
+                <div class="lineup-preview">
+                    {% if lu.goalie %}<span class="goalie">G:{{ lu.goalie|truncate(14, true, '..') }}</span> {% endif %}
+                    {% for s in lu.stacks %}<span class="stack-tag">{{ s }}</span>{% endfor %}
+                    {% if not lu.stacks %}<span class="stack-tag">NO STACK</span>{% endif %}
+                </div>
+                <div class="col-sal">${{ "{:,}".format(lu.total_salary) }}</div>
+                <div class="col-proj">{{ "%.1f"|format(lu.total_projected) }}</div>
+                <div class="col-own">{{ "%.1f"|format(lu.total_ownership) }}%</div>
+                <div class="col-actual {% if lu.total_actual %}has-actual{% endif %}">
+                    {{ "%.1f"|format(lu.total_actual) if lu.total_actual else '—' }}
+                </div>
+                <div class="expand-icon">▼</div>
+            </div>
+
+            <div class="lineup-detail">
+                <table class="lineup-table">
+                    <thead>
+                        <tr>
+                            <th>Slot</th>
+                            <th>Player</th>
+                            <th class="r">Salary</th>
+                            <th class="r">Proj</th>
+                            <th class="r">Floor</th>
+                            <th class="r">Ceil</th>
+                            <th class="r">Own%</th>
+                            {% if lu.players[0].actual_fpts is defined and lu.players[0].actual_fpts is not none %}
+                            <th class="r">Actual</th>
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in lu.players %}
+                        <tr>
+                            <td><span class="pos-tag pos-{{ p.position }}">{{ p.roster_slot }}</span></td>
+                            <td><span class="p-name">{{ p.name }}</span><span class="p-team">{{ p.team }}</span></td>
+                            <td class="r" style="color:var(--green)">${{ "{:,}".format(p.salary) }}</td>
+                            <td class="r" style="color:var(--goal-light)">{{ "%.1f"|format(p.projected_fpts) }}</td>
+                            <td class="r">{{ "%.1f"|format(p.floor) if p.floor else '—' }}</td>
+                            <td class="r">{{ "%.1f"|format(p.ceiling) if p.ceiling else '—' }}</td>
+                            <td class="r" style="color:var(--ice-blue)">{{ "%.1f"|format(p.predicted_ownership) if p.predicted_ownership else '—' }}%</td>
+                            {% if p.actual_fpts is defined and p.actual_fpts is not none %}
+                            <td class="r" style="color:var(--green)">{{ "%.1f"|format(p.actual_fpts) }}</td>
+                            {% endif %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% else %}
+    <div class="no-data">
+        <h2>NO LINEUPS FOUND</h2>
+        <p>No ranked lineup data for {% if slate_date %}{{ slate_date }}{% else %}any date{% endif %}.</p>
+        <p>Run your SE pipeline to generate lineup rankings:</p>
+        <p><code>python main.py --stacks --lineups 40 --edge --single-entry</code></p>
+        <p style="margin-top:16px; font-size:11px; color:rgba(232,244,248,0.3);">
+            Then add the export hook to save all 40 candidates (see lineup_export.py)
+        </p>
+    </div>
+    {% endif %}
+
+    <script>
+        function toggleLineup(el) {
+            el.classList.toggle('expanded');
+        }
+    </script>
+</body>
+</html>
