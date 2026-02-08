@@ -1247,6 +1247,15 @@ def main():
                 best_lineup, best_scores = selector.select(candidates, verbose=True)
                 print_se_lineup(best_lineup, best_scores)
                 lineups = [best_lineup]
+
+                # Export all ranked candidates to JSON for website
+                try:
+                    from lineup_export import export_se_candidates
+                    all_scored = [(lu, selector.score_lineup(lu)) for lu in candidates]
+                    all_scored.sort(key=lambda x: x[1]['total'], reverse=True)
+                    export_se_candidates(all_scored, target_date, str(out_dir))
+                except Exception as e:
+                    print(f"  Note: Could not export SE lineup details: {e}")
             else:
                 print("  Warning: No candidate lineups generated")
 

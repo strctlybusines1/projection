@@ -26,8 +26,8 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
-            /* The rink! */
-            background: #1a3a4a;
+            /* Off-white ice surface */
+            background: #d9dde0;
         }
 
         /* SVG rink drawn with CSS */
@@ -103,24 +103,25 @@
         .logo h1 {
             font-family: 'Press Start 2P', cursive;
             font-size: 20px;
-            color: #fff;
-            text-shadow: 2px 2px 0 var(--rink-blue), 0 0 20px rgba(126,200,227,0.3);
+            color: #0a1628;
+            text-shadow: 2px 2px 0 rgba(0,0,0,0.15), 0 0 20px rgba(126,200,227,0.3);
             margin-bottom: 6px;
         }
         .logo .tagline {
             font-size: 11px;
-            color: var(--ice-blue);
+            color: var(--rink-blue);
             letter-spacing: 3px;
             text-transform: uppercase;
         }
 
         .form-card {
-            background: rgba(0, 20, 40, 0.85);
-            border: 2px solid rgba(126, 200, 227, 0.25);
+            background: rgba(10, 20, 35, 0.92);
+            border: 2px solid rgba(126, 200, 227, 0.3);
             border-radius: 4px;
             padding: 32px 28px;
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(16px);
             position: relative;
+            box-shadow: 0 8px 40px rgba(0,0,0,0.4);
         }
 
         /* Faceoff circle corners */
@@ -195,36 +196,36 @@
     <div class="rink">
         <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
             <!-- Ice surface -->
-            <rect x="0" y="0" width="1200" height="800" fill="#b8d8e8" opacity="0.12"/>
+            <rect x="0" y="0" width="1200" height="800" fill="#e8eaec" opacity="1"/>
             <!-- Boards -->
             <rect x="40" y="20" width="1120" height="760" rx="120" ry="120"
-                  fill="none" stroke="#5a4a3a" stroke-width="8" opacity="0.3"/>
+                  fill="none" stroke="#4a3d30" stroke-width="8" opacity="0.35"/>
             <!-- Inner board edge (glass) -->
             <rect x="48" y="28" width="1104" height="744" rx="116" ry="116"
-                  fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+                  fill="none" stroke="rgba(255,255,255,0.3)" stroke-width="2"/>
             <!-- Center red line -->
-            <line x1="600" y1="30" x2="600" y2="770" stroke="#d62828" stroke-width="5" opacity="0.25"/>
+            <line x1="600" y1="30" x2="600" y2="770" stroke="#d62828" stroke-width="6" opacity="0.45"/>
             <!-- Blue lines -->
-            <line x1="400" y1="30" x2="400" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.15"/>
-            <line x1="800" y1="30" x2="800" y2="770" stroke="#0077b6" stroke-width="4" opacity="0.15"/>
+            <line x1="400" y1="30" x2="400" y2="770" stroke="#0055a4" stroke-width="5" opacity="0.35"/>
+            <line x1="800" y1="30" x2="800" y2="770" stroke="#0055a4" stroke-width="5" opacity="0.35"/>
             <!-- Center circle -->
-            <circle cx="600" cy="400" r="60" fill="none" stroke="#0077b6" stroke-width="3" opacity="0.15"/>
-            <circle cx="600" cy="400" r="4" fill="#0077b6" opacity="0.25"/>
+            <circle cx="600" cy="400" r="60" fill="none" stroke="#0055a4" stroke-width="3" opacity="0.25"/>
+            <circle cx="600" cy="400" r="4" fill="#0055a4" opacity="0.35"/>
             <!-- Faceoff circles -->
-            <circle cx="280" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
-            <circle cx="280" cy="260" r="3" fill="#d62828" opacity="0.2"/>
-            <circle cx="920" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
-            <circle cx="920" cy="260" r="3" fill="#d62828" opacity="0.2"/>
-            <circle cx="280" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
-            <circle cx="280" cy="540" r="3" fill="#d62828" opacity="0.2"/>
-            <circle cx="920" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.12"/>
-            <circle cx="920" cy="540" r="3" fill="#d62828" opacity="0.2"/>
+            <circle cx="280" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.2"/>
+            <circle cx="280" cy="260" r="3" fill="#d62828" opacity="0.3"/>
+            <circle cx="920" cy="260" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.2"/>
+            <circle cx="920" cy="260" r="3" fill="#d62828" opacity="0.3"/>
+            <circle cx="280" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.2"/>
+            <circle cx="280" cy="540" r="3" fill="#d62828" opacity="0.3"/>
+            <circle cx="920" cy="540" r="50" fill="none" stroke="#d62828" stroke-width="2" opacity="0.2"/>
+            <circle cx="920" cy="540" r="3" fill="#d62828" opacity="0.3"/>
             <!-- Goal creases -->
-            <path d="M 90 370 Q 110 400 90 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.15"/>
-            <path d="M 1110 370 Q 1090 400 1110 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.15"/>
+            <path d="M 90 370 Q 110 400 90 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.25"/>
+            <path d="M 1110 370 Q 1090 400 1110 430" fill="none" stroke="#48cae4" stroke-width="2" opacity="0.25"/>
             <!-- Goal lines -->
-            <line x1="100" y1="140" x2="100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.12"/>
-            <line x1="1100" y1="140" x2="1100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.12"/>
+            <line x1="100" y1="140" x2="100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.2"/>
+            <line x1="1100" y1="140" x2="1100" y2="660" stroke="#d62828" stroke-width="2" opacity="0.2"/>
         </svg>
     </div>
 
