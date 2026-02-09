@@ -1150,42 +1150,64 @@ def main():
 
     # --- Run ownership model on player pool (before lineups when contest EV is used) ---
     print("\nGenerating ownership projections...")
-    ownership_model = OwnershipModel()
-    if stack_builder:
-        confirmed = stack_builder.get_all_starting_goalies()
-        ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
 
-    # Feature 1: Vegas implied team totals
-    if team_totals:
-        ownership_model.set_vegas_data(team_totals, team_game_totals)
+    if args.single_entry:
+        # Use SE-specific ownership model (trained on actual small-field SE data)
+        try:
+            from se_ownership import SEOwnershipModel
+            se_model = SEOwnershipModel()
+            se_model.fit_from_contests()
 
-    # Feature 4: Return-from-injury buzz
-    if 'injuries' in data and not data['injuries'].empty:
-        ownership_model.set_injury_data(data['injuries'], target_date)
+            # Pass confirmed goalies if available
+            if stack_builder:
+                confirmed = stack_builder.get_all_starting_goalies()
+                if confirmed:
+                    se_model.set_confirmed_goalies(confirmed)
 
-    # Feature 5: Individual recent game scoring
-    if recent_scores:
-        ownership_model.set_recent_scores(recent_scores)
+            player_pool = se_model.predict(player_pool, verbose=True)
+            print("  Using SE ownership model (trained on small-field contest data)")
+        except Exception as e:
+            print(f"  ⚠ SE ownership model failed: {e} — falling back to GPP model")
+            args._se_ownership_failed = True
 
-    # Feature 6: TOI surge map (player name -> delta in minutes)
-    toi_surge_map = {}
-    if recent_scores and 'toi_per_game' in player_pool.columns:
-        for _, row in player_pool.iterrows():
-            pid = row.get('player_id')
-            if pid and pid in recent_scores:
-                recent_toi = recent_scores[pid].get('last_3_avg_toi_min')
-                season_toi = row.get('toi_per_game')
-                if recent_toi and season_toi and season_toi > 0:
-                    # season toi may be in seconds (>100) or minutes
-                    season_min = season_toi / 60.0 if season_toi > 100 else season_toi
-                    toi_surge_map[row['name']] = recent_toi - season_min
+    if not args.single_entry or getattr(args, '_se_ownership_failed', False):
+        # Standard GPP ownership model
+        ownership_model = OwnershipModel()
+        if stack_builder:
+            confirmed = stack_builder.get_all_starting_goalies()
+            ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
 
-    if toi_surge_map:
-        ownership_model.set_toi_surge_data(toi_surge_map)
-        print(f"  TOI surge data set for {len(toi_surge_map)} players")
+        # Feature 1: Vegas implied team totals
+        if team_totals:
+            ownership_model.set_vegas_data(team_totals, team_game_totals)
 
-    player_pool = ownership_model.predict_ownership(player_pool)
-    print_ownership_report(player_pool)
+        # Feature 4: Return-from-injury buzz
+        if 'injuries' in data and not data['injuries'].empty:
+            ownership_model.set_injury_data(data['injuries'], target_date)
+
+        # Feature 5: Individual recent game scoring
+        if recent_scores:
+            ownership_model.set_recent_scores(recent_scores)
+
+        # Feature 6: TOI surge map (player name -> delta in minutes)
+        toi_surge_map = {}
+        if recent_scores and 'toi_per_game' in player_pool.columns:
+            for _, row in player_pool.iterrows():
+                pid = row.get('player_id')
+                if pid and pid in recent_scores:
+                    recent_toi = recent_scores[pid].get('last_3_avg_toi_min')
+                    season_toi = row.get('toi_per_game')
+                    if recent_toi and season_toi and season_toi > 0:
+                        # season toi may be in seconds (>100) or minutes
+                        season_min = season_toi / 60.0 if season_toi > 100 else season_toi
+                        toi_surge_map[row['name']] = recent_toi - season_min
+
+        if toi_surge_map:
+            ownership_model.set_toi_surge_data(toi_surge_map)
+            print(f"  TOI surge data set for {len(toi_surge_map)} players")
+
+        player_pool = ownership_model.predict_ownership(player_pool)
+        print_ownership_report(player_pool)
 
     # --- Run simulator if requested ---
     if args.simulate:
