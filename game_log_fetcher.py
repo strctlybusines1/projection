@@ -659,6 +659,112 @@ def analyze_game_logs(min_games: int = 10, top_n: int = 20):
 #  Utility Functions
 # ================================================================
 
+def fetch_special_teams():
+    """Fetch PP/PK/penalty data for all teams and store in DB."""
+    import requests
+
+    base = 'https://api.nhle.com/stats/rest'
+    season = CURRENT_SEASON
+
+    print(f"\n  Fetching special teams data (season {season})...")
+
+    summary = pd.DataFrame(requests.get(
+        f'{base}/en/team/summary?cayenneExp=seasonId={season} and gameTypeId=2').json()['data'])
+    time.sleep(0.3)
+    pp = pd.DataFrame(requests.get(
+        f'{base}/en/team/powerplay?cayenneExp=seasonId={season} and gameTypeId=2').json()['data'])
+    time.sleep(0.3)
+    pk = pd.DataFrame(requests.get(
+        f'{base}/en/team/penaltykill?cayenneExp=seasonId={season} and gameTypeId=2').json()['data'])
+    time.sleep(0.3)
+    pen = pd.DataFrame(requests.get(
+        f'{base}/en/team/penalties?cayenneExp=seasonId={season} and gameTypeId=2').json()['data'])
+    time.sleep(0.3)
+
+    # Get abbreviations
+    standings = requests.get('https://api-web.nhle.com/v1/standings/now').json()
+    abbrev_map = {}
+    for team in standings.get('standings', []):
+        full = team.get('teamName', {}).get('default', '')
+        abbrev = team.get('teamAbbrev', {}).get('default', '')
+        abbrev_map[full] = abbrev
+
+    name_to_abbrev = {}
+    for full in summary['teamFullName']:
+        for k, v in abbrev_map.items():
+            if full.split()[-1] == k.split()[-1] or k in full:
+                name_to_abbrev[full] = v
+                break
+
+    # Merge
+    df = summary.merge(pp[['teamId', 'powerPlayGoalsFor', 'ppGoalsPerGame',
+                           'ppOpportunitiesPerGame', 'ppTimeOnIcePerGame', 'shGoalsAgainst']], on='teamId')
+    df = df.merge(pk[['teamId', 'ppGoalsAgainst', 'ppGoalsAgainstPerGame',
+                       'timesShorthandedPerGame', 'shGoalsFor', 'penaltyKillPct']],
+                  on='teamId', suffixes=('', '_pk'))
+    df = df.merge(pen[['teamId', 'penalties', 'penaltiesTakenPer60',
+                        'penaltiesDrawnPer60', 'netPenaltiesPer60']], on='teamId')
+    df['team_abbrev'] = df['teamFullName'].map(name_to_abbrev)
+
+    # Create table and store
+    conn = get_db()
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS team_special_teams (
+            team_id INTEGER NOT NULL, team_name TEXT NOT NULL, team_abbrev TEXT,
+            season TEXT NOT NULL, games_played INTEGER,
+            goals_for_pg REAL, shots_for_pg REAL,
+            goals_against_pg REAL, shots_against_pg REAL,
+            pp_pct REAL, pp_goals_for INTEGER, pp_goals_pg REAL,
+            pp_opp_pg REAL, pp_toi_pg REAL, sh_goals_against INTEGER,
+            pk_pct REAL, pp_goals_against INTEGER, ppga_pg REAL,
+            times_sh_pg REAL, sh_goals_for INTEGER,
+            penalties INTEGER, pen_taken_per60 REAL,
+            pen_drawn_per60 REAL, net_pen_per60 REAL,
+            pp_danger REAL, pk_exposure REAL,
+            fetched_at TEXT DEFAULT (datetime('now')),
+            UNIQUE(team_id, season)
+        );
+    """)
+
+    stored = 0
+    for _, r in df.iterrows():
+        conn.execute("""
+            INSERT OR REPLACE INTO team_special_teams
+            (team_id, team_name, team_abbrev, season, games_played,
+             goals_for_pg, shots_for_pg, goals_against_pg, shots_against_pg,
+             pp_pct, pp_goals_for, pp_goals_pg, pp_opp_pg, pp_toi_pg, sh_goals_against,
+             pk_pct, pp_goals_against, ppga_pg, times_sh_pg, sh_goals_for,
+             penalties, pen_taken_per60, pen_drawn_per60, net_pen_per60,
+             pp_danger, pk_exposure)
+            VALUES (?,?,?,?,?, ?,?,?,?, ?,?,?,?,?,?, ?,?,?,?,?, ?,?,?,?, ?,?)
+        """, (
+            r['teamId'], r['teamFullName'], r.get('team_abbrev', ''), season, r['gamesPlayed'],
+            r['goalsForPerGame'], r['shotsForPerGame'], r['goalsAgainstPerGame'], r['shotsAgainstPerGame'],
+            r['powerPlayPct'], r['powerPlayGoalsFor'], r['ppGoalsPerGame'],
+            r['ppOpportunitiesPerGame'], r['ppTimeOnIcePerGame'], r['shGoalsAgainst'],
+            r.get('penaltyKillPct_pk', r.get('penaltyKillPct', 0)), r['ppGoalsAgainst'],
+            r['ppGoalsAgainstPerGame'], r['timesShorthandedPerGame'], r['shGoalsFor'],
+            r['penalties'], r['penaltiesTakenPer60'], r['penaltiesDrawnPer60'], r['netPenaltiesPer60'],
+            r['powerPlayPct'], r['ppGoalsAgainstPerGame'],
+        ))
+        stored += 1
+
+    conn.commit()
+    conn.close()
+
+    print(f"  ✓ Stored {stored} teams")
+
+    # Print summary
+    top_pp = df.nlargest(5, 'powerPlayPct')
+    worst_pk = df.nsmallest(5, 'penaltyKillPct_pk') if 'penaltyKillPct_pk' in df else df.nsmallest(5, 'penaltyKillPct')
+
+    pp_strs = [f"{r['team_abbrev']} ({r['powerPlayPct']*100:.1f}%)" for _, r in top_pp.iterrows()]
+    print(f"\n  Top 5 PP: {', '.join(pp_strs)}")
+    pk_col = 'penaltyKillPct_pk' if 'penaltyKillPct_pk' in df else 'penaltyKillPct'
+    pk_strs = [f"{r['team_abbrev']} ({r[pk_col]*100:.1f}%)" for _, r in worst_pk.iterrows()]
+    print(f"  Worst 5 PK: {', '.join(pk_strs)}")
+
+
 def show_status():
     """Show database status."""
     conn = get_db()
@@ -687,6 +793,13 @@ def show_status():
             SELECT DISTINCT team FROM game_logs_skaters ORDER BY team
         """).fetchall()
         print(f"  Teams:            {len(teams)} ({', '.join(t[0] for t in teams)})")
+
+    # Special teams
+    try:
+        st_count = conn.execute("SELECT COUNT(*) FROM team_special_teams").fetchone()[0]
+        print(f"  Special teams:    {st_count} teams")
+    except:
+        print(f"  Special teams:    not fetched yet")
 
     # Last fetch
     last_fetch = conn.execute("""
@@ -779,6 +892,9 @@ def main():
     # Status
     sub.add_parser('status', help='Show database status')
 
+    # Special teams
+    sub.add_parser('special-teams', help='Fetch PP/PK/penalty data for all teams')
+
     # Export
     export_p = sub.add_parser('export', help='Export game logs to CSV')
     export_p.add_argument('--output', default='game_logs_export.csv')
@@ -812,6 +928,9 @@ def main():
 
     elif args.command == 'status':
         show_status()
+
+    elif args.command == 'special-teams':
+        fetch_special_teams()
 
     elif args.command == 'export':
         export_game_logs(args.output)
