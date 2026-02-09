@@ -91,6 +91,18 @@ def run_backtest(goalie_detail=False):
         except Exception:
             pass
 
+        # Step 3: Game environment (Vegas + pace + recency)
+        try:
+            from game_environment import GameEnvironmentModel
+            env = GameEnvironmentModel()
+            env.fit()
+            if env.fitted:
+                blended = env.adjust_projections(
+                    blended, vegas=vdf, date_str=date_str, verbose=False
+                )
+        except Exception:
+            pass
+
         # Match to actuals
         act_date = actuals[actuals['date'] == date_str].copy()
         act_date['_key'] = act_date['name'].apply(ln) + '_' + act_date['team'].str.lower()

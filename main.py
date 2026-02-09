@@ -1154,6 +1154,19 @@ def main():
         player_pool['p_ceiling'] = 0.05
         print(f"  ⚠ Ceiling model: {e}")
 
+    # --- Game Environment Model (Vegas implied + pace + recency) ---
+    try:
+        from game_environment import GameEnvironmentModel
+        env_model = GameEnvironmentModel()
+        env_model.fit()
+        if env_model.fitted:
+            _vb = vegas_blend if 'vegas_blend' in dir() else None
+            player_pool = env_model.adjust_projections(
+                player_pool, vegas=_vb, date_str=target_date, verbose=True
+            )
+    except Exception as e:
+        print(f"  ⚠ Game environment: {e}")
+
     # --- Fetch recent game scores for ownership model (Feature 5) ---
     recent_scores = {}
     if not args.no_recent_scores and 'player_id' in player_pool.columns:
