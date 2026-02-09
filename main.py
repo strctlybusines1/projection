@@ -1129,6 +1129,31 @@ def main():
         except Exception as e:
             print(f"  ⚠ Blend failed: {e} — using current projections")
 
+    # --- Ceiling Probability (from game log clustering) ---
+    try:
+        from ceiling_clustering import predict_ceiling_probability
+        player_pool = predict_ceiling_probability(player_pool)
+        if 'p_ceiling' in player_pool.columns:
+            n_high = (player_pool['p_ceiling'] > 0.15).sum()
+            avg_p = player_pool['p_ceiling'].mean()
+            print(f"\n  Ceiling probability: {n_high} high-ceiling players (avg P={avg_p:.1%})")
+
+            # Adjust ceiling column using p_ceiling
+            # Scale: p_ceiling relative to base rate → ceiling multiplier
+            # p=0.065 (base) → 1.0x, p=0.20 → 1.25x, p=0.40 → 1.4x, p=0.01 → 0.85x
+            if 'ceiling' in player_pool.columns and 'projected_fpts' in player_pool.columns:
+                base_rate = 0.065  # ~6.5% baseline ceiling rate
+                p = player_pool['p_ceiling'].clip(0.01, 0.50)
+                # Log scale: smoother, prevents extreme multipliers
+                ceiling_scale = (1.0 + 0.3 * np.log(p / base_rate)).clip(0.85, 1.4)
+                base_ceiling = player_pool['projected_fpts'] * 2.5 + 5
+                goalie_mask = player_pool['position'] == 'G'
+                base_ceiling[goalie_mask] = player_pool.loc[goalie_mask, 'projected_fpts'] * 2.0 + 10
+                player_pool['ceiling'] = (base_ceiling * ceiling_scale).round(1)
+    except Exception as e:
+        player_pool['p_ceiling'] = 0.05
+        print(f"  ⚠ Ceiling model: {e}")
+
     # --- Fetch recent game scores for ownership model (Feature 5) ---
     recent_scores = {}
     if not args.no_recent_scores and 'player_id' in player_pool.columns:
@@ -1352,7 +1377,7 @@ def main():
     auto_export_path = str(out_dir / f"{date_str}NHLprojections_{timestamp}.csv")
 
     export_cols = ['name', 'team', 'position', 'salary', 'projected_fpts',
-                   'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling',
+                   'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling', 'p_ceiling',
                    'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score', 'dk_id']
     export_cols = [c for c in export_cols if c in player_pool.columns]
     player_pool.sort_values('projected_fpts', ascending=False)[export_cols].to_csv(auto_export_path, index=False)
