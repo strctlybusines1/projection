@@ -818,6 +818,10 @@ def main():
                              'SE scoring (goalie quality, stack correlation, salary efficiency). '
                              'Use with --lineups 20-50 for best results.')
 
+    # Bayesian blend
+    parser.add_argument('--blend', action='store_true',
+                        help='Blend projections with Bayesian event model (45/55 split, ~25%% MAE improvement)')
+
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
                         help='Skip fetching Natural Stat Trick advanced stats')
@@ -1097,6 +1101,33 @@ def main():
         )
         rec = recommend_leverage(contest_profile)
         print_leverage_recommendation(contest_profile, rec)
+
+    # --- Bayesian Projection Blend (--blend flag) ---
+    if args.blend:
+        try:
+            from projection_blender import blend_projections
+            # Load Vegas data if available
+            vegas_blend = None
+            vegas_paths = [
+                project_dir / 'Vegas_Historical.csv',
+                project_dir / 'vegas' / 'Vegas_Historical.csv',
+            ]
+            for vp in vegas_paths:
+                if vp.exists():
+                    import pandas as _pd
+                    vdf = _pd.read_csv(vp, encoding='utf-8-sig')
+                    vdf['date'] = vdf['Date'].apply(
+                        lambda d: f"20{d.split('.')[2]}-{int(d.split('.')[0]):02d}-{int(d.split('.')[1]):02d}"
+                    )
+                    vegas_blend = vdf
+                    break
+
+            player_pool = blend_projections(
+                player_pool, vegas=vegas_blend, date_str=target_date,
+                replace=True, verbose=True
+            )
+        except Exception as e:
+            print(f"  ⚠ Blend failed: {e} — using current projections")
 
     # --- Fetch recent game scores for ownership model (Feature 5) ---
     recent_scores = {}
