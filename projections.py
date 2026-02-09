@@ -26,22 +26,22 @@ from features import FeatureEngineer
 #   - Goalies over-projected by 47% (mean_proj=8.66, mean_act=4.58)
 # New values derived from: new_eff = old_eff × (actual/projected ratio)
 
-GLOBAL_BIAS_CORRECTION = 0.80  # Was 0.45 (over-corrected), now 0.45 × 1.78 = 0.80
+GLOBAL_BIAS_CORRECTION = 0.50  # Was 0.80, 11-slate backtest suggests 0.50 (still over-projecting +2.67)
 
 # Position-specific bias corrections (skaters)
-# Feb 2 shows positions are now near-neutral relative to each other
+# 11-slate backtest: C near neutral, W slightly down, D slightly up
 POSITION_BIAS_CORRECTION = {
-    'C': 1.01,   # Centers — ratio 1.743, new_eff/global = 1.01
-    'L': 0.99,   # Left wings (alternate code)
-    'LW': 0.99,  # Left wings (alternate code)
-    'R': 0.99,   # Right wings
-    'RW': 0.99,  # Right wings (alternate code)
-    'W': 0.99,   # Wings — ratio 1.895, new_eff/global = 0.99
-    'D': 1.00,   # Defensemen — ratio 1.709, new_eff/global = 1.00
+    'C': 0.99,   # Centers — slight downward
+    'L': 0.94,   # Left wings
+    'LW': 0.94,  # Left wings (alternate code)
+    'R': 0.94,   # Right wings
+    'RW': 0.94,  # Right wings (alternate code)
+    'W': 0.94,   # Wings — 11-slate: 0.99 → 0.94
+    'D': 1.07,   # Defensemen — 11-slate: 1.00 → 1.07
 }
 
-# Goalie bias correction (still over-projecting by 47% on Feb 2)
-GOALIE_BIAS_CORRECTION = 0.40  # Was 0.76, now 0.76 × 0.529 = 0.40
+# Goalie bias correction
+GOALIE_BIAS_CORRECTION = 0.39  # Was 0.40, 11-slate confirms near-stable
 
 # Floor multiplier (reduced from 0.4 - 30.5% were below floor)
 FLOOR_MULTIPLIER = 0.25

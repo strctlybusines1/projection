@@ -346,6 +346,43 @@ def blend_projections(player_pool: pd.DataFrame,
 
     df['goalie_context_adj'] = goalie_ctx_adj
 
+    # ── Signal 6: Opponent Position Profiling ──
+    opp_prof_active = 0
+    try:
+        from opponent_profiling import OpponentProfiler
+        profiler = OpponentProfiler()
+        profiler.fit()
+
+        if profiler.fitted and profiler.position_allowance:
+            # Build opponent map from Vegas data
+            opp_map = {}
+            if vegas is not None and date_str:
+                day_vegas = vegas[vegas.get('date', '') == date_str] if 'date' in vegas.columns else pd.DataFrame()
+                for _, vrow in day_vegas.iterrows():
+                    team = vrow.get('Team', '')
+                    opp = vrow.get('Opp', '').replace('vs ', '').replace('@ ', '').strip()
+                    if team and opp:
+                        opp_map[team] = opp
+
+            if opp_map:
+                for i in range(len(df)):
+                    team = df.iloc[i]['team']
+                    opp = opp_map.get(team, '')
+                    if not opp or df.iloc[i]['position'] == 'G':
+                        continue
+
+                    pos = df.iloc[i]['position']
+                    result = profiler.get_position_adjustment(pos, opp)
+                    mult = result['multiplier']
+
+                    if abs(mult - 1.0) > 0.02:
+                        # Soft adjustment: 30% weight on opponent factor
+                        blended[i] *= (0.70 + 0.30 * mult)
+                        opp_prof_active += 1
+    except Exception as e:
+        if verbose:
+            print(f"  ⚠ Opponent profiling: {e}")
+
     blended = np.clip(blended, MIN_PROJECTION, None)
 
     df['blended_fpts'] = np.round(blended, 2)
@@ -368,11 +405,12 @@ def blend_projections(player_pool: pd.DataFrame,
         sk_bay = df.loc[skater_mask, 'bayes_fpts'].mean()
         sk_bld = df.loc[skater_mask, 'blended_fpts'].mean()
 
-        print(f"\n  ── Projection Blend v2 (5-signal) ────────────────")
+        print(f"\n  ── Projection Blend v2 (6-signal) ────────────────")
         print(f"  Base: {CURRENT_WEIGHT:.0%} current / {BAYESIAN_WEIGHT:.0%} Bayesian")
         print(f"  ESN: {ESN_BLEND_WEIGHT:.0%} weight ({esn_active} players with history)")
         print(f"  HMM: {hmm_active} players with state detection")
         print(f"  Goalie context: {goalie_ctx_active} goalies adjusted")
+        print(f"  Opponent profiling: {opp_prof_active} skaters adjusted")
         print(f"  Bias: skaters {SKATER_BIAS_SHIFT:+.1f}, goalies {GOALIE_BIAS_SHIFT:+.1f}")
         print(f"  Players: {n_sk} skaters, {n_g} goalies")
         print(f"  Skater avg — Cur: {sk_cur:.1f}  Bay: {sk_bay:.1f}  Bld: {sk_bld:.1f}")
