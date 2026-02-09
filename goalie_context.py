@@ -63,6 +63,11 @@ class GoalieContextModel:
         self.scaler_means = {}
         self.scaler_stds = {}
 
+        # Penalty discipline
+        self.team_penalty_rates = {}    # team → {drawn_per60, taken_per60, net_per60}
+        self.league_avg_drawn = 3.67
+        self.league_avg_taken = 3.65
+
     def fit(self) -> 'GoalieContextModel':
         """Train on game log database."""
         if not Path(self.db_path).exists():
@@ -118,6 +123,19 @@ class GoalieContextModel:
                 self.league_avg_pp = st['pp_pct'].mean()
                 self.league_avg_pk = st['pk_pct'].mean()
                 self.league_avg_ppga = st['ppga_pg'].mean()
+
+                # Load penalty discipline rates
+                if 'pen_drawn_per60' in st.columns:
+                    for _, r in st.iterrows():
+                        abbrev = r.get('team_abbrev', '')
+                        if abbrev:
+                            self.team_penalty_rates[abbrev] = {
+                                'drawn_per60': r.get('pen_drawn_per60', 3.67),
+                                'taken_per60': r.get('pen_taken_per60', 3.65),
+                                'net_per60': r.get('net_pen_per60', 0.0),
+                            }
+                    self.league_avg_drawn = st['pen_drawn_per60'].mean()
+                    self.league_avg_taken = st['pen_taken_per60'].mean()
         except Exception:
             pass  # Table may not exist yet
 
@@ -313,7 +331,6 @@ class GoalieContextModel:
             team_pk_pct = team_pk.get('pk_pct', self.league_avg_pk)
 
             # Combined: strong opposing PP + weak team PK = danger
-            # Each 5% above avg PP = ~0.15 more PPG → ~0.5 FPTS penalty for goalie
             pp_above_avg = (opp_pp_pct - self.league_avg_pp) * 100  # in percentage points
             pk_below_avg = (self.league_avg_pk - team_pk_pct) * 100
 
@@ -324,12 +341,32 @@ class GoalieContextModel:
             if pk_below_avg > 3:  # team PK is significantly worse than average
                 pp_pk_factor -= pk_below_avg * 0.08  # each 1% worse PK = -0.08 FPTS extra
 
-            pp_pk_factor = max(-3.0, min(2.0, pp_pk_factor))
+            # ── Penalty discipline matchup multiplier ──
+            # When a team that draws lots of penalties faces a team that takes lots,
+            # expect more PPs than season average → amplify PP/PK effect
+            opp_drawn = self.team_penalty_rates.get(opponent, {}).get('drawn_per60', self.league_avg_drawn)
+            team_taken = self.team_penalty_rates.get(profile.get('team', ''), {}).get('taken_per60', self.league_avg_taken)
+
+            # How many more/fewer PPs than average this matchup should produce
+            # Opponent draws above avg + goalie's team takes above avg = more PPs for opponent
+            opp_draw_factor = opp_drawn / max(self.league_avg_drawn, 0.01)  # >1 = draws more than avg
+            team_take_factor = team_taken / max(self.league_avg_taken, 0.01)  # >1 = takes more than avg
+
+            # Combined: geometric mean of both factors
+            penalty_multiplier = (opp_draw_factor * team_take_factor) ** 0.5
+            # Clamp to reasonable range: 0.75x to 1.35x
+            penalty_multiplier = max(0.75, min(1.35, penalty_multiplier))
+
+            # Apply multiplier to the PP/PK factor
+            pp_pk_factor *= penalty_multiplier
+
+            pp_pk_factor = max(-3.5, min(2.5, pp_pk_factor))
             adjustment += pp_pk_factor
 
             result['factors']['opp_pp_strength'] = round(pp_above_avg * -0.10, 1)
             result['factors']['team_pk_weakness'] = round(
                 -pk_below_avg * 0.08 if pk_below_avg > 3 else 0.0, 1)
+            result['factors']['penalty_multiplier'] = round(penalty_multiplier, 2)
         result['factors']['pp_pk_matchup'] = round(pp_pk_factor, 1)
 
         # Factor 2: Rest/rustiness
