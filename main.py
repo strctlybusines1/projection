@@ -1022,6 +1022,31 @@ def main():
         except Exception as e:
             print(f"  Warning: Linemate chemistry boosts failed: {e}")
 
+    # Apply line context adjustments (PP unit × game environment)
+    if len(skaters_merged) > 0:
+        try:
+            from line_model import apply_line_adjustments
+            # Build opp_totals from team_totals
+            opp_totals = {}
+            if team_totals:
+                # For each team, get their opponent's implied total
+                for _, row in skaters_merged.drop_duplicates('team').iterrows():
+                    opp = row.get('opponent', row.get('opp', ''))
+                    if opp and isinstance(opp, str):
+                        opp_clean = opp.replace('@', '').replace('vs', '').strip()
+                        opp_totals[row['team']] = team_totals.get(opp_clean, 3.0)
+
+            skaters_merged = apply_line_adjustments(
+                skaters_merged,
+                team_totals=team_totals if team_totals else {},
+                opp_totals=opp_totals,
+                verbose=True,
+            )
+        except ImportError:
+            print("  Line model not available — skipping line context adjustments")
+        except Exception as e:
+            print(f"  Warning: Line context adjustments failed: {e}")
+
     # Combine pools
     player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
