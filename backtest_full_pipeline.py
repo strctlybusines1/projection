@@ -34,12 +34,20 @@ def run_backtest(goalie_detail=False):
 
     actuals = pd.read_csv(actuals_path)
 
+    # Load Vegas data: CSV as base, DB odds overlay per-date
     vdf = None
     if vegas_path.exists():
         vdf = pd.read_csv(vegas_path, encoding='utf-8-sig')
         vdf['date'] = vdf['Date'].apply(
             lambda d: f"20{d.split('.')[2]}-{int(d.split('.')[0]):02d}-{int(d.split('.')[1]):02d}"
         )
+
+    # Try DB odds (richer data with moneylines)
+    try:
+        from historical_odds import get_odds_for_date as _get_odds_db
+        _has_db_odds = True
+    except ImportError:
+        _has_db_odds = False
 
     dates = sorted(actuals['date'].unique())
 
@@ -73,8 +81,15 @@ def run_backtest(goalie_detail=False):
 
         pool = pd.read_csv(proj_file)
 
-        # Step 1: 5-signal blend
-        blended = blend_projections(pool, vegas=vdf, date_str=date_str,
+        # Step 1: 5-signal blend (use DB odds if available, else CSV)
+        date_vegas = vdf  # CSV fallback
+        if _has_db_odds:
+            db_odds = _get_odds_db(date_str)
+            if not db_odds.empty:
+                db_odds['date'] = date_str
+                date_vegas = db_odds
+
+        blended = blend_projections(pool, vegas=date_vegas, date_str=date_str,
                                      replace=True, verbose=False)
 
         # Step 2: Ceiling probability
@@ -98,7 +113,7 @@ def run_backtest(goalie_detail=False):
             env.fit()
             if env.fitted:
                 blended = env.adjust_projections(
-                    blended, vegas=vdf, date_str=date_str, verbose=False
+                    blended, vegas=date_vegas, date_str=date_str, verbose=False
                 )
         except Exception:
             pass

@@ -1106,21 +1106,41 @@ def main():
     if args.blend:
         try:
             from projection_blender import blend_projections
-            # Load Vegas data if available
+
+            # ── Auto-capture today's live odds ──
+            try:
+                from historical_odds import capture_daily, get_odds_for_date
+                capture_daily()
+            except Exception as e:
+                print(f"  ⚠ Odds capture: {e}")
+
+            # ── Load Vegas data: DB first, CSV fallback ──
             vegas_blend = None
-            vegas_paths = [
-                project_dir / 'Vegas_Historical.csv',
-                project_dir / 'vegas' / 'Vegas_Historical.csv',
-            ]
-            for vp in vegas_paths:
-                if vp.exists():
-                    import pandas as _pd
-                    vdf = _pd.read_csv(vp, encoding='utf-8-sig')
-                    vdf['date'] = vdf['Date'].apply(
-                        lambda d: f"20{d.split('.')[2]}-{int(d.split('.')[0]):02d}-{int(d.split('.')[1]):02d}"
-                    )
-                    vegas_blend = vdf
-                    break
+            try:
+                from historical_odds import get_odds_for_date
+                db_odds = get_odds_for_date(target_date)
+                if not db_odds.empty:
+                    db_odds['date'] = target_date
+                    vegas_blend = db_odds
+                    print(f"  Vegas: {len(db_odds)} team-games from DB")
+            except Exception:
+                pass
+
+            if vegas_blend is None:
+                vegas_paths = [
+                    project_dir / 'Vegas_Historical.csv',
+                    project_dir / 'vegas' / 'Vegas_Historical.csv',
+                ]
+                for vp in vegas_paths:
+                    if vp.exists():
+                        import pandas as _pd
+                        vdf = _pd.read_csv(vp, encoding='utf-8-sig')
+                        vdf['date'] = vdf['Date'].apply(
+                            lambda d: f"20{d.split('.')[2]}-{int(d.split('.')[0]):02d}-{int(d.split('.')[1]):02d}"
+                        )
+                        vegas_blend = vdf
+                        print(f"  Vegas: loaded from {vp.name} (CSV fallback)")
+                        break
 
             player_pool = blend_projections(
                 player_pool, vegas=vegas_blend, date_str=target_date,

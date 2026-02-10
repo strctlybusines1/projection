@@ -163,11 +163,75 @@ def _available_dates():
     return sorted(dates, reverse=True)
 
 
+def _load_actuals_for_date(date_str):
+    """Load actual FPTS from contest CSVs matching the given date.
+
+    Contest filenames use M.DD.YY format (e.g., $5SE_NHL1.28.26.csv).
+    Returns dict of {player_name: actual_fpts}.
+    """
+    contests_dir = PROJECTION_DIR / "contests"
+    if not contests_dir.exists():
+        return {}
+
+    dt = datetime.strptime(date_str, '%Y-%m-%d')
+    target_m = dt.month
+    target_d = dt.day
+    target_y = dt.year % 100  # 2-digit year
+
+    actuals = {}
+    for f in contests_dir.glob('*.csv'):
+        # Extract date from filename: look for M.DD.YY or M.D.YY pattern
+        match = re.search(r'(\d{1,2})\.(\d{1,2})\.(\d{2})', f.name)
+        if not match:
+            continue
+        fm, fd, fy = int(match.group(1)), int(match.group(2)), int(match.group(3))
+        if fm != target_m or fd != target_d or fy != target_y:
+            continue
+
+        try:
+            df = pd.read_csv(f, encoding='utf-8-sig')
+            if 'Player' in df.columns and 'FPTS' in df.columns:
+                for _, row in df.iterrows():
+                    name = str(row['Player']).strip()
+                    try:
+                        fpts = float(row['FPTS'])
+                    except (ValueError, TypeError):
+                        continue
+                    if name and name != 'nan':
+                        actuals[name] = fpts
+        except Exception:
+            continue
+
+    return actuals
+
+
+def _merge_actuals(lineup_data, actuals):
+    """Merge actual FPTS into lineup data dict (modifies in place)."""
+    if not actuals or not lineup_data:
+        return lineup_data
+
+    for lineup in lineup_data.get('lineups', []):
+        actuals_found = []
+        for player in lineup.get('players', []):
+            name = player.get('name', '')
+            if name in actuals:
+                player['actual_fpts'] = actuals[name]
+                actuals_found.append(actuals[name])
+            else:
+                player['actual_fpts'] = None
+        if len(actuals_found) == len(lineup.get('players', [])):
+            lineup['total_actual'] = round(sum(actuals_found), 1)
+
+    return lineup_data
+
+
 def _load_se_lineups(date_str):
     dt = datetime.strptime(date_str, '%Y-%m-%d')
     filepath = DAILY_PROJ_DIR / f"{dt.strftime('%m_%d_%y')}NHL_se_lineups.json"
     if filepath.exists():
-        return json.loads(filepath.read_text())
+        data = json.loads(filepath.read_text())
+        actuals = _load_actuals_for_date(date_str)
+        return _merge_actuals(data, actuals)
     return None
 
 
@@ -251,11 +315,13 @@ def _build_lineups_from_csv(date_str):
     if not lineups_data:
         return None
 
-    return {
+    data = {
         'slate_date': date_str,
         'n_candidates': len(lineups_data),
         'lineups': lineups_data,
     }
+    actuals = _load_actuals_for_date(date_str)
+    return _merge_actuals(data, actuals)
 
 
 # ================================================================
