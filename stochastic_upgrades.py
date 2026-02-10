@@ -140,15 +140,16 @@ def sample_fpts_gamma_batch(projected: np.ndarray, positions: np.ndarray,
 #  2. Negative Binomial for Event Counts (replaces Poisson)
 # ═══════════════════════════════════════════════════════════════════
 
-# Overdispersion parameters from backtest (NB r by position × tier)
+# Overdispersion parameters calibrated via MLE from game logs + actuals
+# (4,244 skater-games, 110 goalie-games)
 # Higher r = closer to Poisson; lower r = more overdispersed
 DEFAULT_NB_R = {
-    'goals': 1.5,      # Goals are highly overdispersed
-    'assists': 2.0,    # Assists slightly less so
-    'shots': 3.0,      # Shots are more regular
-    'blocks': 2.5,     # Blocks moderate
-    'saves': 5.0,      # Saves are quite regular (high count)
-    'goals_against': 2.0,
+    'goals': 1.98,          # Var/μ=1.09, moderately overdispersed
+    'assists': 2.82,        # Var/μ=1.11, mild overdispersion
+    'shots': 3.74,          # Var/μ=1.45, notable overdispersion
+    'blocks': 1.90,         # Var/μ=1.39, bursty — most overdispersed skater event
+    'saves': 16.52,         # Var/μ=2.12, but high mean makes r large
+    'goals_against': 116.10, # Var/μ=1.03, essentially Poisson
 }
 
 

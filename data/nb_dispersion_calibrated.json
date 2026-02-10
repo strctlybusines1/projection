@@ -1,0 +1,14 @@
+{
+  "goals": 1.98,
+  "assists": 2.82,
+  "shots": 3.74,
+  "blocks": 1.9,
+  "saves": 16.52,
+  "goals_against": 116.1,
+  "_meta": {
+    "source": "game_logs + actuals",
+    "n_skater_games": 4244,
+    "n_goalie_games": 110,
+    "method": "MLE (scipy minimize_scalar)"
+  }
+}
