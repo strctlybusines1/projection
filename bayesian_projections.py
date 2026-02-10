@@ -337,12 +337,25 @@ class SkaterProjector:
         }
 
     def _simulate(self, goal_r, assist_r, shot_r, block_r, sh_r, n: int) -> np.ndarray:
-        """Monte Carlo simulation of FPTS outcomes."""
-        goals = np.random.poisson(goal_r, n)
-        assists = np.random.poisson(assist_r, n)
-        shots = np.random.poisson(shot_r, n)
-        blocks = np.random.poisson(block_r, n)
-        sh = np.random.poisson(sh_r, n)
+        """Monte Carlo simulation of FPTS outcomes using Negative Binomial.
+        
+        NB provides heavier tails than Poisson (Var = mu + mu²/r > mu),
+        better modeling boom/bust games. Falls back to Poisson if unavailable.
+        """
+        try:
+            from stochastic_upgrades import poisson_or_nb
+            goals = poisson_or_nb(goal_r, 'goals', True, n)
+            assists = poisson_or_nb(assist_r, 'assists', True, n)
+            shots = poisson_or_nb(shot_r, 'shots', True, n)
+            blocks = poisson_or_nb(block_r, 'blocks', True, n)
+            sh = poisson_or_nb(sh_r, 'goals', True, n)
+        except ImportError:
+            goals = np.random.poisson(goal_r, n)
+            assists = np.random.poisson(assist_r, n)
+            shots = np.random.poisson(shot_r, n)
+            blocks = np.random.poisson(block_r, n)
+            sh = np.random.poisson(sh_r, n)
+        
         points = goals + assists
 
         fpts = (
@@ -446,12 +459,19 @@ class GoalieProjector:
         }
 
     def _simulate(self, win_r, e_saves, e_ga, so_r, otl_r, n: int) -> np.ndarray:
-        """Monte Carlo simulation of goalie FPTS outcomes."""
-        wins = np.random.binomial(1, win_r, n)
-        saves = np.random.poisson(e_saves, n)
-        ga = np.random.poisson(e_ga, n)
+        """Monte Carlo simulation of goalie FPTS outcomes using NB for saves/GA."""
+        try:
+            from stochastic_upgrades import poisson_or_nb
+            wins = np.random.binomial(1, min(win_r, 0.99), n)
+            saves = poisson_or_nb(e_saves, 'saves', True, n)
+            ga = poisson_or_nb(e_ga, 'goals_against', True, n)
+        except ImportError:
+            wins = np.random.binomial(1, min(win_r, 0.99), n)
+            saves = np.random.poisson(e_saves, n)
+            ga = np.random.poisson(e_ga, n)
+        
         shutouts = (ga == 0).astype(float)
-        otl = np.random.binomial(1, otl_r, n) * (1 - wins)
+        otl = np.random.binomial(1, min(otl_r, 0.99), n) * (1 - wins)
 
         fpts = (
             wins * WIN_PTS +

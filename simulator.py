@@ -110,14 +110,31 @@ class OptimalLineupSimulator:
     #  Monte Carlo sampling
     # ------------------------------------------------------------------ #
     def _sample_projections(self):
-        """Draw sampled_fpts = max(N(projected, std), 0) for all players, rebuild pools."""
+        """Draw sampled_fpts from Gamma(mean, var) per player, rebuild pools.
+        
+        Gamma replaces N(projected, std) because:
+        - Support on [0, ∞) — FPTS can't be negative
+        - Right-skewed — matches real FPTS distribution  
+        - Variance calibrated from backtest (2,137 obs across 7 dates)
+        """
         pool = self._pool
         projected = pool['projected_fpts'].values.copy()
-        std = np.array([
-            self._std_by_name.get(name, 5.5)
-            for name in pool['name'].values
-        ])
-        sampled = np.maximum(np.random.normal(projected, std), 0.0)
+        positions = pool['position'].values if 'position' in pool.columns else np.array(['W'] * len(pool))
+        salaries = pool['salary'].values if 'salary' in pool.columns else np.full(len(pool), 4000)
+        
+        try:
+            from stochastic_upgrades import sample_fpts_gamma
+            sampled = np.zeros(len(projected))
+            for i in range(len(projected)):
+                if projected[i] > 0:
+                    sampled[i] = sample_fpts_gamma(projected[i], positions[i], salaries[i], n=1)[0]
+                else:
+                    sampled[i] = 0.0
+        except ImportError:
+            # Fallback to original Normal if stochastic_upgrades not available
+            std = np.array([self._std_by_name.get(name, 5.5) for name in pool['name'].values])
+            sampled = np.maximum(np.random.normal(projected, std), 0.0)
+        
         pool = pool.copy()
         pool['sampled_fpts'] = sampled
         self._pool = pool

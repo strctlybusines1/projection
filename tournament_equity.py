@@ -134,31 +134,32 @@ class TournamentEquitySelector:
         """
         Estimate lineup outcome distribution (mean, std).
         
-        Accounts for:
-        - Individual player projection variance
-        - Intra-team correlation (teammates boost variance)
-        - Linemate correlation (same-line players boost more)
+        Uses backtest-calibrated variance (2,137 obs) via stochastic_upgrades
+        when available, with correlation boost for teammates/linemates.
         """
         # Mean: sum of projected FPTS
         mean = lineup['projected_fpts'].sum()
 
-        # Individual variance: use ceiling-based estimate if available
+        # Individual variance: prefer backtest-calibrated, fallback to ceiling
         player_vars = []
         for _, p in lineup.iterrows():
             proj = p['projected_fpts']
             
-            if 'ceiling' in p.index and pd.notna(p.get('ceiling')) and p.get('ceiling', 0) > 0:
-                # Estimate std from ceiling: ceiling ≈ mean + 2*std
-                ceil = p['ceiling']
-                player_std = max((ceil - proj) / 2, proj * 0.3)
-            elif 'dk_stdv' in p.index and pd.notna(p.get('dk_stdv')) and p.get('dk_stdv', 0) > 0:
-                player_std = p['dk_stdv']
-            else:
-                # Fallback: std ≈ 60% of projection (from DK data analysis)
-                if p.get('position') == 'G':
-                    player_std = max(proj * 0.80, 4.0)  # Goalies have highest variance
+            try:
+                from stochastic_upgrades import get_player_variance
+                vp = get_player_variance(p.get('position', 'W'), p.get('salary', 4000))
+                player_std = vp['actual_std']
+            except (ImportError, Exception):
+                if 'ceiling' in p.index and pd.notna(p.get('ceiling')) and p.get('ceiling', 0) > 0:
+                    ceil = p['ceiling']
+                    player_std = max((ceil - proj) / 2, proj * 0.3)
+                elif 'dk_stdv' in p.index and pd.notna(p.get('dk_stdv')) and p.get('dk_stdv', 0) > 0:
+                    player_std = p['dk_stdv']
                 else:
-                    player_std = max(proj * 0.60, 2.0)
+                    if p.get('position') == 'G':
+                        player_std = max(proj * 0.80, 4.0)
+                    else:
+                        player_std = max(proj * 0.60, 2.0)
             
             player_vars.append(player_std ** 2)
 
@@ -170,31 +171,29 @@ class TournamentEquitySelector:
         corr_boost = 0.0
 
         for team_name, team_players in teams:
-            if len(team_players) < 2:
-                continue
-
             players_in_team = team_players[team_players['position'] != 'G']
-            goalie_in_team = team_players[team_players['position'] == 'G']
             n_sk = len(players_in_team)
             
             if n_sk < 2:
                 continue
 
-            # Get individual stds for this team's players
             team_stds = []
             for _, p in players_in_team.iterrows():
                 proj = p['projected_fpts']
-                if 'ceiling' in p.index and pd.notna(p.get('ceiling')) and p.get('ceiling', 0) > 0:
-                    team_stds.append(max((p['ceiling'] - proj) / 2, proj * 0.3))
-                else:
-                    team_stds.append(max(proj * 0.60, 2.0))
+                try:
+                    from stochastic_upgrades import get_player_variance
+                    vp = get_player_variance(p.get('position', 'W'), p.get('salary', 4000))
+                    team_stds.append(vp['actual_std'])
+                except (ImportError, Exception):
+                    if 'ceiling' in p.index and pd.notna(p.get('ceiling')) and p.get('ceiling', 0) > 0:
+                        team_stds.append(max((p['ceiling'] - proj) / 2, proj * 0.3))
+                    else:
+                        team_stds.append(max(proj * 0.60, 2.0))
 
-            # Check for linemate pairs (higher correlation)
             names = players_in_team['name'].tolist()
             n_linemate_pairs = self._count_linemate_pairs(names, team_name)
             n_other_pairs = n_sk * (n_sk - 1) // 2 - n_linemate_pairs
 
-            # Correlation contribution: 2 * rho * std_i * std_j for each pair
             avg_std = np.mean(team_stds) if team_stds else 3.0
             corr_boost += n_linemate_pairs * 2 * CORR_SAME_LINE * avg_std * avg_std
             corr_boost += n_other_pairs * 2 * CORR_SAME_TEAM * avg_std * avg_std
