@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-02-02",
+  "generated_at": "2026-02-10T06:56:23.231436",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Sidney Crosby",
+          "team": "PIT",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 8700,
+          "projected_fpts": 7.4,
+          "floor": 1.9,
+          "ceiling": 23.6,
+          "predicted_ownership": 6.5
+        },
+        {
+          "name": "Morgan Barron",
+          "team": "WPG",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 2500,
+          "projected_fpts": 3.5,
+          "floor": 0.9,
+          "ceiling": 13.8,
+          "predicted_ownership": 2.1
+        },
+        {
+          "name": "Evgeni Malkin",
+          "team": "PIT",
+          "position": "C",
+          "roster_slot": "W",
+          "salary": 5600,
+          "projected_fpts": 7.4,
+          "floor": 1.8,
+          "ceiling": 23.5,
+          "predicted_ownership": 1.5
+        },
+        {
+          "name": "Rickard Rakell",
+          "team": "PIT",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 6600,
+          "projected_fpts": 6.5,
+          "floor": 1.6,
+          "ceiling": 21.1,
+          "predicted_ownership": 1.2
+        },
+        {
+          "name": "Artturi Lehkonen",
+          "team": "COL",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 5500,
+          "projected_fpts": 5.7,
+          "floor": 1.4,
+          "ceiling": 19.3,
+          "predicted_ownership": 1.0
+        },
+        {
+          "name": "Erik Karlsson",
+          "team": "PIT",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 5100,
+          "projected_fpts": 5.8,
+          "floor": 1.5,
+          "ceiling": 19.6,
+          "predicted_ownership": 3.2
+        },
+        {
+          "name": "Devon Toews",
+          "team": "COL",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 3500,
+          "projected_fpts": 4.4,
+          "floor": 1.1,
+          "ceiling": 15.9,
+          "predicted_ownership": 2.7
+        },
+        {
+          "name": "Ilya Sorokin",
+          "team": "NYI",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 7500,
+          "projected_fpts": 12.1,
+          "floor": 3.0,
+          "ceiling": 34.2,
+          "predicted_ownership": 11.9
+        },
+        {
+          "name": "Valeri Nichushkin",
+          "team": "COL",
+          "position": "W",
+          "roster_slot": "UTIL",
+          "salary": 5000,
+          "projected_fpts": 5.4,
+          "floor": 1.4,
+          "ceiling": 18.6,
+          "predicted_ownership": 0.9
+        }
+      ],
+      "total_salary": 50000,
+      "total_projected": 58.2,
+      "total_ownership": 31.0,
+      "total_actual": null,
+      "goalie": "Ilya Sorokin",
+      "stacks": [
+        "PIT4",
+        "COL3"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}

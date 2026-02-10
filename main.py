@@ -1187,6 +1187,25 @@ def main():
     except Exception as e:
         print(f"  ⚠ Game environment: {e}")
 
+    # --- Linemate Correlation Boosts ---
+    try:
+        from linemate_corr import get_linemate_boosts
+        skater_mask = player_pool['position'] != 'G'
+        if skater_mask.sum() > 0:
+            lm_names = player_pool.loc[skater_mask, 'name'].tolist()
+            lm_teams = player_pool.loc[skater_mask, 'team'].tolist()
+            boosts = get_linemate_boosts(lm_names, lm_teams)
+            lm_count = 0
+            for idx, row in player_pool[skater_mask].iterrows():
+                mult = boosts.get(row['name'], 1.0)
+                if mult > 1.0:
+                    player_pool.loc[idx, 'projected_fpts'] *= mult
+                    lm_count += 1
+            if lm_count:
+                print(f"\n  Linemate boosts: {lm_count} skaters adjusted")
+    except Exception as e:
+        print(f"  ⚠ Linemate corr: {e}")
+
     # --- Fetch recent game scores for ownership model (Feature 5) ---
     recent_scores = {}
     if not args.no_recent_scores and 'player_id' in player_pool.columns:

@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-01-31",
+  "generated_at": "2026-02-10T06:56:23.224066",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Tage Thompson",
+          "team": "BUF",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 8600,
+          "projected_fpts": 16.8,
+          "floor": 4.2,
+          "ceiling": 47.1,
+          "predicted_ownership": 14.7
+        },
+        {
+          "name": "Jack Eichel",
+          "team": "VGK",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 9400,
+          "projected_fpts": 18.9,
+          "floor": 4.7,
+          "ceiling": 52.4,
+          "predicted_ownership": 12.0
+        },
+        {
+          "name": "Jason Zucker",
+          "team": "BUF",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 4700,
+          "projected_fpts": 11.5,
+          "floor": 2.9,
+          "ceiling": 33.7,
+          "predicted_ownership": 4.4
+        },
+        {
+          "name": "Josh Doan",
+          "team": "BUF",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 4700,
+          "projected_fpts": 10.6,
+          "floor": 2.6,
+          "ceiling": 31.5,
+          "predicted_ownership": 2.9
+        },
+        {
+          "name": "Braeden Bowman",
+          "team": "VGK",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 2600,
+          "projected_fpts": 7.4,
+          "floor": 1.9,
+          "ceiling": 23.5,
+          "predicted_ownership": 0.7
+        },
+        {
+          "name": "Rasmus Dahlin",
+          "team": "BUF",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 6800,
+          "projected_fpts": 14.4,
+          "floor": 3.6,
+          "ceiling": 41.0,
+          "predicted_ownership": 10.4
+        },
+        {
+          "name": "Ben Hutton",
+          "team": "VGK",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2500,
+          "projected_fpts": 7.5,
+          "floor": 1.9,
+          "ceiling": 23.8,
+          "predicted_ownership": 1.7
+        },
+        {
+          "name": "Alex Lyon",
+          "team": "BUF",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 8100,
+          "projected_fpts": 14.2,
+          "floor": 2.8,
+          "ceiling": 38.4,
+          "predicted_ownership": 22.5
+        },
+        {
+          "name": "Pius Suter",
+          "team": "STL",
+          "position": "C",
+          "roster_slot": "UTIL",
+          "salary": 2500,
+          "projected_fpts": 6.6,
+          "floor": 1.7,
+          "ceiling": 21.6,
+          "predicted_ownership": 1.3
+        }
+      ],
+      "total_salary": 49900,
+      "total_projected": 107.9,
+      "total_ownership": 70.6,
+      "total_actual": null,
+      "goalie": "Alex Lyon",
+      "stacks": [
+        "BUF4",
+        "VGK3"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}

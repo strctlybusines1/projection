@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-02-05",
+  "generated_at": "2026-02-10T06:56:23.272964",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Jake Guentzel",
+          "team": "TBL",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 6900,
+          "projected_fpts": 12.4,
+          "floor": 3.1,
+          "ceiling": 36.1,
+          "predicted_ownership": 12.3
+        },
+        {
+          "name": "Kevin Hayes",
+          "team": "PIT",
+          "position": "W",
+          "roster_slot": "C",
+          "salary": 2500,
+          "projected_fpts": 4.7,
+          "floor": 1.2,
+          "ceiling": 16.7,
+          "predicted_ownership": 1.0
+        },
+        {
+          "name": "Nikita Kucherov",
+          "team": "TBL",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 9900,
+          "projected_fpts": 16.2,
+          "floor": 4.1,
+          "ceiling": 45.5,
+          "predicted_ownership": 8.8
+        },
+        {
+          "name": "Brandon Hagel",
+          "team": "TBL",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 7900,
+          "projected_fpts": 12.9,
+          "floor": 3.2,
+          "ceiling": 37.3,
+          "predicted_ownership": 4.2
+        },
+        {
+          "name": "Bradly Nadeau",
+          "team": "CAR",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 2500,
+          "projected_fpts": 4.1,
+          "floor": 1.0,
+          "ceiling": 15.3,
+          "predicted_ownership": 0.2
+        },
+        {
+          "name": "Darren Raddysh",
+          "team": "TBL",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 6700,
+          "projected_fpts": 13.8,
+          "floor": 3.5,
+          "ceiling": 39.6,
+          "predicted_ownership": 15.4
+        },
+        {
+          "name": "K'Andre Miller",
+          "team": "CAR",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2900,
+          "projected_fpts": 8.3,
+          "floor": 2.1,
+          "ceiling": 25.7,
+          "predicted_ownership": 5.5
+        },
+        {
+          "name": "Andrei Vasilevskiy",
+          "team": "TBL",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 8200,
+          "projected_fpts": 8.9,
+          "floor": 1.9,
+          "ceiling": 25.5,
+          "predicted_ownership": 22.5
+        },
+        {
+          "name": "William Carrier",
+          "team": "CAR",
+          "position": "W",
+          "roster_slot": "UTIL",
+          "salary": 2500,
+          "projected_fpts": 4.0,
+          "floor": 1.0,
+          "ceiling": 15.0,
+          "predicted_ownership": 0.3
+        }
+      ],
+      "total_salary": 50000,
+      "total_projected": 85.3,
+      "total_ownership": 70.2,
+      "total_actual": null,
+      "goalie": "Andrei Vasilevskiy",
+      "stacks": [
+        "TBL4",
+        "CAR3"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}

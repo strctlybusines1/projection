@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-02-04",
+  "generated_at": "2026-02-10T06:56:23.269001",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Connor McDavid",
+          "team": "EDM",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 10300,
+          "projected_fpts": 15.7,
+          "floor": 3.9,
+          "ceiling": 44.3,
+          "predicted_ownership": 14.9
+        },
+        {
+          "name": "Teddy Blueger",
+          "team": "VAN",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 3000,
+          "projected_fpts": 9.1,
+          "floor": 2.3,
+          "ceiling": 27.7,
+          "predicted_ownership": 3.8
+        },
+        {
+          "name": "Zach Hyman",
+          "team": "EDM",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 7800,
+          "projected_fpts": 12.1,
+          "floor": 3.0,
+          "ceiling": 35.3,
+          "predicted_ownership": 2.4
+        },
+        {
+          "name": "Ryan Nugent-Hopkins",
+          "team": "EDM",
+          "position": "C",
+          "roster_slot": "W",
+          "salary": 5800,
+          "projected_fpts": 8.7,
+          "floor": 2.2,
+          "ceiling": 26.7,
+          "predicted_ownership": 0.8
+        },
+        {
+          "name": "Kirby Dach",
+          "team": "MTL",
+          "position": "C",
+          "roster_slot": "W",
+          "salary": 2600,
+          "projected_fpts": 6.5,
+          "floor": 1.6,
+          "ceiling": 21.2,
+          "predicted_ownership": 2.1
+        },
+        {
+          "name": "Jordan Harris",
+          "team": "BOS",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2500,
+          "projected_fpts": 7.2,
+          "floor": 1.8,
+          "ceiling": 23.0,
+          "predicted_ownership": 0.6
+        },
+        {
+          "name": "Tobias Bjornfot",
+          "team": "FLA",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2500,
+          "projected_fpts": 5.5,
+          "floor": 1.4,
+          "ceiling": 18.8,
+          "predicted_ownership": 2.3
+        },
+        {
+          "name": "Mackenzie Blackwood",
+          "team": "COL",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 8300,
+          "projected_fpts": 8.2,
+          "floor": 2.0,
+          "ceiling": 25.9,
+          "predicted_ownership": 12.5
+        },
+        {
+          "name": "Kiefer Sherwood",
+          "team": "VAN",
+          "position": "W",
+          "roster_slot": "UTIL",
+          "salary": 3300,
+          "projected_fpts": 8.6,
+          "floor": 2.1,
+          "ceiling": 26.4,
+          "predicted_ownership": 2.0
+        }
+      ],
+      "total_salary": 46100,
+      "total_projected": 81.6,
+      "total_ownership": 41.4,
+      "total_actual": null,
+      "goalie": "Mackenzie Blackwood",
+      "stacks": [
+        "EDM3",
+        "VAN2"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}

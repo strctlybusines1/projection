@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-02-01",
+  "generated_at": "2026-02-10T06:56:23.227188",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Logan Stankoven",
+          "team": "CAR",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 3400,
+          "projected_fpts": 8.1,
+          "floor": 2.0,
+          "ceiling": 25.2,
+          "predicted_ownership": 4.6
+        },
+        {
+          "name": "Jordan Staal",
+          "team": "CAR",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 3000,
+          "projected_fpts": 6.8,
+          "floor": 1.7,
+          "ceiling": 21.9,
+          "predicted_ownership": 5.8
+        },
+        {
+          "name": "Nikita Kucherov",
+          "team": "TBL",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 9100,
+          "projected_fpts": 19.6,
+          "floor": 4.9,
+          "ceiling": 54.1,
+          "predicted_ownership": 11.2
+        },
+        {
+          "name": "Brandon Hagel",
+          "team": "TBL",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 7100,
+          "projected_fpts": 15.2,
+          "floor": 3.8,
+          "ceiling": 43.0,
+          "predicted_ownership": 6.9
+        },
+        {
+          "name": "Jake Guentzel",
+          "team": "TBL",
+          "position": "C",
+          "roster_slot": "W",
+          "salary": 6700,
+          "projected_fpts": 14.6,
+          "floor": 3.6,
+          "ceiling": 41.5,
+          "predicted_ownership": 4.6
+        },
+        {
+          "name": "Darren Raddysh",
+          "team": "TBL",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 6200,
+          "projected_fpts": 15.1,
+          "floor": 3.8,
+          "ceiling": 42.8,
+          "predicted_ownership": 45.4
+        },
+        {
+          "name": "Ben Hutton",
+          "team": "VGK",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2500,
+          "projected_fpts": 7.5,
+          "floor": 1.9,
+          "ceiling": 23.7,
+          "predicted_ownership": 6.8
+        },
+        {
+          "name": "Andrei Vasilevskiy",
+          "team": "TBL",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 8300,
+          "projected_fpts": 14.6,
+          "floor": 2.9,
+          "ceiling": 39.1,
+          "predicted_ownership": 32.1
+        },
+        {
+          "name": "Corey Perry",
+          "team": "LAK",
+          "position": "W",
+          "roster_slot": "UTIL",
+          "salary": 3200,
+          "projected_fpts": 8.2,
+          "floor": 2.1,
+          "ceiling": 25.6,
+          "predicted_ownership": 2.9
+        }
+      ],
+      "total_salary": 49500,
+      "total_projected": 109.7,
+      "total_ownership": 120.3,
+      "total_actual": null,
+      "goalie": "Andrei Vasilevskiy",
+      "stacks": [
+        "TBL4",
+        "CAR2"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}

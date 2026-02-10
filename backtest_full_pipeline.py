@@ -80,6 +80,8 @@ def run_backtest(goalie_detail=False):
             continue
 
         pool = pd.read_csv(proj_file)
+        if pool.empty:
+            continue
 
         # Step 1: 5-signal blend (use DB odds if available, else CSV)
         date_vegas = vdf  # CSV fallback
@@ -115,6 +117,30 @@ def run_backtest(goalie_detail=False):
                 blended = env.adjust_projections(
                     blended, vegas=date_vegas, date_str=date_str, verbose=False
                 )
+        except Exception:
+            pass
+
+        # Step 4: Linemate correlation boosts
+        try:
+            from linemate_corr import LinemateCorrelationDB
+            lm_db = LinemateCorrelationDB()
+            lm_db.fit(teams=blended['team'].unique().tolist())
+            if lm_db.fitted:
+                skater_mask = blended['position'] != 'G'
+                lm_names = blended.loc[skater_mask, 'name'].tolist()
+                lm_teams = blended.loc[skater_mask, 'team'].tolist()
+
+                from linemate_corr import get_linemate_boosts
+                boosts = get_linemate_boosts(lm_names, lm_teams)
+
+                lm_count = 0
+                for idx, row in blended[skater_mask].iterrows():
+                    mult = boosts.get(row['name'], 1.0)
+                    if mult > 1.0:
+                        blended.loc[idx, 'projected_fpts'] *= mult
+                        if 'blended_fpts' in blended.columns:
+                            blended.loc[idx, 'blended_fpts'] *= mult
+                        lm_count += 1
         except Exception:
             pass
 

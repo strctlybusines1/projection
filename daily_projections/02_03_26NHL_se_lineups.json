@@ -1,0 +1,123 @@
+{
+  "slate_date": "2026-02-03",
+  "generated_at": "2026-02-10T06:56:23.235706",
+  "n_candidates": 1,
+  "lineups": [
+    {
+      "rank": 1,
+      "players": [
+        {
+          "name": "Tage Thompson",
+          "team": "BUF",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 8300,
+          "projected_fpts": 13.0,
+          "floor": 3.3,
+          "ceiling": 37.5,
+          "predicted_ownership": 10.3
+        },
+        {
+          "name": "Connor McDavid",
+          "team": "EDM",
+          "position": "C",
+          "roster_slot": "C",
+          "salary": 10300,
+          "projected_fpts": 15.9,
+          "floor": 4.0,
+          "ceiling": 44.7,
+          "predicted_ownership": 13.0
+        },
+        {
+          "name": "Jason Zucker",
+          "team": "BUF",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 4400,
+          "projected_fpts": 8.7,
+          "floor": 2.2,
+          "ceiling": 26.7,
+          "predicted_ownership": 1.7
+        },
+        {
+          "name": "Josh Doan",
+          "team": "BUF",
+          "position": "W",
+          "roster_slot": "W",
+          "salary": 4200,
+          "projected_fpts": 8.1,
+          "floor": 2.0,
+          "ceiling": 25.2,
+          "predicted_ownership": 1.6
+        },
+        {
+          "name": "Jack Roslovic",
+          "team": "EDM",
+          "position": "C",
+          "roster_slot": "W",
+          "salary": 3300,
+          "projected_fpts": 7.7,
+          "floor": 1.9,
+          "ceiling": 24.3,
+          "predicted_ownership": 1.3
+        },
+        {
+          "name": "Rasmus Dahlin",
+          "team": "BUF",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 6700,
+          "projected_fpts": 11.2,
+          "floor": 2.8,
+          "ceiling": 33.0,
+          "predicted_ownership": 6.3
+        },
+        {
+          "name": "Mike Reilly",
+          "team": "CAR",
+          "position": "D",
+          "roster_slot": "D",
+          "salary": 2500,
+          "projected_fpts": 5.7,
+          "floor": 1.4,
+          "ceiling": 19.2,
+          "predicted_ownership": 2.3
+        },
+        {
+          "name": "Philipp Grubauer",
+          "team": "SEA",
+          "position": "G",
+          "roster_slot": "G",
+          "salary": 7300,
+          "projected_fpts": 7.8,
+          "floor": 2.0,
+          "ceiling": 25.6,
+          "predicted_ownership": 16.2
+        },
+        {
+          "name": "Kasperi Kapanen",
+          "team": "EDM",
+          "position": "W",
+          "roster_slot": "UTIL",
+          "salary": 3000,
+          "projected_fpts": 6.9,
+          "floor": 1.7,
+          "ceiling": 22.2,
+          "predicted_ownership": 1.3
+        }
+      ],
+      "total_salary": 50000,
+      "total_projected": 85.0,
+      "total_ownership": 54.0,
+      "total_actual": null,
+      "goalie": "Philipp Grubauer",
+      "stacks": [
+        "BUF4",
+        "EDM3"
+      ],
+      "scores": {
+        "total": 1
+      }
+    }
+  ]
+}
