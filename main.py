@@ -45,6 +45,7 @@ from contest_roi import (
     PAYOUT_PRESETS,
 )
 from single_entry import SingleEntrySelector, print_se_lineup, ContestProfile as SEContestProfile, prompt_contest_profile
+from tournament_equity import TournamentEquitySelector, print_te_lineup
 from validate import run_validation
 
 
@@ -1361,53 +1362,59 @@ def main():
 
         # ── Single-Entry Mode ──────────────────────────────────────────────
         # Generate many candidates with randomness, then pick the best one
-        # using the contest-calibrated SE scoring engine
+        # using Tournament Equity (v4) — scores lineups in DOLLARS not abstract 0-1
         if args.single_entry:
-            n_candidates = max(args.lineups, 40)  # At least 40 candidates
+            n_candidates = max(args.lineups, 60)  # At least 60 candidates
 
-            # Contest profile selection
+            # Contest profile for entry fee
             try:
                 if args.contest == 'satellite':
+                    entry_fee = 14.0
                     se_contest = SEContestProfile.satellite()
                 elif args.contest == 'se_gpp':
-                    entries = getattr(args, 'contest_entries', 80)
-                    se_contest = SEContestProfile.se_gpp(entries)
-                elif args.contest == 'custom':
+                    entry_fee = 121.0
+                    se_contest = SEContestProfile.se_gpp(getattr(args, 'contest_entries', 80))
+                elif args.contest in ('custom', 'prompt'):
                     se_contest = prompt_contest_profile()
-                elif args.contest == 'prompt':
-                    se_contest = prompt_contest_profile()
+                    entry_fee = se_contest.entry_fee
                 else:
+                    entry_fee = 121.0
                     se_contest = SEContestProfile.se_gpp()
             except Exception:
+                entry_fee = 121.0
                 se_contest = SEContestProfile.se_gpp()
 
-            print(f"\nSingle-Entry Mode: {se_contest.name}")
-            print(f"  Target: {se_contest.target_score}+ FPTS to win | Cash: {se_contest.cash_score}+ FPTS")
-            print(f"  Generating {n_candidates} candidate lineups...")
+            print(f"\nSingle-Entry Mode: Tournament Equity v4 | {se_contest.name}")
+            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates...")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
             candidates = optimizer.optimize_lineup(
                 player_pool,
                 n_lineups=n_candidates,
-                randomness=0.08,  # Moderate randomness to explore the space
+                randomness=0.12,  # Optimal from grid search
                 stack_teams=[args.force_stack] if args.force_stack else None,
             )
 
             if candidates:
-                selector = SingleEntrySelector(
+                # Primary: Tournament Equity selector (v4)
+                te_selector = TournamentEquitySelector(
                     player_pool,
-                    contest=se_contest,
+                    entry_fee=entry_fee,
                     stack_builder=stack_builder,
-                    team_totals=team_totals if team_totals else {},
                 )
-                best_lineup, best_scores = selector.select(candidates, verbose=True)
-                print_se_lineup(best_lineup, best_scores)
+                best_lineup, te_result = te_selector.select(candidates, verbose=True)
+                print_te_lineup(best_lineup, te_result)
                 lineups = [best_lineup]
 
                 # Export all ranked candidates to JSON for website
                 try:
                     from lineup_export import export_se_candidates
-                    all_scored = [(lu, selector.score_lineup(lu)) for lu in candidates]
+                    all_scored = []
+                    for lu in candidates:
+                        te = te_selector.compute_te_analytical(lu)
+                        # Wrap TE result with 'total' key for compatibility
+                        score_dict = {**te, 'total': te['te']}
+                        all_scored.append((lu, score_dict))
                     all_scored.sort(key=lambda x: x[1]['total'], reverse=True)
                     export_se_candidates(all_scored, target_date, str(out_dir))
                 except Exception as e:
@@ -1472,7 +1479,7 @@ def main():
                 from lineup_export import export_se_candidates
                 all_with_scores = []
                 for rank, lu in enumerate(lineups):
-                    scores = {'total': len(lineups) - rank}  # rank-order score
+                    scores = {'total': len(lineups) - rank}
                     all_with_scores.append((lu, scores))
                 export_se_candidates(all_with_scores, target_date, str(out_dir))
             except Exception as e:
