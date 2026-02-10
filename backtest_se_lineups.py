@@ -219,7 +219,7 @@ def run_se_backtest_date(date_str: str, n_candidates: int = 40, verbose: bool = 
 
     # 6. SE selector scoring
     try:
-        from single_entry import SingleEntrySelector
+        from single_entry import SingleEntrySelector, ContestProfile as SEContestProfile
         # Build team totals from Vegas if available
         team_totals = {}
         try:
@@ -231,7 +231,7 @@ def run_se_backtest_date(date_str: str, n_candidates: int = 40, verbose: bool = 
         except Exception:
             pass
 
-        selector = SingleEntrySelector(pool, team_totals=team_totals)
+        selector = SingleEntrySelector(pool, contest=SEContestProfile.se_gpp(), team_totals=team_totals)
         se_scores = []
         for i, lineup in enumerate(candidates):
             try:

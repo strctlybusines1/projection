@@ -44,7 +44,7 @@ from contest_roi import (
     print_leverage_recommendation,
     PAYOUT_PRESETS,
 )
-from single_entry import SingleEntrySelector, print_se_lineup
+from single_entry import SingleEntrySelector, print_se_lineup, ContestProfile as SEContestProfile, prompt_contest_profile
 from validate import run_validation
 
 
@@ -816,7 +816,13 @@ def main():
     parser.add_argument('--single-entry', action='store_true',
                         help='Single-entry mode: generate N candidates then select best via '
                              'SE scoring (goalie quality, stack correlation, salary efficiency). '
-                             'Use with --lineups 20-50 for best results.')
+                             'Use with --lineups 40-60 for best results.')
+    parser.add_argument('--contest', type=str, default='se_gpp',
+                        choices=['satellite', 'se_gpp', 'custom', 'prompt'],
+                        help='Contest type for SE mode: satellite ($14 WTA), '
+                             'se_gpp ($121 SE, default), custom, or prompt (interactive)')
+    parser.add_argument('--contest-entries', type=int, default=80,
+                        help='Expected entries for SE GPP (default 80)')
 
     # Bayesian blend
     parser.add_argument('--blend', action='store_true',
@@ -1355,10 +1361,29 @@ def main():
 
         # ── Single-Entry Mode ──────────────────────────────────────────────
         # Generate many candidates with randomness, then pick the best one
-        # using the SE scoring engine (goalie quality, stack correlation, etc.)
+        # using the contest-calibrated SE scoring engine
         if args.single_entry:
-            n_candidates = max(args.lineups, 20)  # At least 20 candidates
-            print(f"\nSingle-Entry Mode: generating {n_candidates} candidate lineups...")
+            n_candidates = max(args.lineups, 40)  # At least 40 candidates
+
+            # Contest profile selection
+            try:
+                if args.contest == 'satellite':
+                    se_contest = SEContestProfile.satellite()
+                elif args.contest == 'se_gpp':
+                    entries = getattr(args, 'contest_entries', 80)
+                    se_contest = SEContestProfile.se_gpp(entries)
+                elif args.contest == 'custom':
+                    se_contest = prompt_contest_profile()
+                elif args.contest == 'prompt':
+                    se_contest = prompt_contest_profile()
+                else:
+                    se_contest = SEContestProfile.se_gpp()
+            except Exception:
+                se_contest = SEContestProfile.se_gpp()
+
+            print(f"\nSingle-Entry Mode: {se_contest.name}")
+            print(f"  Target: {se_contest.target_score}+ FPTS to win | Cash: {se_contest.cash_score}+ FPTS")
+            print(f"  Generating {n_candidates} candidate lineups...")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
             candidates = optimizer.optimize_lineup(
@@ -1371,6 +1396,7 @@ def main():
             if candidates:
                 selector = SingleEntrySelector(
                     player_pool,
+                    contest=se_contest,
                     stack_builder=stack_builder,
                     team_totals=team_totals if team_totals else {},
                 )
