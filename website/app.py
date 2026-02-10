@@ -206,21 +206,21 @@ def _load_actuals_for_date(date_str):
 
 
 def _merge_actuals(lineup_data, actuals):
-    """Merge actual FPTS into lineup data dict (modifies in place)."""
+    """Merge actual FPTS into lineup data dict (modifies in place).
+
+    Players not found in contest data are assumed to have scored 0.
+    """
     if not actuals or not lineup_data:
         return lineup_data
 
     for lineup in lineup_data.get('lineups', []):
-        actuals_found = []
+        total = 0.0
         for player in lineup.get('players', []):
             name = player.get('name', '')
-            if name in actuals:
-                player['actual_fpts'] = actuals[name]
-                actuals_found.append(actuals[name])
-            else:
-                player['actual_fpts'] = None
-        if len(actuals_found) == len(lineup.get('players', [])):
-            lineup['total_actual'] = round(sum(actuals_found), 1)
+            fpts = actuals.get(name, 0.0)
+            player['actual_fpts'] = fpts
+            total += fpts
+        lineup['total_actual'] = round(total, 1)
 
     return lineup_data
 
