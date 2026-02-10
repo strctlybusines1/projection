@@ -1440,6 +1440,18 @@ def main():
         lineup_path = auto_export_path.replace('.csv', '_lineups.csv')
         export_lineup_for_dk(lineups[0], lineup_path)
 
+        # Export all lineups to JSON for the website (SE mode already does this above)
+        if not args.single_entry:
+            try:
+                from lineup_export import export_se_candidates
+                all_with_scores = []
+                for rank, lu in enumerate(lineups):
+                    scores = {'total': len(lineups) - rank}  # rank-order score
+                    all_with_scores.append((lu, scores))
+                export_se_candidates(all_with_scores, target_date, str(out_dir))
+            except Exception as e:
+                print(f"  Note: Could not export lineup details: {e}")
+
     # Legacy --export flag still works
     if args.export:
         export_path = args.export
