@@ -891,9 +891,6 @@ def main():
 
     # Get slate teams for filtering
     slate_teams = list(dk_salaries['team'].unique())
-    num_games = len(slate_teams) // 2
-    slate_label = "SMALL" if num_games <= 5 else "LARGE"
-    print(f"  Slate size: {num_games} games ({len(slate_teams)} teams) — {slate_label}")
 
     # Show Vegas game ranking — prefer Odds API, fall back to CSV
     csv_fallback = args.vegas
@@ -1413,26 +1410,48 @@ def main():
                 se_contest = SEContestProfile.se_gpp()
 
             print(f"\nSingle-Entry Mode: Tournament Equity v4 | {se_contest.name}")
-            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates (mixed randomness)...")
+            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates (triple-mix)...")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
 
-            # Mixed randomness pool: diverse candidates give M+3σ selector
-            # more to differentiate. Backtest: 100 mixed = 94.0 avg vs 83.9 for 60 uniform.
+            # Triple-mix candidate pool: 50% uncapped + 25% salary-capped + 25% forced 3-3
+            # Backtest: 92.8 avg vs 90.7 uncapped-only, std spread 4.1 vs 2.5
+            # Structural diversity lets M+3σ selector differentiate candidates
             candidates = []
-            n_per_tier = max(n_candidates // 5, 10)
+            stack_kw = dict(stack_teams=[args.force_stack]) if args.force_stack else {}
+
+            # Build salary-capped pool ($7.5k max skater)
+            capped_pool = player_pool[player_pool['salary'] <= 7500].copy()
+            pos_counts = capped_pool['position'].value_counts()
+            has_capped = (pos_counts.get('C', 0) >= 3 and pos_counts.get('W', 0) >= 4
+                          and pos_counts.get('D', 0) >= 3 and pos_counts.get('G', 0) >= 2)
+
             for rand_level in [0.05, 0.10, 0.15, 0.20, 0.25]:
+                n_std = max(n_candidates // 10, 5)       # 50% uncapped standard
+                n_cap = max(n_candidates // 20, 3)       # 25% salary-capped
+                n_33  = max(n_candidates // 20, 3)       # 25% forced 3-3 stacks
+
+                # Tier 1: Standard uncapped (4-3 stacks emerge naturally)
                 batch = optimizer.optimize_lineup(
-                    player_pool,
-                    n_lineups=n_per_tier,
-                    randomness=rand_level,
-                    stack_teams=[args.force_stack] if args.force_stack else None,
-                    num_games=num_games,
-                )
+                    player_pool, n_lineups=n_std, randomness=rand_level, **stack_kw)
                 if batch:
                     candidates.extend(batch)
 
-            print(f"  Generated {len(candidates)} candidates across 5 randomness tiers")
+                # Tier 2: Salary-capped balanced builds
+                if has_capped:
+                    batch = optimizer.optimize_lineup(
+                        capped_pool, n_lineups=n_cap, randomness=rand_level, **stack_kw)
+                    if batch:
+                        candidates.extend(batch)
+
+                # Tier 3: Forced 3-3 stacks (max 3 from any team)
+                batch = optimizer.optimize_lineup(
+                    player_pool, n_lineups=n_33, randomness=rand_level,
+                    max_from_team=3, **stack_kw)
+                if batch:
+                    candidates.extend(batch)
+
+            print(f"  Generated {len(candidates)} candidates (uncapped + cap$7.5k + 3-3 stacks)")
 
             if candidates:
                 # Primary: Tournament Equity selector (v4)
@@ -1472,8 +1491,7 @@ def main():
                 player_pool,
                 n_lineups=args.lineups,
                 randomness=0.05 if args.lineups > 1 else 0,
-                stack_teams=[args.force_stack] if args.force_stack else None,
-                num_games=num_games,
+                stack_teams=[args.force_stack] if args.force_stack else None
             )
 
             # Contest EV: score and re-rank lineups by expected payout
