@@ -246,6 +246,19 @@ BLOWOUT_SPREAD_THRESHOLD = 2.5  # Spread above this = potential blowout (target 
 PREFERRED_PRIMARY_STACK_SIZE = 4  # Target 4 players in primary stack
 PREFERRED_SECONDARY_STACK_SIZE = 3  # Target 3 players in secondary stack (based on $360 Spin analysis)
 
+# Slate-size-aware stacking
+SMALL_SLATE_THRESHOLD = 5          # Games <= this = small slate
+SMALL_SLATE_PRIMARY_STACK_SIZE = 4  # Single concentrated stack (no secondary)
+
+# Large slate patterns: (primary, secondary, tertiary)
+# Remaining spots after stacks filled with best-available one-offs
+LARGE_SLATE_STACK_PATTERNS = [
+    (4, 3, 0),   # 4-3-1-1
+    (3, 3, 2),   # 3-3-2
+    (3, 3, 0),   # 3-3-1-1
+]
+LARGE_SLATE_PATTERN_WEIGHTS = [0.40, 0.30, 0.30]
+
 # Player pair correlations from GPP analysis
 # Kaprizov + Zuccarello appeared in 59% of winning lineups
 # These are linemates who should be stacked together

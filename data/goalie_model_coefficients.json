@@ -1,0 +1,22 @@
+{
+  "features": [
+    "goalie_rolling_avg",
+    "team_rolling_avg",
+    "win_pct",
+    "OppGoal",
+    "Avg",
+    "Ceiling"
+  ],
+  "coefficients": {
+    "goalie_rolling_avg": -0.24079537164128445,
+    "team_rolling_avg": -0.007230660849042829,
+    "win_pct": 1.0054142791212486,
+    "OppGoal": 0.25279963409603656,
+    "Avg": 0.09562018758373222,
+    "Ceiling": 0.34378243188720237
+  },
+  "intercept": 3.7928700852294286,
+  "mae": 5.582050875010716,
+  "baseline_mae": 7.158917197452229,
+  "n_training": 1570
+}

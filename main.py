@@ -891,6 +891,9 @@ def main():
 
     # Get slate teams for filtering
     slate_teams = list(dk_salaries['team'].unique())
+    num_games = len(slate_teams) // 2
+    slate_label = "SMALL" if num_games <= 5 else "LARGE"
+    print(f"  Slate size: {num_games} games ({len(slate_teams)} teams) — {slate_label}")
 
     # Show Vegas game ranking — prefer Odds API, fall back to CSV
     csv_fallback = args.vegas
@@ -1424,6 +1427,7 @@ def main():
                     n_lineups=n_per_tier,
                     randomness=rand_level,
                     stack_teams=[args.force_stack] if args.force_stack else None,
+                    num_games=num_games,
                 )
                 if batch:
                     candidates.extend(batch)
@@ -1468,7 +1472,8 @@ def main():
                 player_pool,
                 n_lineups=args.lineups,
                 randomness=0.05 if args.lineups > 1 else 0,
-                stack_teams=[args.force_stack] if args.force_stack else None
+                stack_teams=[args.force_stack] if args.force_stack else None,
+                num_games=num_games,
             )
 
             # Contest EV: score and re-rank lineups by expected payout
