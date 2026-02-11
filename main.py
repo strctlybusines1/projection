@@ -1389,7 +1389,7 @@ def main():
         # Generate many candidates with randomness, then pick the best one
         # using Tournament Equity (v4) — scores lineups in DOLLARS not abstract 0-1
         if args.single_entry:
-            n_candidates = max(args.lineups, 60)  # At least 60 candidates
+            n_candidates = max(args.lineups, 100)  # At least 100 candidates (mixed randomness)
 
             # Contest profile for entry fee
             try:
@@ -1410,15 +1410,25 @@ def main():
                 se_contest = SEContestProfile.se_gpp()
 
             print(f"\nSingle-Entry Mode: Tournament Equity v4 | {se_contest.name}")
-            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates...")
+            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates (mixed randomness)...")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
-            candidates = optimizer.optimize_lineup(
-                player_pool,
-                n_lineups=n_candidates,
-                randomness=0.12,  # Optimal from grid search
-                stack_teams=[args.force_stack] if args.force_stack else None,
-            )
+
+            # Mixed randomness pool: diverse candidates give M+3σ selector
+            # more to differentiate. Backtest: 100 mixed = 94.0 avg vs 83.9 for 60 uniform.
+            candidates = []
+            n_per_tier = max(n_candidates // 5, 10)
+            for rand_level in [0.05, 0.10, 0.15, 0.20, 0.25]:
+                batch = optimizer.optimize_lineup(
+                    player_pool,
+                    n_lineups=n_per_tier,
+                    randomness=rand_level,
+                    stack_teams=[args.force_stack] if args.force_stack else None,
+                )
+                if batch:
+                    candidates.extend(batch)
+
+            print(f"  Generated {len(candidates)} candidates across 5 randomness tiers")
 
             if candidates:
                 # Primary: Tournament Equity selector (v4)
@@ -1497,18 +1507,6 @@ def main():
     if lineups:
         lineup_path = auto_export_path.replace('.csv', '_lineups.csv')
         export_lineup_for_dk(lineups[0], lineup_path)
-
-        # Export all lineups to JSON for the website (SE mode already does this above)
-        if not args.single_entry:
-            try:
-                from lineup_export import export_se_candidates
-                all_with_scores = []
-                for rank, lu in enumerate(lineups):
-                    scores = {'total': len(lineups) - rank}
-                    all_with_scores.append((lu, scores))
-                export_se_candidates(all_with_scores, target_date, str(out_dir))
-            except Exception as e:
-                print(f"  Note: Could not export lineup details: {e}")
 
     # Legacy --export flag still works
     if args.export:
