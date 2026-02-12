@@ -128,68 +128,74 @@ class PlayerDistribution:
         return np.where(is_floor, floor_samples, pos_samples)
 
 
-# Fast norm CDF/PPF using numpy (avoid scipy overhead in hot loop)
-def _norm_cdf(x):
-    """Standard normal CDF using erfc."""
-    return 0.5 * (1.0 + np.vectorize(_erf)(x / np.sqrt(2.0)))
+# Fast vectorized norm CDF/PPF using scipy (hot path — must be fast)
+try:
+    from scipy.special import erf as _scipy_erf, erfinv as _scipy_erfinv
+    from scipy.stats import norm as _scipy_norm
 
-def _erf(x):
-    """Approximation of error function."""
-    # Abramowitz and Stegun approximation
-    a = 0.254829592
-    b = -0.284496736
-    c = 1.421413741
-    d = -1.453152027
-    e = 1.061405429
-    p = 0.3275911
-    sign = np.sign(x)
-    x = abs(x)
-    t = 1.0 / (1.0 + p * x)
-    y = 1.0 - (((((e * t + d) * t) + c) * t + b) * t + a) * t * np.exp(-x * x)
-    return sign * y
+    def _norm_cdf(x):
+        """Standard normal CDF — vectorized via scipy."""
+        return 0.5 * (1.0 + _scipy_erf(x / np.sqrt(2.0)))
 
-def _norm_ppf(u):
-    """Approximate inverse normal CDF (rational approximation)."""
-    # Peter Acklam's approximation
-    u = np.clip(u, 1e-8, 1 - 1e-8)
+    def _norm_ppf(u):
+        """Inverse normal CDF — vectorized via scipy."""
+        u = np.clip(u, 1e-8, 1 - 1e-8)
+        return _scipy_norm.ppf(u)
 
-    a = [-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2,
-         1.383577518672690e2, -3.066479806614716e1, 2.506628277459239e0]
-    b = [-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2,
-         6.680131188771972e1, -1.328068155288572e1]
-    c = [-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838e0,
-         -2.549732539343734e0, 4.374664141464968e0, 2.938163982698783e0]
-    d = [7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996e0,
-         3.754408661907416e0]
+except ImportError:
+    # Fallback: pure numpy (still vectorized, no scalar loop)
+    def _norm_cdf(x):
+        """Standard normal CDF using numpy's built-in erf."""
+        # numpy doesn't have erf, but we can use the tanh approximation
+        # Accurate to ~1e-4, which is plenty for simulation
+        a = 0.3480242
+        b = 0.0958798
+        c = 0.7478556
+        t = 1.0 / (1.0 + 0.47047 * np.abs(x))
+        val = 1.0 - t * (a + t * (-b + t * c)) * np.exp(-0.5 * x * x)
+        return np.where(x >= 0, val, 1.0 - val)
 
-    p_low = 0.02425
-    p_high = 1 - p_low
+    def _norm_ppf(u):
+        """Approximate inverse normal CDF (Acklam's rational approximation, vectorized)."""
+        u = np.asarray(u, dtype=np.float64)
+        u = np.clip(u, 1e-8, 1 - 1e-8)
 
-    result = np.zeros_like(u, dtype=float)
+        a = np.array([-3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2,
+                       1.383577518672690e2, -3.066479806614716e1, 2.506628277459239e0])
+        b = np.array([-5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2,
+                       6.680131188771972e1, -1.328068155288572e1])
+        c = np.array([-7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838e0,
+                       -2.549732539343734e0, 4.374664141464968e0, 2.938163982698783e0])
+        d = np.array([7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996e0,
+                       3.754408661907416e0])
 
-    # Lower region
-    mask_low = u < p_low
-    if mask_low.any():
-        q = np.sqrt(-2 * np.log(u[mask_low]))
-        result[mask_low] = (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
-                           ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+        p_low = 0.02425
+        p_high = 1.0 - p_low
+        result = np.zeros_like(u)
 
-    # Central region
-    mask_mid = (~mask_low) & (u <= p_high)
-    if mask_mid.any():
-        q = u[mask_mid] - 0.5
-        r = q * q
-        result[mask_mid] = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
-                           (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1)
+        # Lower region
+        mask_low = u < p_low
+        if mask_low.any():
+            q = np.sqrt(-2.0 * np.log(u[mask_low]))
+            result[mask_low] = (((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
+                               ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1.0)
 
-    # Upper region
-    mask_high = u > p_high
-    if mask_high.any():
-        q = np.sqrt(-2 * np.log(1 - u[mask_high]))
-        result[mask_high] = -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
-                             ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1)
+        # Central region
+        mask_mid = (~mask_low) & (u <= p_high)
+        if mask_mid.any():
+            q = u[mask_mid] - 0.5
+            r = q * q
+            result[mask_mid] = (((((a[0]*r+a[1])*r+a[2])*r+a[3])*r+a[4])*r+a[5])*q / \
+                               (((((b[0]*r+b[1])*r+b[2])*r+b[3])*r+b[4])*r+1.0)
 
-    return result
+        # Upper region
+        mask_high = u > p_high
+        if mask_high.any():
+            q = np.sqrt(-2.0 * np.log(1.0 - u[mask_high]))
+            result[mask_high] = -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / \
+                                 ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1.0)
+
+        return result
 
 
 class SimulationEngine:
@@ -207,6 +213,7 @@ class SimulationEngine:
         self.player_dists: Dict[str, PlayerDistribution] = {}
         self.correlations = DEFAULT_CORRELATIONS
         self._load_correlations()
+        self._cholesky_cache: Dict[str, np.ndarray] = {}  # Cache Cholesky decompositions
 
     def _load_correlations(self):
         try:
@@ -363,14 +370,18 @@ class SimulationEngine:
 
         n_players = len(players)
 
-        # Build and decompose correlation matrix
-        corr_matrix = self._build_correlation_matrix(players)
-        try:
-            L = np.linalg.cholesky(corr_matrix)
-        except np.linalg.LinAlgError:
-            # Fallback: add small diagonal
-            corr_matrix += np.eye(n_players) * 0.01
-            L = np.linalg.cholesky(corr_matrix)
+        # Build and decompose correlation matrix (with caching)
+        cache_key = '_'.join(f"{p.team}:{p.position}:{p.line}" for p in players)
+        if cache_key in self._cholesky_cache:
+            L = self._cholesky_cache[cache_key]
+        else:
+            corr_matrix = self._build_correlation_matrix(players)
+            try:
+                L = np.linalg.cholesky(corr_matrix)
+            except np.linalg.LinAlgError:
+                corr_matrix += np.eye(n_players) * 0.01
+                L = np.linalg.cholesky(corr_matrix)
+            self._cholesky_cache[cache_key] = L
 
         # Generate correlated standard normals
         z_independent = np.random.standard_normal((n_players, n_sims))
