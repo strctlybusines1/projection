@@ -185,16 +185,23 @@ class SimSelector:
         self,
         candidate_lineups: List[pd.DataFrame],
         verbose: bool = True,
-        mode: str = 'ev',
+        mode: str = 'm3s',
     ) -> Tuple[pd.DataFrame, Dict]:
         """
         Score all candidates and return the best.
 
         mode:
-            'ev':     Maximize E[payout] (default — best overall)
-            'cash':   Maximize P(≥111)
-            'gpp':    Maximize P(≥140)
+            'm3s':    Maximize mean + 3×std (DEFAULT — best for GPP, +16.6/slate)
+            'ev':     Maximize E[payout] via payout curve
+            'cash':   Maximize P(≥111) (for double-ups)
+            'gpp':    Maximize P(≥140) (ceiling-seeking)
             'ceiling': Maximize P95
+
+        Backtest (7 slates, 100 optimizer candidates):
+            m3s:     +16.6/slate, 65th pctile
+            gpp:     +12.0/slate, 58th pctile
+            ev:       +5.7/slate, 52nd pctile
+            cash:     +4.8/slate, 52nd pctile
 
         Returns: (best_lineup, result_dict)
         """
@@ -205,6 +212,8 @@ class SimSelector:
         for i, lu in enumerate(candidate_lineups):
             try:
                 result = self.score_lineup(lu)
+                # Compute M+3σ upside score from sim-calibrated distributions
+                result['m3s'] = result['mean'] + 3.0 * result['std']
                 scored.append((lu, result))
             except Exception as e:
                 scored.append((lu, {
@@ -212,17 +221,18 @@ class SimSelector:
                     'p5': 0, 'p25': 0, 'p75': 0, 'p95': 0,
                     'p_cash': 0, 'p_120': 0, 'p_top5': 0, 'p_win': 0,
                     'max': 0, 'ev': 0, 'te': 0, 'net_ev': -self.entry_fee,
-                    'upside_score': 0, 'n_sims': 0,
+                    'upside_score': 0, 'n_sims': 0, 'm3s': 0,
                 }))
 
         # Sort by selected criterion
         sort_keys = {
+            'm3s': lambda x: x[1]['m3s'],
             'ev': lambda x: x[1]['ev'],
             'cash': lambda x: x[1]['p_cash'],
             'gpp': lambda x: x[1]['p_top5'],
             'ceiling': lambda x: x[1]['p95'],
         }
-        sort_fn = sort_keys.get(mode, sort_keys['ev'])
+        sort_fn = sort_keys.get(mode, sort_keys['m3s'])
         scored.sort(key=sort_fn, reverse=True)
 
         if verbose:
@@ -235,25 +245,24 @@ class SimSelector:
         n_show = min(n_show, len(scored))
 
         sort_label = {
-            'ev': 'E[payout]', 'cash': 'P(cash)',
+            'm3s': 'M+3σ', 'ev': 'E[payout]', 'cash': 'P(cash)',
             'gpp': 'P(top5)', 'ceiling': 'P95',
-        }.get(mode, 'E[payout]')
+        }.get(mode, 'M+3σ')
 
-        print(f"\n{'═' * 90}")
+        print(f"\n{'═' * 95}")
         print(f"  SimSelector Results — {len(scored)} candidates × {self.n_sims:,} sims | sorted by {sort_label}")
-        print(f"{'═' * 90}")
-        print(f"  {'#':>3} {'Mean':>6} {'Std':>5} {'P(111)':>7} {'P(120)':>7} {'P(140)':>7} "
-              f"{'P95':>5} {'E[$]':>6} {'Net EV':>7} {'Stacks':>8}")
-        print(f"  {'-' * 82}")
+        print(f"{'═' * 95}")
+        print(f"  {'#':>3} {'Mean':>6} {'Std':>5} {'M+3σ':>6} {'P(111)':>7} {'P(140)':>7} "
+              f"{'P95':>5} {'E[$]':>6} {'Stacks':>8}")
+        print(f"  {'-' * 86}")
 
         for rank, (lu, r) in enumerate(scored[:n_show], 1):
-            # Detect stack structure
             stacks = _get_stack_desc(lu)
-
+            m3s = r.get('m3s', r['mean'] + 3 * r['std'])
             marker = ' ◄' if rank == 1 else ''
             print(f"  {rank:>3} {r['mean']:>6.1f} {r['std']:>5.1f} "
-                  f"{r['p_cash']:>6.1%} {r['p_120']:>6.1%} {r['p_top5']:>6.1%} "
-                  f"{r['p95']:>5.0f} {r['ev']:>6.0f} {r['net_ev']:>+6.0f} "
+                  f"{m3s:>6.0f} {r['p_cash']:>6.1%} {r['p_top5']:>6.1%} "
+                  f"{r['p95']:>5.0f} {r['ev']:>6.0f} "
                   f"{stacks:>8}{marker}")
 
         # Summary stats

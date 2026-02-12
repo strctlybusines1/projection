@@ -46,6 +46,8 @@ from contest_roi import (
 )
 from single_entry import SingleEntrySelector, print_se_lineup, ContestProfile as SEContestProfile, prompt_contest_profile
 from tournament_equity import TournamentEquitySelector, print_te_lineup
+from sim_selector import SimSelector, print_sim_lineup
+from agent_panel import AgentPanel, SlateContext, run_agent_panel, print_agent_tracker_summary
 from validate import run_validation
 
 
@@ -818,6 +820,22 @@ def main():
                         help='Single-entry mode: generate N candidates then select best via '
                              'SE scoring (goalie quality, stack correlation, salary efficiency). '
                              'Use with --lineups 40-60 for best results.')
+    parser.add_argument('--sim-select', action='store_true',
+                        help='Use Monte Carlo simulation selector instead of M+3σ. '
+                             'Fits zero-inflated lognormal per player from DK season history, '
+                             'simulates correlated outcomes. Backtest: +14.2 FPTS/slate vs +6.5 for M+3σ.')
+    parser.add_argument('--sim-mode', type=str, default='m3s',
+                        choices=['m3s', 'ev', 'cash', 'gpp', 'ceiling'],
+                        help='Simulation selection mode: m3s (mean+3σ, DEFAULT, best for GPP), '
+                             'ev (E[payout]), cash (P≥111), gpp (P≥140), ceiling (P95)')
+    parser.add_argument('--sim-n', type=int, default=8000,
+                        help='Number of Monte Carlo simulations per lineup (default: 8000)')
+    parser.add_argument('--agents', action='store_true',
+                        help='Run agent panel review on top sim-ranked lineups. '
+                             'Requires ANTHROPIC_API_KEY in .env for automated mode. '
+                             'Without API key, generates manual prompts for Claude chat.')
+    parser.add_argument('--agent-review', type=int, default=20,
+                        help='Number of top lineups for agents to review (default: 20)')
     parser.add_argument('--contest', type=str, default='se_gpp',
                         choices=['satellite', 'se_gpp', 'custom', 'prompt'],
                         help='Contest type for SE mode: satellite ($14 WTA), '
@@ -1391,26 +1409,105 @@ def main():
         if args.single_entry:
             n_candidates = max(args.lineups, 100)  # At least 100 candidates (mixed randomness)
 
-            # Contest profile for entry fee
-            try:
-                if args.contest == 'satellite':
-                    entry_fee = 14.0
-                    se_contest = SEContestProfile.satellite()
-                elif args.contest == 'se_gpp':
-                    entry_fee = 121.0
-                    se_contest = SEContestProfile.se_gpp(getattr(args, 'contest_entries', 80))
-                elif args.contest in ('custom', 'prompt'):
-                    se_contest = prompt_contest_profile()
-                    entry_fee = se_contest.entry_fee
-                else:
-                    entry_fee = 121.0
-                    se_contest = SEContestProfile.se_gpp()
-            except Exception:
-                entry_fee = 121.0
-                se_contest = SEContestProfile.se_gpp()
+            # ── Simons Contest Intelligence ──────────────────────────────────
+            # Jim Simons would ask: What's the contest structure?
+            # The MATH of selection changes based on field size, payout shape,
+            # and whether we need ceiling (WTA) or consistency (cash).
+            print(f"\n{'═' * 70}")
+            print(f"  SIMONS CONTEST INTELLIGENCE")
+            print(f"  What contest are we optimizing for?")
+            print(f"{'═' * 70}")
+            print(f"  [1] WTA Satellite    — $14, ~10 entries, winner-take-all ticket")
+            print(f"  [2] SE GPP           — $121, ~80 entries, top-heavy payouts")
+            print(f"  [3] Large GPP        — $5-20, 1000+ entries, need top 10-20%")
+            print(f"  [4] Cash / Double-Up — $5-50, need top 50%")
+            print(f"  [5] Custom           — enter your own parameters")
 
-            print(f"\nSingle-Entry Mode: Tournament Equity v4 | {se_contest.name}")
-            print(f"  Entry fee: ${entry_fee:.0f} | Generating {n_candidates} candidates (triple-mix)...")
+            try:
+                choice = input(f"\n  Select contest type [1-5] (default: 2): ").strip()
+            except (EOFError, KeyboardInterrupt):
+                # Non-interactive mode — fall back to CLI args
+                choice = {'satellite': '1', 'se_gpp': '2', 'cash': '4'}.get(args.contest, '2')
+                print(f"\n  (Non-interactive: using --contest {args.contest} → choice {choice})")
+
+            if choice == '1':
+                entry_fee = 14.0
+                field_size = 10
+                places_paid = 1
+                sim_mode = 'm3s'
+                contest_label = 'WTA Satellite ($14, 10-man)'
+                print(f"\n  → WTA: Maximizing CEILING. Need to beat 9 people.")
+                print(f"    Strategy: M+3σ selection, max-variance stacks")
+                print(f"    Key: Differentiation > consistency. Go big or go home.")
+                se_contest = SEContestProfile.satellite()
+            elif choice == '3':
+                try:
+                    entry_fee = float(input("  Entry fee ($): ") or "5")
+                    field_size = int(input("  Field size: ") or "5000")
+                except (ValueError, EOFError):
+                    entry_fee, field_size = 5.0, 5000
+                places_paid = max(1, int(field_size * 0.20))
+                sim_mode = 'm3s'
+                contest_label = f'Large GPP (${entry_fee:.0f}, {field_size} entries)'
+                print(f"\n  → Large GPP: Need top {places_paid} of {field_size}.")
+                print(f"    Strategy: M+3σ selection, high-variance stacks")
+                print(f"    Key: Ceiling matters. Some chalk OK if highest upside.")
+                se_contest = SEContestProfile.se_gpp(field_size)
+                se_contest.entry_fee = entry_fee
+            elif choice == '4':
+                try:
+                    entry_fee = float(input("  Entry fee ($): ") or "20")
+                    field_size = int(input("  Field size: ") or "100")
+                except (ValueError, EOFError):
+                    entry_fee, field_size = 20.0, 100
+                places_paid = max(1, int(field_size * 0.50))
+                sim_mode = 'cash'
+                contest_label = f'Cash/Double-Up (${entry_fee:.0f}, {field_size} entries)'
+                print(f"\n  → Cash: Maximizing FLOOR. Need top 50%.")
+                print(f"    Strategy: P(≥111) selection, safe confirmed plays")
+                print(f"    Key: Avoid busts. Confirmed goalies only. Play chalk.")
+                se_contest = SEContestProfile.custom(
+                    entry_fee=entry_fee, total_entries=field_size,
+                    total_prize=field_size * entry_fee * 0.9,
+                    first_place=entry_fee * 1.8, places_paid=places_paid)
+            elif choice == '5':
+                try:
+                    entry_fee = float(input("  Entry fee ($): ") or "121")
+                    field_size = int(input("  Field size: ") or "80")
+                    first_place = float(input("  First place prize ($): ") or "2000")
+                    places_paid = int(input("  Places paid: ") or "20")
+                    target_score = float(input("  Target score to win ($): ") or "150")
+                except (ValueError, EOFError):
+                    entry_fee, field_size = 121.0, 80
+                    first_place, places_paid, target_score = 2000, 20, 150
+                top_heavy = first_place > (field_size * entry_fee * 0.85 * 0.15)
+                sim_mode = 'm3s' if top_heavy else 'cash'
+                contest_label = f'Custom (${entry_fee:.0f}, {field_size} entries, top-heavy={top_heavy})'
+                print(f"\n  → Custom: {'Top-heavy → ceiling mode' if top_heavy else 'Flat → consistency mode'}")
+                se_contest = SEContestProfile.custom(
+                    entry_fee=entry_fee, total_entries=field_size,
+                    total_prize=field_size * entry_fee * 0.85,
+                    first_place=first_place, places_paid=places_paid,
+                    target_score=target_score)
+            else:
+                # Default: SE GPP $121
+                entry_fee = 121.0
+                field_size = 80
+                places_paid = 20
+                sim_mode = 'm3s'
+                contest_label = 'SE GPP ($121, ~80 entries)'
+                print(f"\n  → SE GPP: Top-heavy payouts, need top 25%.")
+                print(f"    Strategy: M+3σ selection, variance-seeking stacks")
+                print(f"    Key: Upside > safety. Stack aggressively.")
+                se_contest = SEContestProfile.se_gpp(field_size)
+
+            # sim_mode is determined by contest selection above.
+            # CLI --sim-mode only applies if contest prompt is skipped (non-interactive).
+
+            print(f"\n  Contest: {contest_label}")
+            print(f"  Selection mode: {sim_mode.upper()}")
+            print(f"  Generating {n_candidates} candidates (triple-mix)...")
+            print(f"{'═' * 70}")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
 
@@ -1454,15 +1551,82 @@ def main():
             print(f"  Generated {len(candidates)} candidates (uncapped + cap$7.5k + 3-3 stacks)")
 
             if candidates:
-                # Primary: Tournament Equity selector (v4)
-                te_selector = TournamentEquitySelector(
-                    player_pool,
-                    entry_fee=entry_fee,
-                    stack_builder=stack_builder,
-                )
-                best_lineup, te_result = te_selector.select(candidates, verbose=True)
-                print_te_lineup(best_lineup, te_result)
-                lineups = [best_lineup]
+                # ── Simulation Selector (Monte Carlo) ──
+                if args.sim_select:
+                    print(f"\n  Using Monte Carlo Simulation Selector ({args.sim_n:,} sims, mode={sim_mode})")
+                    sim_selector = SimSelector(
+                        player_pool,
+                        entry_fee=entry_fee,
+                        n_sims=args.sim_n,
+                        target_date=target_date,
+                        stack_builder=stack_builder,
+                    )
+                    best_lineup, sim_result = sim_selector.select(
+                        candidates, verbose=True, mode=sim_mode)
+                    print_sim_lineup(best_lineup, sim_result)
+                    lineups = [best_lineup]
+
+                    # ── Agent Panel Review (if --agents flag) ──
+                    if args.agents:
+                        print(f"\n{'═' * 80}")
+                        print(f"  AGENT PANEL REVIEW")
+                        print(f"{'═' * 80}")
+
+                        # Get all scored lineups from sim selector (already sorted)
+                        all_sim_scored = []
+                        for lu in candidates:
+                            try:
+                                sr = sim_selector.score_lineup(lu)
+                                sr['m3s'] = sr['mean'] + 3.0 * sr['std']
+                                all_sim_scored.append((lu, sr))
+                            except Exception:
+                                pass
+                        all_sim_scored.sort(key=lambda x: x[1].get('m3s', 0), reverse=True)
+
+                        top_lineups = [lu for lu, _ in all_sim_scored[:args.agent_review]]
+                        top_results = [r for _, r in all_sim_scored[:args.agent_review]]
+
+                        # Build slate context from pipeline data
+                        ctx = SlateContext.from_pipeline(
+                            player_pool,
+                            stack_builder=stack_builder,
+                            vegas_games=getattr(args, '_vegas_games', None),
+                        )
+                        ctx.contest_type = args.contest
+
+                        api_key = os.environ.get('ANTHROPIC_API_KEY')
+                        panel = AgentPanel(ctx, api_key=api_key)
+
+                        if api_key:
+                            ranked = panel.review(top_lineups, top_results, verbose=True)
+                            if ranked:
+                                best_lineup = ranked[0][0]
+                                lineups = [best_lineup]
+                                print(f"\n  Agent panel selected lineup (consensus rank #1)")
+                        else:
+                            # Manual mode: generate prompt
+                            prompt = panel.generate_manual_prompt(top_lineups, top_results)
+                            prompt_path = Path(DAILY_PROJECTIONS_DIR) / f"agent_prompt_{target_date}.txt"
+                            prompt_path.parent.mkdir(parents=True, exist_ok=True)
+                            with open(prompt_path, 'w') as f:
+                                f.write(prompt)
+                            print(f"\n  No ANTHROPIC_API_KEY found — manual mode")
+                            print(f"  Agent prompt saved to: {prompt_path}")
+                            print(f"  Paste into Claude chat for agent review.")
+
+                        # Print tracker summary
+                        print_agent_tracker_summary()
+
+                # ── Fallback: Tournament Equity selector (M+3σ) ──
+                else:
+                    te_selector = TournamentEquitySelector(
+                        player_pool,
+                        entry_fee=entry_fee,
+                        stack_builder=stack_builder,
+                    )
+                    best_lineup, te_result = te_selector.select(candidates, verbose=True)
+                    print_te_lineup(best_lineup, te_result)
+                    lineups = [best_lineup]
 
                 # Export all ranked candidates to JSON for website
                 try:
