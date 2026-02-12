@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## NHL DFS Project
+- Project location: ~/Desktop/Code/projection/
+- To run the full pipeline: `python main.py`
+- Key dependencies: tabpfn, and any ML libraries requiring OpenMP
+- If OpenMP duplicate library errors occur, set `export KMP_DUPLICATE_LIB_OK=TRUE` before running
+- New data files are often downloaded as zips in ~/Downloads — unzip before copying
+
+## Git & GitHub
+- Use SSH for git push (not HTTPS) to avoid auth token issues
+- Always verify the remote URL with `git remote -v` before pushing
+- If push fails with auth errors, switch to SSH: `git remote set-url origin git@github.com:USER/REPO.git`
+
 ## Project Overview
 
 NHL DFS (Daily Fantasy Sports) projection and lineup optimization system for DraftKings. Generates player fantasy point projections from multiple data sources, predicts ownership percentages, and builds salary-cap-constrained GPP lineups with correlated stacking.
@@ -407,6 +419,10 @@ python backtest.py --train-ownership --ownership-tabpfn
 | NHL Edge (via nhl-api-py) | Tracking data | 0.3s delay |
 
 ## Environment Setup
+
+- Always activate the correct conda/venv environment before running scripts
+- Required dependency: `pip install tabpfn` (not installed by default)
+- If encountering duplicate library conflicts (e.g., OpenMP), export KMP_DUPLICATE_LIB_OK=TRUE
 
 Requires `.env` file in `projection/` with:
 ```

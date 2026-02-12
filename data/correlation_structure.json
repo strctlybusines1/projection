@@ -1,0 +1,8 @@
+{
+  "same_team_same_line": 0.1239,
+  "same_team_diff_line": 0.0339,
+  "same_team_overall": 0.1623,
+  "goalie_own_team": 0.1912,
+  "opponent_skaters": -0.016,
+  "goalie_opp_team": -0.3395
+}
