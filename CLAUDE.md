@@ -15,6 +15,11 @@ The mantra: **Don't optimize the forecast. Optimize the decision.**
 5. **Variance is the product in GPPs.** Increasing lineup σ from 18→30 is worth more than increasing mean from 85→95. Seek correlated upside.
 6. **Backtest every morning.** Before touching any parameter, run the numbers on yesterday's slate. Let the data tell you what broke.
 
+## Project Structure
+
+- Main project directory: always confirm the correct working directory before reading files or running scripts. Use `find` or `ls` to verify paths before assuming directory structure.
+- When extracting zip files, always inspect the internal structure first with `unzip -l` before assuming subdirectory layout.
+
 ## Current System Architecture
 
 ```
@@ -160,6 +165,40 @@ python lines.py
 - "Feel" that a player is mispriced
 - A feature "should" help theoretically but hasn't been backtested
 - Recency bias after one big miss
+
+## Daily NHL DFS Pipeline
+
+- Workflow file location: check for DAILY_WORKFLOW.md in project root
+- Default pipeline order: scrapers → lines → projections → main.py
+- Dashboard runs on port 5050 (port 5000 conflicts with AirPlay on macOS)
+- When asked to 'look at lineups' or 'show lineups', run the dashboard — do NOT just cat/print CSV files
+- Always save output files to disk after pipeline runs; never leave results only in memory
+
+## Git Operations
+
+- A git warning about identity (exit code 128) does NOT mean the commit failed — always verify with `git log -1` before reporting failure.
+- After implementing changes, always commit and push unless told otherwise.
+- When user says 'push', execute `git add . && git commit -m '<descriptive message>' && git push` without asking for confirmation.
+
+## Optimizer & Backtest Rules
+
+- min_teams constraint (e.g., 3-team minimum) applies to SKATERS ONLY — never count the goalie's team toward this constraint.
+- When running backtests, always save results to a file, not just stdout.
+- Variable naming must be consistent across files (e.g., `target_high` not `target_ownership_high`) — grep for the variable in existing code before introducing it.
+
+## Flask Dashboard
+
+- Always use port 5050 (macOS AirPlay uses 5000)
+- Add `sys.path.insert(0, '<project_root>')` at top of dashboard entry point
+- When asked if server is running, actually verify with `curl localhost:5050` — do NOT assume it's running
+- Run dashboard in background with `&` and verify it responds before reporting success
+
+## Workflow Expectations
+
+### Implementation vs Planning
+
+- When the user asks to 'implement' a plan, write the actual code — do NOT just produce a plan document unless explicitly asked for a plan.
+- After implementing, run the code to verify it works before committing.
 
 ## Mathematical Foundation
 
