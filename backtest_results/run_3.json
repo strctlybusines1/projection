@@ -1,0 +1,17 @@
+{
+  "run_id": 3,
+  "label": "DIVERSE gen + 80/20 blend",
+  "params": {
+    "dk_avg_blend": 0.8,
+    "primary_stack_boost": 0.2,
+    "goalie_corr_boost": 0.1,
+    "use_diverse": true
+  },
+  "n_slates": 61,
+  "avg_m3s_edge": 6.4762232998274785,
+  "avg_m3s_pctile": 56.1776954179696,
+  "avg_m3s_fpts": 82.94754098360656,
+  "top25_rate": 0.4098360655737705,
+  "win_rate": 0.5737704918032787,
+  "elapsed_seconds": 1348.7157618999481
+}

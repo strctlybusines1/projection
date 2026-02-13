@@ -1,0 +1,17 @@
+{
+  "run_id": 5,
+  "label": "DIVERSE gen + aggressive stack",
+  "params": {
+    "dk_avg_blend": 0.8,
+    "primary_stack_boost": 0.3,
+    "goalie_corr_boost": 0.2,
+    "use_diverse": true
+  },
+  "n_slates": 61,
+  "avg_m3s_edge": 6.796989230196289,
+  "avg_m3s_pctile": 56.17197556223249,
+  "avg_m3s_fpts": 83.85737704918033,
+  "top25_rate": 0.36065573770491804,
+  "win_rate": 0.5901639344262295,
+  "elapsed_seconds": 1359.2266628742218
+}

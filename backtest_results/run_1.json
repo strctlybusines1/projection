@@ -1,0 +1,17 @@
+{
+  "run_id": 1,
+  "label": "Triple-mix + 90/10 blend",
+  "params": {
+    "dk_avg_blend": 0.9,
+    "primary_stack_boost": 0.2,
+    "goalie_corr_boost": 0.1,
+    "use_diverse": false
+  },
+  "n_slates": 61,
+  "avg_m3s_edge": 7.2241120218579224,
+  "avg_m3s_pctile": 58.145491803278695,
+  "avg_m3s_fpts": 82.64590163934425,
+  "top25_rate": 0.39344262295081966,
+  "win_rate": 0.6229508196721312,
+  "elapsed_seconds": 1182.424789905548
+}

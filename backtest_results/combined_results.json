@@ -1,0 +1,107 @@
+{
+  "best_run": 0,
+  "best_params": {
+    "dk_avg_blend": 0.8,
+    "primary_stack_boost": 0.2,
+    "goalie_corr_boost": 0.1
+  },
+  "best_edge": 5.525119535519124,
+  "baseline_edge": 5.525119535519124,
+  "all_runs": [
+    {
+      "run_id": 0,
+      "label": "BASELINE (current defaults)",
+      "params": {
+        "dk_avg_blend": 0.8,
+        "primary_stack_boost": 0.2,
+        "goalie_corr_boost": 0.1
+      },
+      "n_slates": 61,
+      "avg_m3s_edge": 5.525119535519124,
+      "avg_m3s_pctile": 54.23497267759562,
+      "avg_m3s_fpts": 80.6049180327869,
+      "avg_best_possible": 131.49672131147543,
+      "avg_candidate_fpts": 75.07979849726777,
+      "top25_rate": 0.36065573770491804,
+      "bot25_rate": 0.22950819672131148,
+      "win_rate": 0.5409836065573771,
+      "elapsed_seconds": 960.7488358020782
+    },
+    {
+      "run_id": 3,
+      "label": "Aggressive stacking (+30% stack, +20% goalie)",
+      "params": {
+        "dk_avg_blend": 0.8,
+        "primary_stack_boost": 0.3,
+        "goalie_corr_boost": 0.2
+      },
+      "n_slates": 61,
+      "avg_m3s_edge": 4.8448087431693985,
+      "avg_m3s_pctile": 54.0983606557377,
+      "avg_m3s_fpts": 79.98524590163935,
+      "avg_best_possible": 129.8065573770492,
+      "avg_candidate_fpts": 75.14043715846995,
+      "top25_rate": 0.3442622950819672,
+      "bot25_rate": 0.22950819672131148,
+      "win_rate": 0.5081967213114754,
+      "elapsed_seconds": 960.8556621074677
+    },
+    {
+      "run_id": 4,
+      "label": "Conservative stacking (+10% stack, +5% goalie)",
+      "params": {
+        "dk_avg_blend": 0.8,
+        "primary_stack_boost": 0.1,
+        "goalie_corr_boost": 0.05
+      },
+      "n_slates": 61,
+      "avg_m3s_edge": 4.450102459016394,
+      "avg_m3s_pctile": 53.090846994535525,
+      "avg_m3s_fpts": 79.69016393442624,
+      "avg_best_possible": 132.79016393442623,
+      "avg_candidate_fpts": 75.24006147540982,
+      "top25_rate": 0.32786885245901637,
+      "bot25_rate": 0.2459016393442623,
+      "win_rate": 0.5409836065573771,
+      "elapsed_seconds": 949.1827027797699
+    },
+    {
+      "run_id": 2,
+      "label": "More DK trust (90/10 blend)",
+      "params": {
+        "dk_avg_blend": 0.9,
+        "primary_stack_boost": 0.2,
+        "goalie_corr_boost": 0.1
+      },
+      "n_slates": 61,
+      "avg_m3s_edge": 4.090573770491804,
+      "avg_m3s_pctile": 54.0129781420765,
+      "avg_m3s_fpts": 79.27868852459017,
+      "avg_best_possible": 130.99672131147543,
+      "avg_candidate_fpts": 75.18811475409835,
+      "top25_rate": 0.3770491803278688,
+      "bot25_rate": 0.19672131147540983,
+      "win_rate": 0.4918032786885246,
+      "elapsed_seconds": 958.2291121482849
+    },
+    {
+      "run_id": 1,
+      "label": "More model trust (70/30 blend)",
+      "params": {
+        "dk_avg_blend": 0.7,
+        "primary_stack_boost": 0.2,
+        "goalie_corr_boost": 0.1
+      },
+      "n_slates": 61,
+      "avg_m3s_edge": 3.621721311475408,
+      "avg_m3s_pctile": 52.903005464480884,
+      "avg_m3s_fpts": 79.06721311475411,
+      "avg_best_possible": 133.9672131147541,
+      "avg_candidate_fpts": 75.44549180327871,
+      "top25_rate": 0.3770491803278688,
+      "bot25_rate": 0.2459016393442623,
+      "win_rate": 0.4918032786885246,
+      "elapsed_seconds": 948.9480681419373
+    }
+  ]
+}

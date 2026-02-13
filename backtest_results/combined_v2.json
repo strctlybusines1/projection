@@ -1,0 +1,104 @@
+[
+  {
+    "run_id": 2,
+    "label": "Triple-mix + aggressive stack",
+    "params": {
+      "dk_avg_blend": 0.8,
+      "primary_stack_boost": 0.3,
+      "goalie_corr_boost": 0.2,
+      "use_diverse": false
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 9.504576502732244,
+    "avg_m3s_pctile": 60.74112021857924,
+    "avg_m3s_fpts": 84.26229508196721,
+    "top25_rate": 0.45901639344262296,
+    "win_rate": 0.6065573770491803,
+    "elapsed_seconds": 1167.2939901351929
+  },
+  {
+    "run_id": 4,
+    "label": "DIVERSE gen + 90/10 blend",
+    "params": {
+      "dk_avg_blend": 0.9,
+      "primary_stack_boost": 0.2,
+      "goalie_corr_boost": 0.1,
+      "use_diverse": true
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 8.918638453361313,
+    "avg_m3s_pctile": 59.26752592114016,
+    "avg_m3s_fpts": 85.81967213114753,
+    "top25_rate": 0.4262295081967213,
+    "win_rate": 0.5573770491803278,
+    "elapsed_seconds": 1356.1528477668762
+  },
+  {
+    "run_id": 0,
+    "label": "Triple-mix + 80/20 blend (BASELINE)",
+    "params": {
+      "dk_avg_blend": 0.8,
+      "primary_stack_boost": 0.2,
+      "goalie_corr_boost": 0.1,
+      "use_diverse": false
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 7.28126707650273,
+    "avg_m3s_pctile": 58.52117486338798,
+    "avg_m3s_fpts": 82.30983606557376,
+    "top25_rate": 0.32786885245901637,
+    "win_rate": 0.6229508196721312,
+    "elapsed_seconds": 1163.0050842761993
+  },
+  {
+    "run_id": 1,
+    "label": "Triple-mix + 90/10 blend",
+    "params": {
+      "dk_avg_blend": 0.9,
+      "primary_stack_boost": 0.2,
+      "goalie_corr_boost": 0.1,
+      "use_diverse": false
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 7.2241120218579224,
+    "avg_m3s_pctile": 58.145491803278695,
+    "avg_m3s_fpts": 82.64590163934425,
+    "top25_rate": 0.39344262295081966,
+    "win_rate": 0.6229508196721312,
+    "elapsed_seconds": 1182.424789905548
+  },
+  {
+    "run_id": 5,
+    "label": "DIVERSE gen + aggressive stack",
+    "params": {
+      "dk_avg_blend": 0.8,
+      "primary_stack_boost": 0.3,
+      "goalie_corr_boost": 0.2,
+      "use_diverse": true
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 6.796989230196289,
+    "avg_m3s_pctile": 56.17197556223249,
+    "avg_m3s_fpts": 83.85737704918033,
+    "top25_rate": 0.36065573770491804,
+    "win_rate": 0.5901639344262295,
+    "elapsed_seconds": 1359.2266628742218
+  },
+  {
+    "run_id": 3,
+    "label": "DIVERSE gen + 80/20 blend",
+    "params": {
+      "dk_avg_blend": 0.8,
+      "primary_stack_boost": 0.2,
+      "goalie_corr_boost": 0.1,
+      "use_diverse": true
+    },
+    "n_slates": 61,
+    "avg_m3s_edge": 6.4762232998274785,
+    "avg_m3s_pctile": 56.1776954179696,
+    "avg_m3s_fpts": 82.94754098360656,
+    "top25_rate": 0.4098360655737705,
+    "win_rate": 0.5737704918032787,
+    "elapsed_seconds": 1348.7157618999481
+  }
+]

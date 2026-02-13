@@ -12,9 +12,9 @@ config.GOALIE_CORRELATION_BOOST = 0.2
 
 from simulation_engine import SimulationEngine
 from optimizer import NHLLineupOptimizer
+from candidate_generator import generate_diverse_candidates
 
-
-USE_DIVERSE = False
+USE_DIVERSE = True
 
 def normalize_pos(p):
     p = str(p).upper()
@@ -124,9 +124,9 @@ elapsed = time.time() - t_total
 rdf = pd.DataFrame(results_per_slate)
 
 summary = dict(
-    run_id=2, label='Triple-mix + aggressive stack',
+    run_id=5, label='DIVERSE gen + aggressive stack',
     params=dict(dk_avg_blend=0.8, primary_stack_boost=0.3,
-                goalie_corr_boost=0.2, use_diverse=False),
+                goalie_corr_boost=0.2, use_diverse=True),
     n_slates=len(rdf),
     avg_m3s_edge=float(rdf['m3s_edge'].mean()) if len(rdf) else 0,
     avg_m3s_pctile=float(rdf['m3s_pctile'].mean()) if len(rdf) else 0,
@@ -135,6 +135,6 @@ summary = dict(
     win_rate=float((rdf['m3s_edge']>0).sum()/len(rdf)) if len(rdf) else 0,
     elapsed_seconds=elapsed,
 )
-with open('/Users/brendanhorlbeck/Desktop/Code/projection/backtest_results/run_2.json', 'w') as f:
+with open('/Users/brendanhorlbeck/Desktop/Code/projection/backtest_results/run_5.json', 'w') as f:
     json.dump(summary, f, indent=2)
-print(f"Run 2: {len(rdf)} slates, edge={rdf['m3s_edge'].mean():+.1f}, {elapsed:.0f}s")
+print(f"Run 5: {len(rdf)} slates, edge={rdf['m3s_edge'].mean():+.1f}, {elapsed:.0f}s")
