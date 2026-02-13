@@ -1,0 +1,9 @@
+{
+  "same_team_same_line": 0.124,
+  "same_team_diff_line": 0.034,
+  "goalie_own_team": 0.191,
+  "opponent_skaters": -0.016,
+  "goalie_opp_team": -0.340,
+  "source": "Measured from 29,339 skater-games across 113 slates",
+  "description": "Empirical correlation structure for Monte Carlo simulation"
+}

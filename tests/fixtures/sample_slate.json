@@ -1,0 +1,26 @@
+{
+  "slate_date": "2026-02-15",
+  "games": [
+    {
+      "home_team": "BOS",
+      "away_team": "WPG",
+      "home_implied": 3.2,
+      "away_implied": 2.8,
+      "total": 6.0
+    },
+    {
+      "home_team": "EDM",
+      "away_team": "COL",
+      "home_implied": 3.5,
+      "away_implied": 3.3,
+      "total": 6.8
+    }
+  ],
+  "confirmed_goalies": {
+    "BOS": "Jeremy Swayman",
+    "WPG": "Connor Hellebuyck",
+    "EDM": "Stuart Skinner",
+    "COL": "Alexandar Georgiev"
+  },
+  "description": "Sample 2-game slate with Vegas odds and confirmed goalies"
+}
