@@ -10,6 +10,7 @@ Usage:
     python main.py --show-injuries      # Display injury report
     python main.py --include-dtd        # Include Day-to-Day players
     python main.py --no-injuries        # Disable injury filtering
+    python main.py --single-entry --leverage  # SE mode + GPP leverage reranking
 """
 
 import argparse
@@ -44,11 +45,8 @@ from contest_roi import (
     print_leverage_recommendation,
     PAYOUT_PRESETS,
 )
-from single_entry import SingleEntrySelector, print_se_lineup, ContestProfile as SEContestProfile, prompt_contest_profile
-from tournament_equity import TournamentEquitySelector, print_te_lineup
-from sim_selector import SimSelector, print_sim_lineup
-from agent_panel import AgentPanel, SlateContext, run_agent_panel, print_agent_tracker_summary
-from validate import run_validation
+from single_entry import SingleEntrySelector, print_se_lineup
+from leverage_score import LeverageScorer, detect_chalk_stack, analyze_slate_context
 
 
 def normalize_position(pos: str) -> str:
@@ -819,33 +817,12 @@ def main():
     parser.add_argument('--single-entry', action='store_true',
                         help='Single-entry mode: generate N candidates then select best via '
                              'SE scoring (goalie quality, stack correlation, salary efficiency). '
-                             'Use with --lineups 40-60 for best results.')
-    parser.add_argument('--sim-select', action='store_true',
-                        help='Use Monte Carlo simulation selector instead of M+3σ. '
-                             'Fits zero-inflated lognormal per player from DK season history, '
-                             'simulates correlated outcomes. Backtest: +14.2 FPTS/slate vs +6.5 for M+3σ.')
-    parser.add_argument('--sim-mode', type=str, default='m3s',
-                        choices=['m3s', 'ev', 'cash', 'gpp', 'ceiling'],
-                        help='Simulation selection mode: m3s (mean+3σ, DEFAULT, best for GPP), '
-                             'ev (E[payout]), cash (P≥111), gpp (P≥140), ceiling (P95)')
-    parser.add_argument('--sim-n', type=int, default=8000,
-                        help='Number of Monte Carlo simulations per lineup (default: 8000)')
-    parser.add_argument('--agents', action='store_true',
-                        help='Run agent panel review on top sim-ranked lineups. '
-                             'Requires ANTHROPIC_API_KEY in .env for automated mode. '
-                             'Without API key, generates manual prompts for Claude chat.')
-    parser.add_argument('--agent-review', type=int, default=20,
-                        help='Number of top lineups for agents to review (default: 20)')
-    parser.add_argument('--contest', type=str, default='se_gpp',
-                        choices=['satellite', 'se_gpp', 'custom', 'prompt'],
-                        help='Contest type for SE mode: satellite ($14 WTA), '
-                             'se_gpp ($121 SE, default), custom, or prompt (interactive)')
-    parser.add_argument('--contest-entries', type=int, default=80,
-                        help='Expected entries for SE GPP (default 80)')
-
-    # Bayesian blend
-    parser.add_argument('--blend', action='store_true',
-                        help='Blend projections with Bayesian event model (45/55 split, ~25%% MAE improvement)')
+                             'Use with --lineups 20-50 for best results.')
+    parser.add_argument('--leverage', action='store_true',
+                        help='Apply GPP leverage reranking after SE selection. '
+                             'Uses 4for4 framework: LEV = implied_own / projected_own. '
+                             'Reranks top candidates by SE_score × leverage_multiplier. '
+                             'Best for SE GPP contests. Use with --single-entry.')
 
     # Advanced stats options
     parser.add_argument('--no-advanced', action='store_true',
@@ -867,22 +844,12 @@ def main():
                              'Use for first run of day or to get latest data.')
 
     # Linemate correlation boosts
-    parser.add_argument('--validate', action='store_true',
-                        help='Run pre-flight validation checks before generating lineups')
-    parser.add_argument('--validate-only', action='store_true',
-                        help='Run pre-flight validation and exit (no projections)')
-
     parser.add_argument('--linemates', action='store_true',
                         help='Apply linemate chemistry boosts from play-by-play correlation')
     parser.add_argument('--linemate-games', type=int, default=10,
                         help='Number of recent games to analyze per team (default: 10)')
     parser.add_argument('--linemate-report', action='store_true',
                         help='Print full linemate chemistry report for slate teams')
-
-    # Baseline probability
-    parser.add_argument('--use-baseline-prob', action='store_true',
-                        help='Add slate-aware baseline probability column to player pool. '
-                             'Computed from positional scarcity (slots / players at position).')
 
     args = parser.parse_args()
 
@@ -931,18 +898,6 @@ def main():
     if team_totals:
         print(f"  Vegas team totals mapped for {len(team_totals)} teams")
 
-    # --- Pre-flight: validate-only quick check (exit before data fetch) ---
-    if args.validate_only:
-        report = run_validation(
-            salary_path=salary_path,
-            target_date=target_date,
-            vegas_games=vegas_games,
-            slate_teams=slate_teams,
-            quick=True
-        )
-        report.print_report()
-        sys.exit(0 if report.is_go else 1)
-
     # Fetch NHL data
     print("\nFetching NHL data...")
     pipeline = NHLDataPipeline()
@@ -960,9 +915,6 @@ def main():
 
     # Generate projections
     print("\nGenerating projections...")
-    # Pass Vegas data through for goalie danger-zone model
-    data['team_totals'] = team_totals
-    data['team_game_totals'] = team_game_totals
     model = NHLProjectionModel()
     projections = model.generate_projections(
         data,
@@ -1045,31 +997,6 @@ def main():
         except Exception as e:
             print(f"  Warning: Linemate chemistry boosts failed: {e}")
 
-    # Apply line context adjustments (PP unit × game environment)
-    if len(skaters_merged) > 0:
-        try:
-            from line_model import apply_line_adjustments
-            # Build opp_totals from team_totals
-            opp_totals = {}
-            if team_totals:
-                # For each team, get their opponent's implied total
-                for _, row in skaters_merged.drop_duplicates('team').iterrows():
-                    opp = row.get('opponent', row.get('opp', ''))
-                    if opp and isinstance(opp, str):
-                        opp_clean = opp.replace('@', '').replace('vs', '').strip()
-                        opp_totals[row['team']] = team_totals.get(opp_clean, 3.0)
-
-            skaters_merged = apply_line_adjustments(
-                skaters_merged,
-                team_totals=team_totals if team_totals else {},
-                opp_totals=opp_totals,
-                verbose=True,
-            )
-        except ImportError:
-            print("  Line model not available — skipping line context adjustments")
-        except Exception as e:
-            print(f"  Warning: Line context adjustments failed: {e}")
-
     # Combine pools
     player_pool = pd.concat([skaters_merged, goalies_merged], ignore_index=True)
 
@@ -1117,24 +1044,6 @@ def main():
         if args.stacks:
             print_stacking_recommendations(stack_builder, player_pool, slate_teams)
 
-    # --- Pre-flight: full validation (after all data loaded) ---
-    if args.validate or args.validate_only:
-        report = run_validation(
-            salary_path=salary_path,
-            target_date=target_date,
-            vegas_games=vegas_games,
-            data=data,
-            skaters_merged=skaters_merged,
-            goalies_merged=goalies_merged,
-            player_pool=player_pool,
-            stack_builder=stack_builder,
-            slate_teams=slate_teams,
-            quick=False
-        )
-        report.print_report()
-        if not report.is_go:
-            print("  ⚠️  Fix failures above before trusting these projections.\n")
-
     # Print projections
     if len(skaters_merged) > 0:
         print_projections_table(skaters_merged, "TOP SKATER PROJECTIONS", n=25)
@@ -1157,110 +1066,6 @@ def main():
         rec = recommend_leverage(contest_profile)
         print_leverage_recommendation(contest_profile, rec)
 
-    # --- Bayesian Projection Blend (--blend flag) ---
-    if args.blend:
-        try:
-            from projection_blender import blend_projections
-
-            # ── Auto-capture today's live odds ──
-            try:
-                from historical_odds import capture_daily, get_odds_for_date
-                capture_daily()
-            except Exception as e:
-                print(f"  ⚠ Odds capture: {e}")
-
-            # ── Load Vegas data: DB first, CSV fallback ──
-            vegas_blend = None
-            try:
-                from historical_odds import get_odds_for_date
-                db_odds = get_odds_for_date(target_date)
-                if not db_odds.empty:
-                    db_odds['date'] = target_date
-                    vegas_blend = db_odds
-                    print(f"  Vegas: {len(db_odds)} team-games from DB")
-            except Exception:
-                pass
-
-            if vegas_blend is None:
-                vegas_paths = [
-                    project_dir / 'Vegas_Historical.csv',
-                    project_dir / 'vegas' / 'Vegas_Historical.csv',
-                ]
-                for vp in vegas_paths:
-                    if vp.exists():
-                        import pandas as _pd
-                        vdf = _pd.read_csv(vp, encoding='utf-8-sig')
-                        vdf['date'] = vdf['Date'].apply(
-                            lambda d: f"20{d.split('.')[2]}-{int(d.split('.')[0]):02d}-{int(d.split('.')[1]):02d}"
-                        )
-                        vegas_blend = vdf
-                        print(f"  Vegas: loaded from {vp.name} (CSV fallback)")
-                        break
-
-            player_pool = blend_projections(
-                player_pool, vegas=vegas_blend, date_str=target_date,
-                replace=True, verbose=True
-            )
-        except Exception as e:
-            print(f"  ⚠ Blend failed: {e} — using current projections")
-
-    # --- Ceiling Probability (from game log clustering) ---
-    try:
-        from ceiling_clustering import predict_ceiling_probability
-        player_pool = predict_ceiling_probability(player_pool)
-        if 'p_ceiling' in player_pool.columns:
-            n_high = (player_pool['p_ceiling'] > 0.15).sum()
-            avg_p = player_pool['p_ceiling'].mean()
-            print(f"\n  Ceiling probability: {n_high} high-ceiling players (avg P={avg_p:.1%})")
-
-            # Adjust ceiling column using p_ceiling
-            # Scale: p_ceiling relative to base rate → ceiling multiplier
-            # p=0.065 (base) → 1.0x, p=0.20 → 1.25x, p=0.40 → 1.4x, p=0.01 → 0.85x
-            if 'ceiling' in player_pool.columns and 'projected_fpts' in player_pool.columns:
-                base_rate = 0.065  # ~6.5% baseline ceiling rate
-                p = player_pool['p_ceiling'].clip(0.01, 0.50)
-                # Log scale: smoother, prevents extreme multipliers
-                ceiling_scale = (1.0 + 0.3 * np.log(p / base_rate)).clip(0.85, 1.4)
-                base_ceiling = player_pool['projected_fpts'] * 2.5 + 5
-                goalie_mask = player_pool['position'] == 'G'
-                base_ceiling[goalie_mask] = player_pool.loc[goalie_mask, 'projected_fpts'] * 2.0 + 10
-                player_pool['ceiling'] = (base_ceiling * ceiling_scale).round(1)
-    except Exception as e:
-        player_pool['p_ceiling'] = 0.05
-        print(f"  ⚠ Ceiling model: {e}")
-
-    # --- Game Environment Model (Vegas implied + pace + recency) ---
-    try:
-        from game_environment import GameEnvironmentModel
-        env_model = GameEnvironmentModel()
-        env_model.fit()
-        if env_model.fitted:
-            _vb = vegas_blend if 'vegas_blend' in dir() else None
-            player_pool = env_model.adjust_projections(
-                player_pool, vegas=_vb, date_str=target_date, verbose=True
-            )
-    except Exception as e:
-        print(f"  ⚠ Game environment: {e}")
-
-    # --- Linemate Correlation Boosts ---
-    try:
-        from linemate_corr import get_linemate_boosts
-        skater_mask = player_pool['position'] != 'G'
-        if skater_mask.sum() > 0:
-            lm_names = player_pool.loc[skater_mask, 'name'].tolist()
-            lm_teams = player_pool.loc[skater_mask, 'team'].tolist()
-            boosts = get_linemate_boosts(lm_names, lm_teams)
-            lm_count = 0
-            for idx, row in player_pool[skater_mask].iterrows():
-                mult = boosts.get(row['name'], 1.0)
-                if mult > 1.0:
-                    player_pool.loc[idx, 'projected_fpts'] *= mult
-                    lm_count += 1
-            if lm_count:
-                print(f"\n  Linemate boosts: {lm_count} skaters adjusted")
-    except Exception as e:
-        print(f"  ⚠ Linemate corr: {e}")
-
     # --- Fetch recent game scores for ownership model (Feature 5) ---
     recent_scores = {}
     if not args.no_recent_scores and 'player_id' in player_pool.columns:
@@ -1280,75 +1085,44 @@ def main():
                 # Fallback to direct fetch if caching module not available
                 recent_scores = pipeline.fetch_recent_game_scores(player_ids)
 
-    # --- Baseline Probability (slate-aware positional scarcity prior) ---
-    if args.use_baseline_prob:
-        from baseline_probability import compute_baseline_probabilities
-        player_pool = compute_baseline_probabilities(player_pool)
-        bp_mean = player_pool['baseline_prob'].mean()
-        bp_sum = player_pool['baseline_prob'].sum()
-        print(f"\n  Baseline probability: avg={bp_mean:.3f}, sum={bp_sum:.1f} "
-              f"(≈9 roster slots), {len(player_pool)} players")
-
     # --- Run ownership model on player pool (before lineups when contest EV is used) ---
     print("\nGenerating ownership projections...")
+    ownership_model = OwnershipModel()
+    if stack_builder:
+        confirmed = stack_builder.get_all_starting_goalies()
+        ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
 
-    if args.single_entry:
-        # Use SE-specific ownership model (trained on actual small-field SE data)
-        try:
-            from se_ownership import SEOwnershipModel
-            se_model = SEOwnershipModel()
-            se_model.fit_from_contests()
+    # Feature 1: Vegas implied team totals
+    if team_totals:
+        ownership_model.set_vegas_data(team_totals, team_game_totals)
 
-            # Pass confirmed goalies if available
-            if stack_builder:
-                confirmed = stack_builder.get_all_starting_goalies()
-                if confirmed:
-                    se_model.set_confirmed_goalies(confirmed)
+    # Feature 4: Return-from-injury buzz
+    if 'injuries' in data and not data['injuries'].empty:
+        ownership_model.set_injury_data(data['injuries'], target_date)
 
-            player_pool = se_model.predict(player_pool, verbose=True)
-            print("  Using SE ownership model (trained on small-field contest data)")
-        except Exception as e:
-            print(f"  ⚠ SE ownership model failed: {e} — falling back to GPP model")
-            args._se_ownership_failed = True
+    # Feature 5: Individual recent game scoring
+    if recent_scores:
+        ownership_model.set_recent_scores(recent_scores)
 
-    if not args.single_entry or getattr(args, '_se_ownership_failed', False):
-        # Standard GPP ownership model
-        ownership_model = OwnershipModel()
-        if stack_builder:
-            confirmed = stack_builder.get_all_starting_goalies()
-            ownership_model.set_lines_data(stack_builder.lines_data, confirmed)
+    # Feature 6: TOI surge map (player name -> delta in minutes)
+    toi_surge_map = {}
+    if recent_scores and 'toi_per_game' in player_pool.columns:
+        for _, row in player_pool.iterrows():
+            pid = row.get('player_id')
+            if pid and pid in recent_scores:
+                recent_toi = recent_scores[pid].get('last_3_avg_toi_min')
+                season_toi = row.get('toi_per_game')
+                if recent_toi and season_toi and season_toi > 0:
+                    # season toi may be in seconds (>100) or minutes
+                    season_min = season_toi / 60.0 if season_toi > 100 else season_toi
+                    toi_surge_map[row['name']] = recent_toi - season_min
 
-        # Feature 1: Vegas implied team totals
-        if team_totals:
-            ownership_model.set_vegas_data(team_totals, team_game_totals)
+    if toi_surge_map:
+        ownership_model.set_toi_surge_data(toi_surge_map)
+        print(f"  TOI surge data set for {len(toi_surge_map)} players")
 
-        # Feature 4: Return-from-injury buzz
-        if 'injuries' in data and not data['injuries'].empty:
-            ownership_model.set_injury_data(data['injuries'], target_date)
-
-        # Feature 5: Individual recent game scoring
-        if recent_scores:
-            ownership_model.set_recent_scores(recent_scores)
-
-        # Feature 6: TOI surge map (player name -> delta in minutes)
-        toi_surge_map = {}
-        if recent_scores and 'toi_per_game' in player_pool.columns:
-            for _, row in player_pool.iterrows():
-                pid = row.get('player_id')
-                if pid and pid in recent_scores:
-                    recent_toi = recent_scores[pid].get('last_3_avg_toi_min')
-                    season_toi = row.get('toi_per_game')
-                    if recent_toi and season_toi and season_toi > 0:
-                        # season toi may be in seconds (>100) or minutes
-                        season_min = season_toi / 60.0 if season_toi > 100 else season_toi
-                        toi_surge_map[row['name']] = recent_toi - season_min
-
-        if toi_surge_map:
-            ownership_model.set_toi_surge_data(toi_surge_map)
-            print(f"  TOI surge data set for {len(toi_surge_map)} players")
-
-        player_pool = ownership_model.predict_ownership(player_pool)
-        print_ownership_report(player_pool)
+    player_pool = ownership_model.predict_ownership(player_pool)
+    print_ownership_report(player_pool)
 
     # --- Run simulator if requested ---
     if args.simulate:
@@ -1419,242 +1193,97 @@ def main():
 
         # ── Single-Entry Mode ──────────────────────────────────────────────
         # Generate many candidates with randomness, then pick the best one
-        # using Tournament Equity (v4) — scores lineups in DOLLARS not abstract 0-1
+        # using the SE scoring engine (goalie quality, stack correlation, etc.)
         if args.single_entry:
-            n_candidates = max(args.lineups, 100)  # At least 100 candidates (mixed randomness)
-
-            # ── Simons Contest Intelligence ──────────────────────────────────
-            # Jim Simons would ask: What's the contest structure?
-            # The MATH of selection changes based on field size, payout shape,
-            # and whether we need ceiling (WTA) or consistency (cash).
-            print(f"\n{'═' * 70}")
-            print(f"  SIMONS CONTEST INTELLIGENCE")
-            print(f"  What contest are we optimizing for?")
-            print(f"{'═' * 70}")
-            print(f"  [1] WTA Satellite    — $14, ~10 entries, winner-take-all ticket")
-            print(f"  [2] SE GPP           — $121, ~80 entries, top-heavy payouts")
-            print(f"  [3] Large GPP        — $5-20, 1000+ entries, need top 10-20%")
-            print(f"  [4] Cash / Double-Up — $5-50, need top 50%")
-            print(f"  [5] Custom           — enter your own parameters")
-
-            try:
-                choice = input(f"\n  Select contest type [1-5] (default: 2): ").strip()
-            except (EOFError, KeyboardInterrupt):
-                # Non-interactive mode — fall back to CLI args
-                choice = {'satellite': '1', 'se_gpp': '2', 'cash': '4'}.get(args.contest, '2')
-                print(f"\n  (Non-interactive: using --contest {args.contest} → choice {choice})")
-
-            if choice == '1':
-                entry_fee = 14.0
-                field_size = 10
-                places_paid = 1
-                sim_mode = 'm3s'
-                contest_label = 'WTA Satellite ($14, 10-man)'
-                print(f"\n  → WTA: Maximizing CEILING. Need to beat 9 people.")
-                print(f"    Strategy: M+3σ selection, max-variance stacks")
-                print(f"    Key: Differentiation > consistency. Go big or go home.")
-                se_contest = SEContestProfile.satellite()
-            elif choice == '3':
-                try:
-                    entry_fee = float(input("  Entry fee ($): ") or "5")
-                    field_size = int(input("  Field size: ") or "5000")
-                except (ValueError, EOFError):
-                    entry_fee, field_size = 5.0, 5000
-                places_paid = max(1, int(field_size * 0.20))
-                sim_mode = 'm3s'
-                contest_label = f'Large GPP (${entry_fee:.0f}, {field_size} entries)'
-                print(f"\n  → Large GPP: Need top {places_paid} of {field_size}.")
-                print(f"    Strategy: M+3σ selection, high-variance stacks")
-                print(f"    Key: Ceiling matters. Some chalk OK if highest upside.")
-                se_contest = SEContestProfile.se_gpp(field_size)
-                se_contest.entry_fee = entry_fee
-            elif choice == '4':
-                try:
-                    entry_fee = float(input("  Entry fee ($): ") or "20")
-                    field_size = int(input("  Field size: ") or "100")
-                except (ValueError, EOFError):
-                    entry_fee, field_size = 20.0, 100
-                places_paid = max(1, int(field_size * 0.50))
-                sim_mode = 'cash'
-                contest_label = f'Cash/Double-Up (${entry_fee:.0f}, {field_size} entries)'
-                print(f"\n  → Cash: Maximizing FLOOR. Need top 50%.")
-                print(f"    Strategy: P(≥111) selection, safe confirmed plays")
-                print(f"    Key: Avoid busts. Confirmed goalies only. Play chalk.")
-                se_contest = SEContestProfile.custom(
-                    entry_fee=entry_fee, total_entries=field_size,
-                    total_prize=field_size * entry_fee * 0.9,
-                    first_place=entry_fee * 1.8, places_paid=places_paid)
-            elif choice == '5':
-                try:
-                    entry_fee = float(input("  Entry fee ($): ") or "121")
-                    field_size = int(input("  Field size: ") or "80")
-                    first_place = float(input("  First place prize ($): ") or "2000")
-                    places_paid = int(input("  Places paid: ") or "20")
-                    target_score = float(input("  Target score to win ($): ") or "150")
-                except (ValueError, EOFError):
-                    entry_fee, field_size = 121.0, 80
-                    first_place, places_paid, target_score = 2000, 20, 150
-                top_heavy = first_place > (field_size * entry_fee * 0.85 * 0.15)
-                sim_mode = 'm3s' if top_heavy else 'cash'
-                contest_label = f'Custom (${entry_fee:.0f}, {field_size} entries, top-heavy={top_heavy})'
-                print(f"\n  → Custom: {'Top-heavy → ceiling mode' if top_heavy else 'Flat → consistency mode'}")
-                se_contest = SEContestProfile.custom(
-                    entry_fee=entry_fee, total_entries=field_size,
-                    total_prize=field_size * entry_fee * 0.85,
-                    first_place=first_place, places_paid=places_paid,
-                    target_score=target_score)
-            else:
-                # Default: SE GPP $121
-                entry_fee = 121.0
-                field_size = 80
-                places_paid = 20
-                sim_mode = 'm3s'
-                contest_label = 'SE GPP ($121, ~80 entries)'
-                print(f"\n  → SE GPP: Top-heavy payouts, need top 25%.")
-                print(f"    Strategy: M+3σ selection, variance-seeking stacks")
-                print(f"    Key: Upside > safety. Stack aggressively.")
-                se_contest = SEContestProfile.se_gpp(field_size)
-
-            # sim_mode is determined by contest selection above.
-            # CLI --sim-mode only applies if contest prompt is skipped (non-interactive).
-
-            print(f"\n  Contest: {contest_label}")
-            print(f"  Selection mode: {sim_mode.upper()}")
-            print(f"  Generating {n_candidates} candidates (triple-mix)...")
-            print(f"{'═' * 70}")
+            n_candidates = max(args.lineups, 20)  # At least 20 candidates
+            print(f"\nSingle-Entry Mode: generating {n_candidates} candidate lineups...")
 
             optimizer = NHLLineupOptimizer(stack_builder=stack_builder if not args.no_stacks else None)
-
-            # Triple-mix candidate pool: 50% uncapped + 25% salary-capped + 25% forced 3-3
-            # Backtest: 92.8 avg vs 90.7 uncapped-only, std spread 4.1 vs 2.5
-            # Structural diversity lets M+3σ selector differentiate candidates
-            candidates = []
-            stack_kw = dict(stack_teams=[args.force_stack]) if args.force_stack else {}
-
-            # Build salary-capped pool ($7.5k max skater)
-            capped_pool = player_pool[player_pool['salary'] <= 7500].copy()
-            pos_counts = capped_pool['position'].value_counts()
-            has_capped = (pos_counts.get('C', 0) >= 3 and pos_counts.get('W', 0) >= 4
-                          and pos_counts.get('D', 0) >= 3 and pos_counts.get('G', 0) >= 2)
-
-            for rand_level in [0.05, 0.10, 0.15, 0.20, 0.25]:
-                n_std = max(n_candidates // 10, 5)       # 50% uncapped standard
-                n_cap = max(n_candidates // 20, 3)       # 25% salary-capped
-                n_33  = max(n_candidates // 20, 3)       # 25% forced 3-3 stacks
-
-                # Tier 1: Standard uncapped (4-3 stacks emerge naturally)
-                batch = optimizer.optimize_lineup(
-                    player_pool, n_lineups=n_std, randomness=rand_level, **stack_kw)
-                if batch:
-                    candidates.extend(batch)
-
-                # Tier 2: Salary-capped balanced builds
-                if has_capped:
-                    batch = optimizer.optimize_lineup(
-                        capped_pool, n_lineups=n_cap, randomness=rand_level, **stack_kw)
-                    if batch:
-                        candidates.extend(batch)
-
-                # Tier 3: Forced 3-3 stacks (max 3 from any team)
-                batch = optimizer.optimize_lineup(
-                    player_pool, n_lineups=n_33, randomness=rand_level,
-                    max_from_team=3, **stack_kw)
-                if batch:
-                    candidates.extend(batch)
-
-            print(f"  Generated {len(candidates)} candidates (uncapped + cap$7.5k + 3-3 stacks)")
+            candidates = optimizer.optimize_lineup(
+                player_pool,
+                n_lineups=n_candidates,
+                randomness=0.08,  # Moderate randomness to explore the space
+                stack_teams=[args.force_stack] if args.force_stack else None,
+            )
 
             if candidates:
-                # ── Simulation Selector (Monte Carlo) ──
-                if args.sim_select:
-                    print(f"\n  Using Monte Carlo Simulation Selector ({args.sim_n:,} sims, mode={sim_mode})")
-                    sim_selector = SimSelector(
-                        player_pool,
-                        entry_fee=entry_fee,
-                        n_sims=args.sim_n,
-                        target_date=target_date,
-                        stack_builder=stack_builder,
-                    )
-                    best_lineup, sim_result = sim_selector.select(
-                        candidates, verbose=True, mode=sim_mode)
-                    print_sim_lineup(best_lineup, sim_result)
-                    lineups = [best_lineup]
+                selector = SingleEntrySelector(
+                    player_pool,
+                    stack_builder=stack_builder,
+                    team_totals=team_totals if team_totals else {},
+                )
+                best_lineup, best_scores = selector.select(candidates, verbose=True)
+                print_se_lineup(best_lineup, best_scores)
+                lineups = [best_lineup]
 
-                    # ── Agent Panel Review (if --agents flag) ──
-                    if args.agents:
-                        print(f"\n{'═' * 80}")
-                        print(f"  AGENT PANEL REVIEW")
-                        print(f"{'═' * 80}")
+                # ── GPP Leverage Reranking (if --leverage flag) ──
+                if args.leverage:
+                    print(f"\n{'═' * 80}")
+                    print(f"  GPP LEVERAGE RERANKING")
+                    print(f"{'═' * 80}")
 
-                        # Get all scored lineups from sim selector (already sorted)
-                        all_sim_scored = []
+                    # Build ownership map from player pool
+                    own_col = None
+                    for c in ['predicted_ownership', 'ownership', 'Ownership']:
+                        if c in player_pool.columns:
+                            own_col = c
+                            break
+                    name_col = 'name' if 'name' in player_pool.columns else 'Player'
+
+                    if own_col:
+                        own_map = dict(zip(
+                            player_pool[name_col],
+                            pd.to_numeric(player_pool[own_col], errors='coerce').fillna(2.0)
+                        ))
+
+                        # Detect chalk stack and slate context
+                        chalk_info = detect_chalk_stack(player_pool, own_map)
+                        slate_ctx = analyze_slate_context(player_pool, own_map)
+
+                        scorer = LeverageScorer(
+                            own_map,
+                            chalk_analysis=chalk_info,
+                            contest_type='se_gpp',
+                            player_pool=player_pool,
+                            slate_context=slate_ctx,
+                        )
+
+                        # Score all candidates through SE selector first to get scores
+                        all_se_scored = []
                         for lu in candidates:
                             try:
-                                sr = sim_selector.score_lineup(lu)
-                                sr['m3s'] = sr['mean'] + 3.0 * sr['std']
-                                all_sim_scored.append((lu, sr))
+                                se_scores = selector.score_lineup(lu)
+                                se_total = se_scores.get('total', 0) if isinstance(se_scores, dict) else sum(se_scores) if hasattr(se_scores, '__iter__') else float(se_scores)
+                                all_se_scored.append((lu, se_total))
                             except Exception:
                                 pass
-                        all_sim_scored.sort(key=lambda x: x[1].get('m3s', 0), reverse=True)
 
-                        top_lineups = [lu for lu, _ in all_sim_scored[:args.agent_review]]
-                        top_results = [r for _, r in all_sim_scored[:args.agent_review]]
+                        if all_se_scored:
+                            all_se_scored.sort(key=lambda x: x[1], reverse=True)
 
-                        # Build slate context from pipeline data
-                        ctx = SlateContext.from_pipeline(
-                            player_pool,
-                            stack_builder=stack_builder,
-                            vegas_games=getattr(args, '_vegas_games', None),
-                        )
-                        ctx.contest_type = args.contest
+                            # Take top N for leverage reranking
+                            n_review = min(20, len(all_se_scored))
+                            top_lus = [lu for lu, _ in all_se_scored[:n_review]]
 
-                        api_key = os.environ.get('ANTHROPIC_API_KEY')
-                        panel = AgentPanel(ctx, api_key=api_key)
+                            # Build sim-result-like dicts for the scorer
+                            # Use projected FPTS sum as proxy for mean, SE score for ranking
+                            proj_col = 'projected_fpts' if 'projected_fpts' in player_pool.columns else 'FC Proj'
+                            top_res = []
+                            for lu, se_score in all_se_scored[:n_review]:
+                                proj_sum = lu[proj_col].sum() if proj_col in lu.columns else 100
+                                top_res.append({
+                                    'mean': proj_sum,
+                                    'std': proj_sum * 0.25,  # ~25% CV typical for hockey lineups
+                                    'm3s': proj_sum + 3 * (proj_sum * 0.25),
+                                    'se_score': se_score,
+                                })
 
-                        if api_key:
-                            ranked = panel.review(top_lineups, top_results, verbose=True)
+                            ranked = scorer.score_lineups(top_lus, top_res, verbose=True)
                             if ranked:
                                 best_lineup = ranked[0][0]
                                 lineups = [best_lineup]
-                                print(f"\n  Agent panel selected lineup (consensus rank #1)")
-                        else:
-                            # Manual mode: generate prompt
-                            prompt = panel.generate_manual_prompt(top_lineups, top_results)
-                            prompt_path = Path(DAILY_PROJECTIONS_DIR) / f"agent_prompt_{target_date}.txt"
-                            prompt_path.parent.mkdir(parents=True, exist_ok=True)
-                            with open(prompt_path, 'w') as f:
-                                f.write(prompt)
-                            print(f"\n  No ANTHROPIC_API_KEY found — manual mode")
-                            print(f"  Agent prompt saved to: {prompt_path}")
-                            print(f"  Paste into Claude chat for agent review.")
-
-                        # Print tracker summary
-                        print_agent_tracker_summary()
-
-                # ── Fallback: Tournament Equity selector (M+3σ) ──
-                else:
-                    te_selector = TournamentEquitySelector(
-                        player_pool,
-                        entry_fee=entry_fee,
-                        stack_builder=stack_builder,
-                    )
-                    best_lineup, te_result = te_selector.select(candidates, verbose=True)
-                    print_te_lineup(best_lineup, te_result)
-                    lineups = [best_lineup]
-
-                # Export all ranked candidates to JSON for website
-                try:
-                    from lineup_export import export_se_candidates
-                    all_scored = []
-                    for lu in candidates:
-                        te = te_selector.compute_te_analytical(lu)
-                        # Wrap TE result with 'total' key for compatibility
-                        score_dict = {**te, 'total': te['te']}
-                        all_scored.append((lu, score_dict))
-                    all_scored.sort(key=lambda x: x[1]['total'], reverse=True)
-                    export_se_candidates(all_scored, target_date, str(out_dir))
-                except Exception as e:
-                    print(f"  Note: Could not export SE lineup details: {e}")
+                    else:
+                        print("  ⚠️ No ownership column found — skipping leverage reranking")
             else:
                 print("  Warning: No candidate lineups generated")
 
@@ -1698,7 +1327,7 @@ def main():
     auto_export_path = str(out_dir / f"{date_str}NHLprojections_{timestamp}.csv")
 
     export_cols = ['name', 'team', 'position', 'salary', 'projected_fpts',
-                   'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling', 'p_ceiling',
+                   'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling',
                    'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score', 'dk_id']
     export_cols = [c for c in export_cols if c in player_pool.columns]
     player_pool.sort_values('projected_fpts', ascending=False)[export_cols].to_csv(auto_export_path, index=False)
