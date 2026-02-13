@@ -879,6 +879,11 @@ def main():
     parser.add_argument('--linemate-report', action='store_true',
                         help='Print full linemate chemistry report for slate teams')
 
+    # Baseline probability
+    parser.add_argument('--use-baseline-prob', action='store_true',
+                        help='Add slate-aware baseline probability column to player pool. '
+                             'Computed from positional scarcity (slots / players at position).')
+
     args = parser.parse_args()
 
     # Determine date
@@ -1274,6 +1279,15 @@ def main():
             except ImportError:
                 # Fallback to direct fetch if caching module not available
                 recent_scores = pipeline.fetch_recent_game_scores(player_ids)
+
+    # --- Baseline Probability (slate-aware positional scarcity prior) ---
+    if args.use_baseline_prob:
+        from baseline_probability import compute_baseline_probabilities
+        player_pool = compute_baseline_probabilities(player_pool)
+        bp_mean = player_pool['baseline_prob'].mean()
+        bp_sum = player_pool['baseline_prob'].sum()
+        print(f"\n  Baseline probability: avg={bp_mean:.3f}, sum={bp_sum:.1f} "
+              f"(≈9 roster slots), {len(player_pool)} players")
 
     # --- Run ownership model on player pool (before lineups when contest EV is used) ---
     print("\nGenerating ownership projections...")
