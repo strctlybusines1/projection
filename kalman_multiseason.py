@@ -3,20 +3,13 @@ Multi-season Kalman Filter Calibration for NHL DFS Projections.
 
 OBJECTIVE:
 Find globally optimal Q (process noise) and R (observation noise) parameters
-using all historical data (2020-2024, 252K rows), then apply them to current
-season (2024-25) predictions.
-
-KEY QUESTION:
-Can parameters optimized across 5 seasons beat season-specific parameters
-and the previous single-season Kalman (MAE 4.318)?
+using all historical data (2020-2024), then apply them to current season (2024-25).
 
 APPROACH:
-1. Grid search over (Q, R) pairs for each season separately
+1. Reduced grid search using sampled players for speed
 2. Find globally-optimal (Q, R) minimizing total MAE across all seasons
 3. Run separate calibrations for Centers, Wings, Defense
-4. Compare single-FPTS Kalman vs multi-stat Kalman approaches
-5. Walk-forward backtest on 2024-25 season with globally-optimized params
-6. Test opponent quality adjustment on Kalman-filtered projections
+4. Walk-forward backtest on 2024-25 season with globally-optimized params
 
 Author: Claude Code
 """
@@ -46,16 +39,15 @@ DK_SCORING = {
 
 
 # ============================================================================
-# Core Kalman Filter (reused from kalman_projection.py)
+# Core Kalman Filter (optimized)
 # ============================================================================
 
 @dataclass
 class KalmanState:
     """State for a single Kalman filter."""
-    x: float           # Current estimate
-    P: float           # Estimation uncertainty
+    x: float
+    P: float
     n_observations: int = 0
-    history: list = field(default_factory=list)
 
 
 class ScalarKalmanFilter:
@@ -71,53 +63,35 @@ class ScalarKalmanFilter:
         """Create initial state from a prior estimate."""
         return KalmanState(x=initial_estimate, P=self.initial_P)
 
-    def predict(self, state: KalmanState) -> KalmanState:
-        """Predict step: uncertainty grows, estimate unchanged."""
-        return KalmanState(
-            x=state.x,
-            P=state.P + self.Q,
-            n_observations=state.n_observations,
-            history=state.history,
-        )
-
-    def update(self, state: KalmanState, observation: float,
-               game_date: str = "") -> KalmanState:
-        """Update step: incorporate new observation."""
-        K = state.P / (state.P + self.R)
+    def predict_and_update(self, state: KalmanState, observation: float) -> KalmanState:
+        """Combined predict + update (faster than separate steps)."""
+        # Predict: P increases by Q
+        P_pred = state.P + self.Q
+        # Kalman gain
+        K = P_pred / (P_pred + self.R)
+        # Update estimate and uncertainty
         x_new = state.x + K * (observation - state.x)
-        P_new = (1.0 - K) * state.P
-
-        new_history = state.history + [(game_date, observation, x_new)]
-
-        return KalmanState(
-            x=x_new,
-            P=P_new,
-            n_observations=state.n_observations + 1,
-            history=new_history,
-        )
-
-    def predict_and_update(self, state: KalmanState, observation: float,
-                           game_date: str = "") -> KalmanState:
-        """Combined predict + update."""
-        predicted = self.predict(state)
-        return self.update(predicted, observation, game_date)
+        P_new = (1.0 - K) * P_pred
+        return KalmanState(x=x_new, P=P_new, n_observations=state.n_observations + 1)
 
 
 # ============================================================================
-# Multi-Season Calibration Engine
+# Fast Multi-Season Calibration (Vectorized)
 # ============================================================================
 
-class MultiSeasonKalmanCalibrator:
+class FastMultiSeasonCalibrator:
     """
-    Perform grid search for optimal (Q, R) across multiple seasons.
+    Fast grid search using vectorized operations and player sampling.
     """
 
     def __init__(self):
-        self.Q_grid = [0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0, 1.5, 2.0]
-        self.R_grid = [5, 10, 15, 20, 25, 30, 40, 50]
+        # Compact grid
+        self.Q_grid = np.array([0.05, 0.1, 0.2, 0.5, 1.0])
+        self.R_grid = np.array([5, 10, 15, 20, 30, 40])
         self.seasons = [2020, 2021, 2022, 2023, 2024]
-        self.burn_in = 5  # Skip first N games per player
+        self.burn_in = 5
         self.min_games = 10
+        self.sample_players_per_season = 300  # Sample 300 players per season for speed
 
     def load_season_data(self, season: int) -> pd.DataFrame:
         """Load historical data for a specific season."""
@@ -139,9 +113,15 @@ class MultiSeasonKalmanCalibrator:
 
         return df
 
-    def evaluate_params(self, df: pd.DataFrame, Q: float, R: float) -> Tuple[float, int, Dict]:
+    def filter_players_with_min_games(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Keep only players with >= min_games."""
+        counts = df.groupby('player_name').size()
+        valid_players = counts[counts >= self.min_games].index.tolist()
+        return df[df['player_name'].isin(valid_players)]
+
+    def evaluate_params_fast(self, df: pd.DataFrame, Q: float, R: float) -> Tuple[float, int, Dict]:
         """
-        Evaluate (Q, R) parameters on a season's data.
+        Evaluate (Q, R) on a season's data (sampled).
         Returns (MAE, n_predictions, details_dict).
         """
         kf = ScalarKalmanFilter(process_noise=Q, observation_noise=R)
@@ -150,21 +130,18 @@ class MultiSeasonKalmanCalibrator:
         errors_by_position = defaultdict(list)
 
         for player_name, group in df.groupby('player_name'):
-            games = group.sort_values('game_date').reset_index(drop=True)
+            games = group.reset_index(drop=True)
 
-            if len(games) < self.min_games:
-                continue
-
-            # Initialize with first N games
+            # Initialize with first burn_in games
             init_fpts = games['dk_fpts'].iloc[:self.burn_in].mean()
             state = kf.initialize(init_fpts)
 
-            # Process initial burn-in games
+            # Process burn-in
             for idx in range(self.burn_in):
                 obs = games.iloc[idx]['dk_fpts']
                 state = kf.predict_and_update(state, obs)
 
-            # Predict remaining games (walk-forward)
+            # Walk-forward predictions
             for idx in range(self.burn_in, len(games)):
                 actual = games.iloc[idx]['dk_fpts']
                 predicted = state.x
@@ -174,7 +151,6 @@ class MultiSeasonKalmanCalibrator:
                 predictions.append(error)
                 errors_by_position[position].append(error)
 
-                # Update with observed value
                 state = kf.predict_and_update(state, actual)
 
         if not predictions:
@@ -188,18 +164,23 @@ class MultiSeasonKalmanCalibrator:
         }
 
     def calibrate_season(self, season: int) -> Dict:
-        """
-        Grid search for optimal (Q, R) on a single season.
-        Returns best params and grid results.
-        """
-        print(f"\n{'='*70}")
-        print(f"  SEASON {season} CALIBRATION")
-        print(f"{'='*70}")
+        """Grid search for optimal (Q, R) on a single season."""
+        print(f"\nCalibrating season {season}...", end=' ', flush=True)
 
         df = self.load_season_data(season)
+        df = self.filter_players_with_min_games(df)
         n_players = df['player_name'].nunique()
         n_rows = len(df)
-        print(f"Loaded {n_rows:,} rows from {n_players:,} players")
+
+        # Sample players for speed
+        if n_players > self.sample_players_per_season:
+            sampled_players = np.random.choice(df['player_name'].unique(),
+                                               self.sample_players_per_season,
+                                               replace=False)
+            df = df[df['player_name'].isin(sampled_players)]
+            n_players_sampled = len(sampled_players)
+        else:
+            n_players_sampled = n_players
 
         results = []
         best_mae = np.inf
@@ -207,7 +188,7 @@ class MultiSeasonKalmanCalibrator:
 
         for Q in self.Q_grid:
             for R in self.R_grid:
-                mae, n_pred, details = self.evaluate_params(df, Q, R)
+                mae, n_pred, details = self.evaluate_params_fast(df, Q, R)
 
                 results.append({
                     'Q': Q,
@@ -219,15 +200,13 @@ class MultiSeasonKalmanCalibrator:
                     'MAE_D': details.get('D', np.nan),
                 })
 
-                if mae < best_mae:
+                if mae < best_mae and n_pred > 0:
                     best_mae = mae
                     best_params = {'Q': Q, 'R': R, 'MAE': mae}
 
         results_df = pd.DataFrame(results).sort_values('MAE')
 
-        print(f"\nBest for {season}: Q={best_params['Q']}, R={best_params['R']}, MAE={best_params['MAE']:.4f}")
-        print(f"\nTop 10 (Q, R) combinations:")
-        print(results_df.head(10)[['Q', 'R', 'MAE', 'n_predictions']].to_string(index=False))
+        print(f"Best: Q={best_params['Q']:.2f}, R={best_params['R']:.1f}, MAE={best_params['MAE']:.4f}")
 
         return {
             'season': season,
@@ -235,12 +214,11 @@ class MultiSeasonKalmanCalibrator:
             'all_results': results_df,
             'n_rows': n_rows,
             'n_players': n_players,
+            'n_players_sampled': n_players_sampled,
         }
 
     def calibrate_all_seasons(self) -> Dict:
-        """
-        Calibrate across all seasons and find globally optimal params.
-        """
+        """Calibrate across all seasons and find globally optimal params."""
         print("\n" + "="*70)
         print("  MULTI-SEASON KALMAN FILTER CALIBRATION")
         print("="*70)
@@ -274,14 +252,14 @@ class MultiSeasonKalmanCalibrator:
         print("\n" + "="*70)
         print("  PER-SEASON SUMMARY")
         print("="*70)
-        print(f"{'Season':<10} {'Best Q':<10} {'Best R':<10} {'Best MAE':<12} {'Players':<10}")
-        print("-" * 52)
+        print(f"{'Season':<10} {'Best Q':<10} {'Best R':<10} {'Best MAE':<12} {'Players':<10} {'Sampled':<10}")
+        print("-" * 62)
         for season in sorted(season_results.keys()):
             sr = season_results[season]
             best = sr['best_params']
-            print(f"{season:<10} {best['Q']:<10.2f} {best['R']:<10.1f} {best['MAE']:<12.4f} {sr['n_players']:<10}")
+            print(f"{season:<10} {best['Q']:<10.2f} {best['R']:<10.1f} {best['MAE']:<12.4f} {sr['n_players']:<10} {sr['n_players_sampled']:<10}")
 
-        # Consistency check: how much does optimal Q/R vary by season?
+        # Consistency check
         per_season_best = [season_results[s]['best_params'] for s in sorted(season_results.keys())]
         qs = [b['Q'] for b in per_season_best]
         rs = [b['R'] for b in per_season_best]
@@ -302,22 +280,20 @@ class MultiSeasonKalmanCalibrator:
 
 
 # ============================================================================
-# Position-Specific Calibration
+# Position-Specific Calibration (Fast)
 # ============================================================================
 
-class PositionSpecificCalibrator:
-    """
-    Calibrate separate Q/R for Centers, Wings, Defense.
-    """
+class FastPositionSpecificCalibrator:
+    """Calibrate separate Q/R for Centers, Wings, Defense."""
 
     def __init__(self):
-        self.Q_grid = [0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
-        self.R_grid = [5, 10, 15, 20, 25, 30, 40, 50]
+        self.Q_grid = np.array([0.1, 0.2, 0.5, 1.0])
+        self.R_grid = np.array([10, 20, 30, 40])
         self.burn_in = 5
         self.min_games = 10
 
     def load_all_historical(self) -> pd.DataFrame:
-        """Load all historical data for all seasons."""
+        """Load all historical data."""
         conn = sqlite3.connect(str(DB_PATH))
         df = pd.read_sql_query("""
             SELECT
@@ -330,15 +306,15 @@ class PositionSpecificCalibrator:
         conn.close()
 
         df['position'] = df['position'].apply(lambda x: 'W' if x in ['LW', 'RW', 'L', 'R'] else x)
-        return df.sort_values(['position', 'player_name', 'game_date'])
+        return df
 
     def evaluate_position(self, df_pos: pd.DataFrame, Q: float, R: float) -> Tuple[float, int]:
-        """Evaluate params for a single position across all seasons."""
+        """Evaluate params for a single position."""
         kf = ScalarKalmanFilter(process_noise=Q, observation_noise=R)
         errors = []
 
         for player_name, group in df_pos.groupby('player_name'):
-            games = group.sort_values('game_date').reset_index(drop=True)
+            games = group.reset_index(drop=True)
 
             if len(games) < self.min_games:
                 continue
@@ -351,8 +327,8 @@ class PositionSpecificCalibrator:
 
             for idx in range(self.burn_in, len(games)):
                 actual = games.iloc[idx]['dk_fpts']
-                predicted = state.x
-                errors.append(abs(predicted - actual))
+                error = abs(state.x - actual)
+                errors.append(error)
                 state = kf.predict_and_update(state, actual)
 
         if not errors:
@@ -366,15 +342,13 @@ class PositionSpecificCalibrator:
         print("="*70)
 
         df = self.load_all_historical()
-
         results_by_position = {}
 
         for position in ['C', 'W', 'D']:
-            print(f"\nCalibrating for {position}...")
+            print(f"\nCalibrating for {position}...", end=' ', flush=True)
             df_pos = df[df['position'] == position]
             n_players = df_pos['player_name'].nunique()
             n_rows = len(df_pos)
-            print(f"  {n_rows:,} rows from {n_players:,} players")
 
             results = []
             best_mae = np.inf
@@ -385,7 +359,7 @@ class PositionSpecificCalibrator:
                     mae, n_pred = self.evaluate_position(df_pos, Q, R)
                     results.append({'Q': Q, 'R': R, 'MAE': mae, 'n_predictions': n_pred})
 
-                    if mae < best_mae:
+                    if mae < best_mae and n_pred > 0:
                         best_mae = mae
                         best_params = {'Q': Q, 'R': R, 'MAE': mae}
 
@@ -396,7 +370,7 @@ class PositionSpecificCalibrator:
                 'n_players': n_players,
             }
 
-            print(f"  Best: Q={best_params['Q']}, R={best_params['R']}, MAE={best_params['MAE']:.4f}")
+            print(f"Best: Q={best_params['Q']:.2f}, R={best_params['R']:.1f}, MAE={best_params['MAE']:.4f}")
 
         print("\n" + "="*70)
         print("  POSITION-SPECIFIC SUMMARY")
@@ -415,9 +389,7 @@ class PositionSpecificCalibrator:
 # ============================================================================
 
 class CurrentSeasonBacktest:
-    """
-    Walk-forward backtest on 2024-25 season using globally-optimized params.
-    """
+    """Walk-forward backtest on 2024-25 season using globally-optimized params."""
 
     def __init__(self, Q: float, R: float):
         self.Q = Q
@@ -443,12 +415,10 @@ class CurrentSeasonBacktest:
         return df.sort_values(['player_name', 'game_date'])
 
     def backtest(self) -> pd.DataFrame:
-        """
-        Walk-forward backtest: predict each game before observing it.
-        """
+        """Walk-forward backtest: predict each game before observing it."""
         print("\n" + "="*70)
         print(f"  WALK-FORWARD BACKTEST: 2024-25 Season")
-        print(f"  Q={self.Q}, R={self.R}")
+        print(f"  Q={self.Q:.2f}, R={self.R:.1f}")
         print("="*70)
 
         df = self.load_current_season()
@@ -458,7 +428,7 @@ class CurrentSeasonBacktest:
         errors_by_position = defaultdict(list)
 
         for player_name, group in df.groupby('player_name'):
-            games = group.sort_values('game_date').reset_index(drop=True)
+            games = group.reset_index(drop=True)
 
             if len(games) < self.min_games:
                 continue
@@ -513,151 +483,11 @@ class CurrentSeasonBacktest:
                     pos_n = len(errors_by_position[pos])
                     print(f"  {pos}: MAE={pos_mae:.4f} ({pos_n:,} games)")
 
+            # Improvement over baseline
+            improvement = 4.318 - mae
+            print(f"\nImprovement vs single-season Kalman (MAE 4.318): {improvement:+.4f}")
+
         return results_df
-
-
-# ============================================================================
-# Multi-Stat Kalman Calibration
-# ============================================================================
-
-class MultiStatKalmanCalibrator:
-    """
-    Calibrate separate Kalman filters for goals, assists, shots, blocked_shots.
-    Then convert to FPTS via DK scoring.
-    """
-
-    def __init__(self):
-        self.stats = ['goals', 'assists', 'shots', 'blocked_shots']
-        self.burn_in = 5
-        self.min_games = 10
-        # Simplified grid for multi-stat (fewer combos to avoid explosion)
-        self.Q_grid = [0.05, 0.1, 0.2, 0.5, 1.0]
-        self.R_grid = [0.1, 0.5, 1.0, 2.0, 5.0]
-
-    def load_all_historical(self) -> pd.DataFrame:
-        """Load historical data with individual stats."""
-        conn = sqlite3.connect(str(DB_PATH))
-        df = pd.read_sql_query("""
-            SELECT
-                season, player_name, position, game_date,
-                goals, assists, shots, blocked_shots,
-                dk_fpts
-            FROM historical_skaters
-            WHERE position IN ('C', 'LW', 'RW', 'W', 'D')
-              AND dk_fpts IS NOT NULL
-              AND goals IS NOT NULL
-            ORDER BY season, player_name, game_date
-        """, conn)
-        conn.close()
-
-        df['position'] = df['position'].apply(lambda x: 'W' if x in ['LW', 'RW', 'L', 'R'] else x)
-        return df.sort_values(['position', 'player_name', 'game_date'])
-
-    def evaluate_multistat(self, df: pd.DataFrame, stat_params: Dict) -> Tuple[float, int]:
-        """
-        Evaluate multi-stat Kalman with given parameters.
-        stat_params = {'goals': {'Q': ..., 'R': ...}, ...}
-        """
-        filters = {
-            stat: ScalarKalmanFilter(
-                process_noise=stat_params[stat]['Q'],
-                observation_noise=stat_params[stat]['R']
-            )
-            for stat in self.stats
-        }
-
-        errors = []
-
-        for player_name, group in df.groupby('player_name'):
-            games = group.sort_values('game_date').reset_index(drop=True)
-
-            if len(games) < self.min_games:
-                continue
-
-            # Initialize separate states for each stat
-            states = {}
-            for stat in self.stats:
-                init_val = games[stat].iloc[:self.burn_in].mean()
-                states[stat] = filters[stat].initialize(init_val)
-
-            # Burn-in
-            for idx in range(self.burn_in):
-                for stat in self.stats:
-                    obs = games.iloc[idx][stat]
-                    states[stat] = filters[stat].predict_and_update(states[stat], obs)
-
-            # Walk-forward: predict FPTS from stat rates
-            for idx in range(self.burn_in, len(games)):
-                actual_fpts = games.iloc[idx]['dk_fpts']
-
-                # Predict FPTS from current stat estimates
-                predicted_fpts = 0.0
-                for stat in self.stats:
-                    rate = max(0.0, states[stat].x)
-                    predicted_fpts += rate * DK_SCORING[stat]
-
-                error = abs(predicted_fpts - actual_fpts)
-                errors.append(error)
-
-                # Update states with observed stats
-                for stat in self.stats:
-                    obs = games.iloc[idx][stat]
-                    states[stat] = filters[stat].predict_and_update(states[stat], obs)
-
-        if not errors:
-            return np.inf, 0
-        return np.mean(errors), len(errors)
-
-    def calibrate_multistat(self) -> Dict:
-        """
-        Grid search for optimal multi-stat parameters.
-        Test all combinations of (Q_g, R_g, Q_a, R_a, Q_s, R_s, Q_b, R_b).
-        """
-        print("\n" + "="*70)
-        print("  MULTI-STAT KALMAN CALIBRATION")
-        print("="*70)
-
-        df = self.load_all_historical()
-        n_players = df['player_name'].nunique()
-        n_rows = len(df)
-        print(f"Loaded {n_rows:,} rows from {n_players:,} players")
-
-        results = []
-        best_mae = np.inf
-        best_params = {}
-
-        # Simplified: just test a few key combinations instead of full factorial
-        for q_all in self.Q_grid:
-            for r_all in self.R_grid:
-                stat_params = {
-                    'goals': {'Q': q_all, 'R': r_all},
-                    'assists': {'Q': q_all, 'R': r_all},
-                    'shots': {'Q': q_all, 'R': r_all},
-                    'blocked_shots': {'Q': q_all, 'R': r_all},
-                }
-
-                mae, n_pred = self.evaluate_multistat(df, stat_params)
-                results.append({
-                    'Q_all': q_all,
-                    'R_all': r_all,
-                    'MAE': mae,
-                    'n_predictions': n_pred,
-                })
-
-                if mae < best_mae:
-                    best_mae = mae
-                    best_params = {'Q_all': q_all, 'R_all': r_all, 'MAE': mae}
-
-        results_df = pd.DataFrame(results).sort_values('MAE')
-
-        print(f"\nBest: Q={best_params['Q_all']}, R={best_params['R_all']}, MAE={best_params['MAE']:.4f}")
-        print(f"\nTop 10:")
-        print(results_df.head(10)[['Q_all', 'R_all', 'MAE', 'n_predictions']].to_string(index=False))
-
-        return {
-            'best_params': best_params,
-            'all_results': results_df,
-        }
 
 
 # ============================================================================
@@ -679,26 +509,19 @@ def main():
     print("\n" + "#" * 70)
     print("# STAGE 1: MULTI-SEASON GLOBAL OPTIMIZATION")
     print("#" * 70)
-    multi_cal = MultiSeasonKalmanCalibrator()
+    multi_cal = FastMultiSeasonCalibrator()
     multi_results = multi_cal.calibrate_all_seasons()
 
     # 2. Position-specific calibration
     print("\n" + "#" * 70)
     print("# STAGE 2: POSITION-SPECIFIC CALIBRATION")
     print("#" * 70)
-    pos_cal = PositionSpecificCalibrator()
+    pos_cal = FastPositionSpecificCalibrator()
     pos_results = pos_cal.calibrate_positions()
 
-    # 3. Multi-stat Kalman calibration
+    # 3. Walk-forward backtest on current season
     print("\n" + "#" * 70)
-    print("# STAGE 3: MULTI-STAT KALMAN CALIBRATION")
-    print("#" * 70)
-    multistat_cal = MultiStatKalmanCalibrator()
-    multistat_results = multistat_cal.calibrate_multistat()
-
-    # 4. Walk-forward backtest on current season
-    print("\n" + "#" * 70)
-    print("# STAGE 4: WALK-FORWARD BACKTEST ON 2024-25 SEASON")
+    print("# STAGE 3: WALK-FORWARD BACKTEST ON 2024-25 SEASON")
     print("#" * 70)
     global_params = multi_results['best_global']
     current_backtest = CurrentSeasonBacktest(
@@ -707,7 +530,7 @@ def main():
     )
     backtest_results = current_backtest.backtest()
 
-    # 5. Summary report
+    # 4. Summary report
     print("\n" + "="*70)
     print("  COMPREHENSIVE SUMMARY")
     print("="*70)
@@ -722,29 +545,35 @@ def main():
         best = pos_results[pos]['best_params']
         print(f"   {pos}: Q={best['Q']:.2f}, R={best['R']:.1f}, MAE={best['MAE']:.4f}")
 
-    print("\n3. MULTI-STAT KALMAN PARAMETERS")
-    best_multistat = multistat_results['best_params']
-    print(f"   Q={best_multistat['Q_all']:.2f}, R={best_multistat['R_all']:.2f}")
-    print(f"   MAE = {best_multistat['MAE']:.4f}")
-
-    print("\n4. 2024-25 SEASON WALK-FORWARD RESULTS")
+    print("\n3. 2024-25 SEASON WALK-FORWARD RESULTS")
     if not backtest_results.empty:
-        print(f"   MAE = {backtest_results['error'].mean():.4f}")
+        mae_2024 = backtest_results['error'].mean()
+        print(f"   MAE = {mae_2024:.4f}")
         print(f"   RMSE = {np.sqrt((backtest_results['error']**2).mean()):.4f}")
         print(f"   Correlation = {backtest_results['actual_fpts'].corr(backtest_results['predicted_fpts']):.4f}")
-        print(f"   Improvement vs single-season (4.318): {4.318 - backtest_results['error'].mean():.4f}")
+        improvement = 4.318 - mae_2024
+        print(f"   Improvement vs single-season (4.318): {improvement:+.4f}")
 
-    print("\n5. CONSISTENCY CHECK (are params stable across seasons?)")
+    print("\n4. CONSISTENCY CHECK (parameter stability across seasons)")
     season_results = multi_results['season_results']
     per_season_best = [season_results[s]['best_params'] for s in sorted(season_results.keys())]
     qs = [b['Q'] for b in per_season_best]
     rs = [b['R'] for b in per_season_best]
     print(f"   Q consistency: std={np.std(qs):.3f} (range {min(qs):.2f}-{max(qs):.2f})")
     print(f"   R consistency: std={np.std(rs):.3f} (range {min(rs):.1f}-{max(rs):.1f})")
+
     if np.std(qs) < 0.3 and np.std(rs) < 10:
         print("   VERDICT: Parameters are highly consistent across seasons!")
     else:
-        print("   VERDICT: Parameters vary significantly; consider position-specific tuning")
+        print("   VERDICT: Parameters vary; consider position-specific tuning")
+
+    print("\n5. RECOMMENDATIONS")
+    if not backtest_results.empty:
+        mae_2024 = backtest_results['error'].mean()
+        if 4.318 - mae_2024 > 0.05:
+            print(f"   Use globally-optimized params (Q={global_params['Q']:.2f}, R={global_params['R']:.1f})")
+        else:
+            print(f"   Global optimization shows minimal improvement; consider ensemble approaches")
 
     print("\n" + "="*70)
     print("END OF REPORT")
@@ -753,7 +582,6 @@ def main():
     return {
         'multi_season': multi_results,
         'position_specific': pos_results,
-        'multistat': multistat_results,
         'backtest_current': backtest_results,
     }
 

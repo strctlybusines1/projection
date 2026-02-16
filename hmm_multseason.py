@@ -148,34 +148,40 @@ def fit_hmm_per_season(df_season, min_games=15, n_states=6, n_iter=100, random_s
 def detect_downgrade_bounces(hmm_results):
     """
     Detect downgrades and compute effect size.
-    Returns: list of (player, fpts_after_downgrade, fpts_after_stable, effect_size, p_value)
+    Tests if FPTS rebounds after downgrade vs stays low after stable/upgrade.
+    Returns: effect_size, p_value, fpts_delta
     """
 
-    downgrades = []
-    upgrades = []
+    after_downgrade = []
+    after_stable = []
 
     for player, result in hmm_results.items():
         states = result['states']
         data = result['data'].reset_index(drop=True)
 
         for i in range(len(states) - 1):
-            if states[i] > states[i+1]:  # Downgrade
-                downgrades.append(data.iloc[i+1]['dk_fpts'])
-            elif states[i] < states[i+1]:  # Upgrade
-                upgrades.append(data.iloc[i+1]['dk_fpts'])
+            if states[i] > states[i+1]:  # Downgrade detected in game i
+                # Look at FPTS in game i+1 (after downgrade)
+                after_downgrade.append(data.iloc[i+1]['dk_fpts'])
+            elif states[i] == states[i+1]:  # Stable state
+                # Look at FPTS in game i+1 (after stability)
+                after_stable.append(data.iloc[i+1]['dk_fpts'])
 
-    if len(downgrades) < 2 or len(upgrades) < 2:
+    if len(after_downgrade) < 2 or len(after_stable) < 2:
         return None, None, None
 
-    downgrade_mean = np.mean(downgrades)
-    stable_mean = np.mean(upgrades)
+    downgrade_mean = np.mean(after_downgrade)
+    stable_mean = np.mean(after_stable)
 
     # Cohen's d effect size
-    pooled_std = np.sqrt((np.std(downgrades)**2 + np.std(upgrades)**2) / 2)
-    effect_size = (downgrade_mean - stable_mean) / (pooled_std + 1e-6)
+    pooled_std = np.sqrt((np.std(after_downgrade)**2 + np.std(after_stable)**2) / 2)
+    if pooled_std > 0:
+        effect_size = (downgrade_mean - stable_mean) / pooled_std
+    else:
+        effect_size = 0
 
     # T-test
-    t_stat, p_value = stats.ttest_ind(downgrades, upgrades)
+    t_stat, p_value = stats.ttest_ind(after_downgrade, after_stable)
 
     return effect_size, p_value, downgrade_mean - stable_mean
 
@@ -317,9 +323,16 @@ def fishers_method(p_values):
     if len(valid_p) == 0:
         return None
 
+    # Clamp p-values to avoid log(0)
+    valid_p = [max(p, 1e-300) for p in valid_p]
+
     chi2_stat = -2 * np.sum(np.log(valid_p))
     df = 2 * len(valid_p)
-    combined_p = 1 - stats.chi2.cdf(chi2_stat, df)
+
+    if df > 0:
+        combined_p = 1 - stats.chi2.cdf(chi2_stat, df)
+    else:
+        combined_p = 1.0
 
     return combined_p, len(valid_p)
 

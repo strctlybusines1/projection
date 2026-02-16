@@ -51,3 +51,4 @@ logs/
 .mcp.json.backup
 NHL_DFS_Research_Integration.md
 data/nhl_dfs_history.db
+data/.fuse_hidden*
