@@ -1,0 +1,194 @@
+
+================================================================================
+MDN v2: ENHANCED MIXTURE DENSITY NETWORK
+================================================================================
+
+Loading historical data (2020-2024)...
+  Loaded 172837 historical records from 2021-01-13 to 2024-04-18
+Precomputing rolling features on historical data...
+Precomputing rolling features...
+Applying regression weights to historical data...
+
+Loading current season data (2024-25)...
+  Loaded 32687 boxscore records from 2025-10-07 to 2026-02-05
+Precomputing rolling features on current season data...
+Precomputing rolling features...
+Applying regression weights to current season data...
+
+Computing opponent defensive quality...
+  Computed quality metrics for 33 opponent teams
+
+Starting walk-forward backtest...
+
+================================================================================
+WALK-FORWARD BACKTEST WITH MULTI-SEASON PRE-TRAINING
+Evaluation: 2025-11-07 to 2026-02-05
+Retraining every 14 days
+================================================================================
+
+>>> PRE-TRAINING on historical data (2020-2024)...
+  Using 13 dates for training (sampled from 675)
+  Pre-training samples: 2704, Validation: 676
+  Training from scratch (lr=0.001)
+>>> Pre-training complete. Model ready for fine-tuning.
+
+
+>>> Retraining on data through 2025-11-06
+  Using 15 dates for training (sampled from 30)
+  Training samples: 3427, Validation samples: 857
+  Fine-tuning from pre-trained model (lr=0.0001)
+  2025-11-07: 144 players predicted
+  2025-11-08: 468 players predicted
+  2025-11-09: 288 players predicted
+  2025-11-10: 144 players predicted
+  2025-11-11: 324 players predicted
+  2025-11-12: 144 players predicted
+  2025-11-13: 360 players predicted
+  2025-11-14: 144 players predicted
+  2025-11-15: 468 players predicted
+  2025-11-16: 180 players predicted
+  2025-11-17: 216 players predicted
+  2025-11-18: 288 players predicted
+  2025-11-19: 144 players predicted
+  2025-11-20: 432 players predicted
+
+>>> Retraining on data through 2025-11-20
+  Using 15 dates for training (sampled from 44)
+  Training samples: 3081, Validation samples: 771
+  Fine-tuning from pre-trained model (lr=0.0001)
+  2025-11-21: 144 players predicted
+  2025-11-22: 432 players predicted
+  2025-11-23: 216 players predicted
+  2025-11-24: 252 players predicted
+  2025-11-25: 36 players predicted
+  2025-11-26: 540 players predicted
+  2025-11-28: 540 players predicted
+  2025-11-29: 396 players predicted
+  2025-11-30: 144 players predicted
+  2025-12-01: 180 players predicted
+  2025-12-02: 360 players predicted
+  2025-12-03: 180 players predicted
+  2025-12-04: 360 players predicted
+
+>>> Retraining on data through 2025-12-04
+  Using 15 dates for training (sampled from 57)
+  Training samples: 2908, Validation samples: 728
+  Fine-tuning from pre-trained model (lr=0.0001)
+    Early stop at epoch 27, val_loss=2.7662
+  2025-12-05: 180 players predicted
+  2025-12-06: 432 players predicted
+  2025-12-07: 288 players predicted
+  2025-12-08: 180 players predicted
+  2025-12-09: 360 players predicted
+  2025-12-10: 144 players predicted
+  2025-12-11: 468 players predicted
+  2025-12-12: 72 players predicted
+  2025-12-13: 468 players predicted
+  2025-12-14: 216 players predicted
+  2025-12-15: 180 players predicted
+  2025-12-16: 360 players predicted
+  2025-12-17: 180 players predicted
+  2025-12-18: 359 players predicted
+
+>>> Retraining on data through 2025-12-18
+  Using 15 dates for training (sampled from 71)
+  Training samples: 3829, Validation samples: 958
+  Fine-tuning from pre-trained model (lr=0.0001)
+    Early stop at epoch 27, val_loss=2.8369
+  2025-12-19: 180 players predicted
+  2025-12-20: 468 players predicted
+  2025-12-21: 324 players predicted
+  2025-12-22: 144 players predicted
+  2025-12-23: 468 players predicted
+  2025-12-27: 468 players predicted
+  2025-12-28: 180 players predicted
+  2025-12-29: 396 players predicted
+  2025-12-30: 180 players predicted
+  2025-12-31: 360 players predicted
+  2026-01-01: 288 players predicted
+
+>>> Retraining on data through 2026-01-01
+  Using 14 dates for training (sampled from 82)
+  Training samples: 2908, Validation samples: 728
+  Fine-tuning from pre-trained model (lr=0.0001)
+  2026-01-02: 144 players predicted
+  2026-01-03: 468 players predicted
+  2026-01-04: 180 players predicted
+  2026-01-05: 180 players predicted
+  2026-01-06: 360 players predicted
+  2026-01-07: 180 players predicted
+  2026-01-08: 432 players predicted
+  2026-01-09: 108 players predicted
+  2026-01-10: 504 players predicted
+  2026-01-11: 180 players predicted
+  2026-01-12: 324 players predicted
+  2026-01-13: 360 players predicted
+  2026-01-14: 144 players predicted
+  2026-01-15: 360 players predicted
+
+>>> Retraining on data through 2026-01-15
+  Using 12 dates for training (sampled from 96)
+  Training samples: 2678, Validation samples: 670
+  Fine-tuning from pre-trained model (lr=0.0001)
+    Early stop at epoch 11, val_loss=2.8336
+  2026-01-16: 180 players predicted
+  2026-01-17: 468 players predicted
+  2026-01-18: 108 players predicted
+  2026-01-19: 360 players predicted
+  2026-01-20: 288 players predicted
+  2026-01-21: 216 players predicted
+  2026-01-22: 288 players predicted
+  2026-01-23: 288 players predicted
+  2026-01-24: 324 players predicted
+  2026-01-25: 216 players predicted
+  2026-01-26: 144 players predicted
+  2026-01-27: 360 players predicted
+  2026-01-28: 108 players predicted
+  2026-01-29: 540 players predicted
+
+>>> Retraining on data through 2026-01-29
+  Using 13 dates for training (sampled from 110)
+  Training samples: 3398, Validation samples: 850
+  Fine-tuning from pre-trained model (lr=0.0001)
+    Early stop at epoch 12, val_loss=2.8702
+  2026-01-30: 36 players predicted
+  2026-01-31: 504 players predicted
+  2026-02-01: 108 players predicted
+  2026-02-02: 360 players predicted
+  2026-02-03: 252 players predicted
+  2026-02-04: 360 players predicted
+  2026-02-05: 252 players predicted
+
+====================================================================================================
+MODEL COMPARISON: MDN v1 vs MDN v2
+====================================================================================================
+
+OVERALL METRICS
+----------------------------------------------------------------------------------------------------
+Model                          |      MAE |     RMSE |     Corr |    vs v1
+----------------------------------------------------------------------------------------------------
+MDN v1 (baseline)              |    4.107 |      N/A |      N/A |       --
+MDN v2 (w/ pre-training)       | 1413.086 | 4371.323 |    0.007 | -34306.8%
+
+BY POSITION                                                                                         
+----------------------------------------------------------------------------------------------------
+Position          N     MAE v2      vs v1   Actual Std   Difficulty
+----------------------------------------------------------------------------------------------------
+C              8203    1431.52        N/A         7.35         HARD
+D              8234    1415.79        N/A         5.96       MEDIUM
+L              4173    1397.74        N/A         7.24         HARD
+R              3941    1385.32        N/A         7.54         HARD
+
+KEY FINDINGS                                                                                        
+----------------------------------------------------------------------------------------------------
+MDN v2 MAE: 1413.086
+  vs MDN v1 (4.107): -34306.8%
+
+Enhancements:
+  + Multi-season pre-training on 128K+ historical records
+  + Opponent defensive quality (FPTS allowed)
+  + Regression-weighted features (shrinkage toward league average)
+  + Larger hidden layers (128 units) with dropout regularization
+  + Fine-tuning from pre-trained weights
+
+Results saved to /sessions/youthful-funny-faraday/mnt/Code/projection/mdn_v2_backtest_results.csv

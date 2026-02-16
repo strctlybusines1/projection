@@ -1,0 +1,26 @@
+
+Loading and preprocessing data...
+Precomputing rolling features...
+Precomputing season-to-date features...
+Loaded 32687 boxscore records from 2025-10-07 to 2026-02-05
+Features: ['rolling_goals_5g', 'rolling_assists_5g', 'rolling_shots_5g']...
+
+Starting walk-forward backtest...
+
+================================================================================
+WALK-FORWARD BACKTEST: 2025-11-07 to 2026-02-05
+Retraining every 14 days
+================================================================================
+
+
+>>> Retraining on data through 2025-11-06
+Traceback (most recent call last):
+  File "/sessions/youthful-funny-faraday/mnt/Code/projection/mdn_projection.py", line 672, in <module>
+    main()
+  File "/sessions/youthful-funny-faraday/mnt/Code/projection/mdn_projection.py", line 659, in main
+    mdn_results = run_backtest(df)
+  File "/sessions/youthful-funny-faraday/mnt/Code/projection/mdn_projection.py", line 459, in run_backtest
+    X_train, y_train, norm_stats = prepare_training_data(df, train_end)
+  File "/sessions/youthful-funny-faraday/mnt/Code/projection/mdn_projection.py", line 236, in prepare_training_data
+    return torch.FloatTensor(X.values), torch.FloatTensor(y), (X_mean, X_std)
+TypeError: can't convert np.ndarray of type numpy.object_. The only supported types are: float64, float32, float16, complex64, complex128, int64, int32, int16, int8, uint64, uint32, uint16, uint8, and bool.

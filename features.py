@@ -902,23 +902,22 @@ class FeatureEngineer:
 
     def _estimate_bonus_prob(self, per_game_avg: pd.Series, threshold: float, std_factor: float) -> pd.Series:
         """
-        Estimate probability of hitting a bonus threshold using Poisson/NB tail.
-        
-        Replaces normal/logistic approximation with exact count-based CDF.
-        Falls back to logistic if stochastic_upgrades unavailable.
+        Estimate probability of hitting a bonus threshold based on per-game average.
+
+        Uses a simple normal approximation.
         """
-        try:
-            from stochastic_upgrades import bonus_prob_nb
-            return per_game_avg.apply(
-                lambda rate: bonus_prob_nb(rate, int(threshold), r=2.0) if rate > 0 else 0.0
-            ).clip(0, 1)
-        except ImportError:
-            # Original fallback
-            std = per_game_avg * std_factor
-            std = std.replace(0, 0.1)
-            z = (threshold - per_game_avg) / std
-            prob = 1 / (1 + np.exp(1.7 * z))
-            return prob.clip(0, 1)
+        # Assume standard deviation is proportional to mean
+        std = per_game_avg * std_factor
+        std = std.replace(0, 0.1)  # Avoid division by zero
+
+        # Z-score for threshold
+        z = (threshold - per_game_avg) / std
+
+        # Convert to probability (using normal CDF approximation)
+        # P(X >= threshold) = 1 - CDF(z)
+        prob = 1 / (1 + np.exp(1.7 * z))  # Logistic approximation to normal CDF
+
+        return prob.clip(0, 1)
 
     def get_feature_columns(self, player_type: str = 'skater',
                              include_advanced: bool = True) -> List[str]:

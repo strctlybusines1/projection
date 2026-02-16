@@ -5,7 +5,6 @@ __pycache__/
 .eggs/
 dist/
 build/
-.pytest_cache/
 
 # Environment
 .env
@@ -20,43 +19,35 @@ venv/
 .vscode/
 *.swp
 
-# Output files (regenerated each run)
+# Output files
 projections_output*.csv
-projections_.csv
 own.csv
 ownership_example.csv
+*.xlsx
 
-# Daily projections output (large, regenerated)
+# Daily projections output
 daily_projections/*.csv
 daily_projections/lines_*.json
 
-# Backtests output (large binary artifacts)
+# Backtests output
 backtests/*.xlsx
 backtests/*.pkl
 backtests/*.json
 backtests/*.png
-backtests/*.csv
 
-# Contest results (large DK exports)
+# Contest results
 contests/*.csv
 
-# DraftKings salary files
-daily_salaries/
+# DraftKings salary files (optional - remove if you want to share)
+DKSalaries*.csv
 
-# Edge stats cache (auto-managed)
+# Edge stats cache
 cache/
-
-# Linemate cache
-.linemate_cache/
-
-# Historical database (local, rebuilt via backfill)
-data/*.db
 
 # Logs
 logs/
 
 # Misc
-*.xlsx
-Lock_Own*.csv
-skater_edge_boosts.csv
 .mcp.json.backup
+NHL_DFS_Research_Integration.md
+data/nhl_dfs_history.db
