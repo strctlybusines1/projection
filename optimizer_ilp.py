@@ -41,6 +41,12 @@ from config import (
     PREFERRED_PRIMARY_STACK_SIZE, PREFERRED_SECONDARY_STACK_SIZE,
     DAILY_SALARIES_DIR, DAILY_PROJECTIONS_DIR,
 )
+from utils import (
+    normalize_position as _normalize_pos,
+    fuzzy_match,
+    find_player_match,
+    parse_opponent_from_game_info,
+)
 
 
 class NHLLineupOptimizer:
@@ -84,38 +90,18 @@ class NHLLineupOptimizer:
     # ================================================================
 
     def _normalize_position(self, pos: str) -> str:
-        """Normalize position codes."""
-        pos = str(pos).upper()
-        if pos in ['L', 'R', 'LW', 'RW', 'W']:
-            return 'W'
-        if pos in ['C', 'C/W', 'W/C']:
-            return 'C'
-        if pos in ['D', 'LD', 'RD']:
-            return 'D'
-        if pos in ['G']:
-            return 'G'
-        return pos
+        """Normalize position codes. Delegates to utils.normalize_position."""
+        return _normalize_pos(pos)
 
     def _get_opponent_team(self, player_row: pd.Series) -> Optional[str]:
         """
         Extract opponent team from game info.
         Game info format: "ANA@EDM 01/26/2026 08:30PM ET"
+        Delegates to utils.parse_opponent_from_game_info.
         """
         game_info = player_row.get('game_info', '') or player_row.get('Game Info', '')
         player_team = player_row.get('team', '')
-        if not game_info or not player_team:
-            return None
-        try:
-            matchup = game_info.split()[0] if game_info else ''
-            if '@' in matchup:
-                away, home = matchup.split('@')
-                if player_team.upper() == away.upper():
-                    return home.upper()
-                elif player_team.upper() == home.upper():
-                    return away.upper()
-        except (IndexError, ValueError):
-            pass
-        return None
+        return parse_opponent_from_game_info(player_team, game_info)
 
     # ================================================================
     #  Goalie Filtering (unchanged from original)
@@ -129,7 +115,7 @@ class NHLLineupOptimizer:
         if not confirmed:
             return goalies
         confirmed_names = list(confirmed.values())
-        from lines import fuzzy_match
+        # fuzzy_match already imported from utils
 
         def is_confirmed(name):
             for confirmed_name in confirmed_names:
@@ -178,7 +164,7 @@ class NHLLineupOptimizer:
                 continue
             matched_players = stack.get('matched_players', [])
             if not matched_players:
-                from lines import find_player_match
+                # find_player_match already imported from utils
                 pool_names = player_pool_df['name'].tolist()
                 matched_players = []
                 for p in stack.get('players', []):
@@ -198,7 +184,7 @@ class NHLLineupOptimizer:
                 continue
             matched_players = stack.get('matched_players', [])
             if not matched_players:
-                from lines import find_player_match
+                # find_player_match already imported from utils
                 pool_names = player_pool_df['name'].tolist()
                 matched_players = []
                 for p in stack.get('players', []):

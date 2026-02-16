@@ -14,59 +14,11 @@ from typing import Dict, List, Optional, Tuple
 import re
 import json
 import time
-from difflib import SequenceMatcher
 
 from config import NHL_TEAMS
 
-
-def fuzzy_match(name1: str, name2: str, threshold: float = 0.85) -> bool:
-    """Check if two names are similar enough to be the same person."""
-    # Normalize names
-    n1 = name1.lower().strip()
-    n2 = name2.lower().strip()
-
-    # Exact match
-    if n1 == n2:
-        return True
-
-    # Check similarity ratio
-    ratio = SequenceMatcher(None, n1, n2).ratio()
-    if ratio >= threshold:
-        return True
-
-    # Check if one contains the other (for nicknames)
-    if n1 in n2 or n2 in n1:
-        return True
-
-    # Check last name match
-    last1 = n1.split()[-1] if n1.split() else n1
-    last2 = n2.split()[-1] if n2.split() else n2
-    if last1 == last2 and len(last1) > 3:
-        return True
-
-    return False
-
-
-def find_player_match(target_name: str, player_list: List[str], threshold: float = 0.85) -> Optional[str]:
-    """Find the best matching player name from a list."""
-    target_lower = target_name.lower().strip()
-
-    # First try exact match
-    for name in player_list:
-        if name.lower().strip() == target_lower:
-            return name
-
-    # Then try fuzzy match
-    best_match = None
-    best_ratio = 0
-
-    for name in player_list:
-        ratio = SequenceMatcher(None, target_lower, name.lower().strip()).ratio()
-        if ratio > best_ratio and ratio >= threshold:
-            best_ratio = ratio
-            best_match = name
-
-    return best_match
+# Canonical implementations live in utils.py — re-export for backward compatibility
+from utils import fuzzy_match, find_player_match
 
 
 class LinesScraper:

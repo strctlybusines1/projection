@@ -23,6 +23,15 @@ import pandas as pd
 import numpy as np
 from typing import Dict
 
+from utils import normalize_position as _utils_normalize_position
+
+
+def _normalize_position(pos) -> str:
+    """Normalize position for baseline probability. Returns '' for missing positions."""
+    if pd.isna(pos) or str(pos).strip() == '':
+        return ''  # Missing position → excluded from baseline (0 probability)
+    return _utils_normalize_position(pos)
+
 # DraftKings NHL roster slot counts (pure position slots, excluding UTIL)
 DK_POSITION_SLOTS = {
     'C': 2,
@@ -34,17 +43,6 @@ DK_POSITION_SLOTS = {
 # UTIL slot: 1 slot, fillable by any skater (C, W, D), NOT goalies
 UTIL_SLOTS = 1
 UTIL_ELIGIBLE = {'C', 'W', 'D'}
-
-# Position normalization: LW/RW/L/R → W
-_POS_NORMALIZE = {'LW': 'W', 'RW': 'W', 'L': 'W', 'R': 'W'}
-
-
-def _normalize_position(pos) -> str:
-    """Normalize position to DK standard: C, W, D, G."""
-    if pd.isna(pos):
-        return ''
-    pos = str(pos).upper().strip()
-    return _POS_NORMALIZE.get(pos, pos)
 
 
 def compute_baseline_probabilities(pool: pd.DataFrame) -> pd.DataFrame:

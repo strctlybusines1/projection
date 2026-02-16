@@ -338,10 +338,8 @@ def _map_cached_to_summary(edge_data: dict) -> dict:
     return summary
 
 
-def _fuzzy_match(name1: str, name2: str, threshold: float = 0.85) -> bool:
-    """Simple fuzzy match for player names."""
-    from difflib import SequenceMatcher
-    return SequenceMatcher(None, name1, name2).ratio() >= threshold
+# Canonical implementation in utils.py
+from utils import fuzzy_match as _fuzzy_match
 
 
 # ==================== TEST ====================

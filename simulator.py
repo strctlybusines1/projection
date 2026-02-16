@@ -26,6 +26,8 @@ from itertools import combinations
 from collections import defaultdict
 from typing import Optional, List, Tuple, Dict
 
+from utils import normalize_position as _normalize_pos_util, parse_opponent_from_game_info
+
 
 class OptimalLineupSimulator:
 
@@ -110,31 +112,14 @@ class OptimalLineupSimulator:
     #  Monte Carlo sampling
     # ------------------------------------------------------------------ #
     def _sample_projections(self):
-        """Draw sampled_fpts from Gamma(mean, var) per player, rebuild pools.
-        
-        Gamma replaces N(projected, std) because:
-        - Support on [0, ∞) — FPTS can't be negative
-        - Right-skewed — matches real FPTS distribution  
-        - Variance calibrated from backtest (2,137 obs across 7 dates)
-        """
+        """Draw sampled_fpts = max(N(projected, std), 0) for all players, rebuild pools."""
         pool = self._pool
         projected = pool['projected_fpts'].values.copy()
-        positions = pool['position'].values if 'position' in pool.columns else np.array(['W'] * len(pool))
-        salaries = pool['salary'].values if 'salary' in pool.columns else np.full(len(pool), 4000)
-        
-        try:
-            from stochastic_upgrades import sample_fpts_gamma
-            sampled = np.zeros(len(projected))
-            for i in range(len(projected)):
-                if projected[i] > 0:
-                    sampled[i] = sample_fpts_gamma(projected[i], positions[i], salaries[i], n=1)[0]
-                else:
-                    sampled[i] = 0.0
-        except ImportError:
-            # Fallback to original Normal if stochastic_upgrades not available
-            std = np.array([self._std_by_name.get(name, 5.5) for name in pool['name'].values])
-            sampled = np.maximum(np.random.normal(projected, std), 0.0)
-        
+        std = np.array([
+            self._std_by_name.get(name, 5.5)
+            for name in pool['name'].values
+        ])
+        sampled = np.maximum(np.random.normal(projected, std), 0.0)
         pool = pool.copy()
         pool['sampled_fpts'] = sampled
         self._pool = pool
@@ -179,34 +164,13 @@ class OptimalLineupSimulator:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _normalise_pos(pos) -> str:
-        if pd.isna(pos):
-            return 'W'
-        pos = str(pos).upper().strip()
-        if pos in ('L', 'LW', 'R', 'RW', 'W'):
-            return 'W'
-        if pos in ('C', 'C/W', 'W/C'):
-            return 'C'
-        if pos in ('D', 'LD', 'RD'):
-            return 'D'
-        if pos == 'G':
-            return 'G'
-        return pos
+        """Normalize position codes. Delegates to utils.normalize_position."""
+        return _normalize_pos_util(pos)
 
     @staticmethod
     def _parse_opponent(team: str, game_info: str) -> Optional[str]:
-        """Extract opponent from 'MIN@EDM 01/31/2026 10:00PM ET'."""
-        try:
-            matchup = game_info.split()[0]
-            if '@' in matchup:
-                away, home = matchup.split('@')
-                away, home = away.upper(), home.upper()
-                if team == away:
-                    return home
-                elif team == home:
-                    return away
-        except (IndexError, ValueError, AttributeError):
-            pass
-        return None
+        """Extract opponent. Delegates to utils.parse_opponent_from_game_info."""
+        return parse_opponent_from_game_info(team, game_info)
 
     # ------------------------------------------------------------------ #
     #  Position feasibility

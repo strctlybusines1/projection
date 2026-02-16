@@ -246,19 +246,6 @@ BLOWOUT_SPREAD_THRESHOLD = 2.5  # Spread above this = potential blowout (target 
 PREFERRED_PRIMARY_STACK_SIZE = 4  # Target 4 players in primary stack
 PREFERRED_SECONDARY_STACK_SIZE = 3  # Target 3 players in secondary stack (based on $360 Spin analysis)
 
-# Slate-size-aware stacking
-SMALL_SLATE_THRESHOLD = 5          # Games <= this = small slate
-SMALL_SLATE_PRIMARY_STACK_SIZE = 4  # Single concentrated stack (no secondary)
-
-# Large slate patterns: (primary, secondary, tertiary)
-# Remaining spots after stacks filled with best-available one-offs
-LARGE_SLATE_STACK_PATTERNS = [
-    (4, 3, 0),   # 4-3-1-1
-    (3, 3, 2),   # 3-3-2
-    (3, 3, 0),   # 3-3-1-1
-]
-LARGE_SLATE_PATTERN_WEIGHTS = [0.40, 0.30, 0.30]
-
 # Player pair correlations from GPP analysis
 # Kaprizov + Zuccarello appeared in 59% of winning lineups
 # These are linemates who should be stacked together
@@ -268,49 +255,15 @@ TOP_CORRELATION_PAIRS = [
 ]
 
 
+# Scoring functions have been moved to utils.py as the canonical implementation.
+# Re-export here for backward compatibility (many modules import from config).
 def calculate_skater_fantasy_points(goals, assists, shots, blocks, sh_goals=0, sh_assists=0, shootout_goals=0):
-    """Calculate DraftKings fantasy points for a skater."""
-    points = 0
-
-    # Base scoring
-    points += goals * SKATER_SCORING["goals"]
-    points += assists * SKATER_SCORING["assists"]
-    points += shots * SKATER_SCORING["shots_on_goal"]
-    points += blocks * SKATER_SCORING["blocked_shots"]
-    points += (sh_goals + sh_assists) * SKATER_SCORING["shorthanded_points_bonus"]
-    points += shootout_goals * SKATER_SCORING["shootout_goal"]
-
-    # Bonuses
-    if goals >= 3:
-        points += SKATER_BONUSES["hat_trick"]
-    if shots >= 5:
-        points += SKATER_BONUSES["five_plus_shots"]
-    if blocks >= 3:
-        points += SKATER_BONUSES["three_plus_blocks"]
-    if (goals + assists) >= 3:
-        points += SKATER_BONUSES["three_plus_points"]
-
-    return points
+    """Calculate DraftKings fantasy points for a skater. See utils.py for canonical impl."""
+    from utils import calculate_skater_fantasy_points as _calc
+    return _calc(goals, assists, shots, blocks, sh_goals, sh_assists, shootout_goals)
 
 
 def calculate_goalie_fantasy_points(win, saves, goals_against, shutout=False, ot_loss=False):
-    """Calculate DraftKings fantasy points for a goalie."""
-    points = 0
-
-    # Base scoring
-    if win:
-        points += GOALIE_SCORING["win"]
-    if ot_loss:
-        points += GOALIE_SCORING["overtime_loss"]
-
-    points += saves * GOALIE_SCORING["save"]
-    points += goals_against * GOALIE_SCORING["goal_against"]
-
-    if shutout:
-        points += GOALIE_SCORING["shutout_bonus"]
-
-    # Bonuses
-    if saves >= 35:
-        points += GOALIE_BONUSES["thirty_five_plus_saves"]
-
-    return points
+    """Calculate DraftKings fantasy points for a goalie. See utils.py for canonical impl."""
+    from utils import calculate_goalie_fantasy_points as _calc
+    return _calc(win, saves, goals_against, shutout, ot_loss)
