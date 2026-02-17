@@ -1,0 +1,22 @@
+[
+  {
+    "type": "PROMOTED",
+    "team": "EDM",
+    "player": "Connor McDavid",
+    "line": 1,
+    "detail": "moved to line 1",
+    "source": "strctlybusines",
+    "timestamp": "2026-02-17T10:35:15.359000+00:00",
+    "raw": "Connor McDavid moved to line 1 PP1 for EDM"
+  },
+  {
+    "type": "PP_CHANGE",
+    "team": "EDM",
+    "player": "Connor McDavid",
+    "pp_unit": 1,
+    "detail": "PP1",
+    "source": "strctlybusines",
+    "timestamp": "2026-02-17T10:35:15.359000+00:00",
+    "raw": "Connor McDavid moved to line 1 PP1 for EDM"
+  }
+]

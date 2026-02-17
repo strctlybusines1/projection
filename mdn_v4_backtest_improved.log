@@ -1,0 +1,170 @@
+
+======================================================================
+MDN V4 - MONEYPUCK EXTENDED VERSION (IMPROVED)
+======================================================================
+
+Loading data...
+Precomputing rolling features...
+Precomputing exponentially-weighted FPTS...
+Precomputing season-to-date features...
+Precomputing TOI trend feature...
+Computing league baseline stats...
+Loading MoneyPuck skaters...
+Loading MoneyPuck teams...
+  5v5 skaters: 5578
+  5on4 skaters: 5578
+  Teams 5v5: 191
+Boxscore rows: 32687
+
+Engineering features...
+Computing opponent FPTS allowed...
+Adding MoneyPuck features...
+  Matching 32687 boxscore rows...
+    Processing row 0/32687... (0 matches so far)
+    Processing row 5000/32687... (5000 matches so far)
+    Processing row 10000/32687... (10000 matches so far)
+    Processing row 15000/32687... (15000 matches so far)
+    Processing row 20000/32687... (20000 matches so far)
+    Processing row 25000/32687... (25000 matches so far)
+    Processing row 30000/32687... (30000 matches so far)
+  Matched 32687 player-season rows
+Adding regression-shrunk season averages...
+
+
+======================================================================
+RUNNING WALK-FORWARD BACKTEST
+======================================================================
+Backtest period: 2025-11-07 to 2026-02-05
+
+Retraining on 8136 samples (test date: 2025-11-07)
+    Epoch 10/30, Loss: -3.323791
+    Epoch 20/30, Loss: -3.327419
+    Epoch 30/30, Loss: -3.329797
+  2025-11-07: 144 games, MAE=4.3533
+  2025-11-08: 468 games, MAE=4.4127
+  2025-11-09: 288 games, MAE=3.7631
+  2025-11-10: 144 games, MAE=4.0689
+  2025-11-11: 324 games, MAE=4.4420
+  2025-11-12: 144 games, MAE=4.3604
+  2025-11-13: 360 games, MAE=4.8829
+  2025-11-14: 144 games, MAE=4.3458
+  2025-11-15: 468 games, MAE=4.0561
+  2025-11-16: 180 games, MAE=3.9074
+  2025-11-17: 216 games, MAE=4.8600
+  2025-11-18: 288 games, MAE=3.8552
+  2025-11-19: 144 games, MAE=5.0103
+  2025-11-20: 432 games, MAE=4.8646
+Retraining on 11880 samples (test date: 2025-11-21)
+    Epoch 10/30, Loss: -3.292613
+    Epoch 20/30, Loss: -3.307258
+    Epoch 30/30, Loss: -3.312799
+  2025-11-21: 144 games, MAE=4.7186
+  2025-11-22: 432 games, MAE=4.9224
+  2025-11-23: 216 games, MAE=4.1552
+  2025-11-24: 252 games, MAE=4.7112
+  2025-11-25: 36 games, MAE=6.4612
+  2025-11-26: 540 games, MAE=4.9388
+  2025-11-28: 540 games, MAE=5.1560
+  2025-11-29: 396 games, MAE=4.7380
+  2025-11-30: 144 games, MAE=4.6354
+  2025-12-01: 180 games, MAE=5.4197
+  2025-12-02: 360 games, MAE=4.7382
+  2025-12-03: 180 games, MAE=5.1801
+  2025-12-04: 360 games, MAE=5.4280
+Retraining on 15660 samples (test date: 2025-12-05)
+    Epoch 10/30, Loss: -3.305318
+    Epoch 20/30, Loss: -3.306072
+    Epoch 30/30, Loss: -3.309177
+  2025-12-05: 180 games, MAE=4.8641
+  2025-12-06: 432 games, MAE=5.2787
+  2025-12-07: 288 games, MAE=5.5560
+  2025-12-08: 180 games, MAE=4.9882
+  2025-12-09: 360 games, MAE=5.8217
+  2025-12-10: 144 games, MAE=5.3522
+  2025-12-11: 468 games, MAE=6.1773
+  2025-12-12: 72 games, MAE=4.7927
+  2025-12-13: 468 games, MAE=5.3314
+  2025-12-14: 216 games, MAE=5.2118
+  2025-12-15: 180 games, MAE=5.1858
+  2025-12-16: 360 games, MAE=5.6070
+  2025-12-17: 180 games, MAE=4.5085
+  2025-12-18: 359 games, MAE=5.1377
+Retraining on 19547 samples (test date: 2025-12-19)
+    Epoch 10/30, Loss: -3.320751
+    Epoch 20/30, Loss: -3.324885
+    Epoch 30/30, Loss: -3.324087
+  2025-12-19: 180 games, MAE=5.2903
+  2025-12-20: 468 games, MAE=5.7339
+  2025-12-21: 324 games, MAE=5.6024
+  2025-12-22: 144 games, MAE=4.8100
+  2025-12-23: 468 games, MAE=5.3867
+  2025-12-27: 468 games, MAE=5.7028
+  2025-12-28: 180 games, MAE=5.6988
+  2025-12-29: 396 games, MAE=5.0521
+  2025-12-30: 180 games, MAE=4.8586
+  2025-12-31: 360 games, MAE=5.3231
+  2026-01-01: 288 games, MAE=6.0999
+Retraining on 23003 samples (test date: 2026-01-02)
+    Epoch 10/30, Loss: -3.335493
+    Epoch 20/30, Loss: -3.341455
+    Epoch 30/30, Loss: -3.339124
+  2026-01-02: 144 games, MAE=4.8957
+  2026-01-03: 468 games, MAE=4.5457
+  2026-01-04: 180 games, MAE=4.6076
+  2026-01-05: 180 games, MAE=4.3673
+  2026-01-06: 360 games, MAE=4.8393
+  2026-01-07: 180 games, MAE=4.8397
+  2026-01-08: 432 games, MAE=4.5742
+  2026-01-09: 108 games, MAE=4.5591
+  2026-01-10: 504 games, MAE=4.5549
+  2026-01-11: 180 games, MAE=4.3421
+  2026-01-12: 324 games, MAE=4.4372
+  2026-01-13: 360 games, MAE=4.7005
+  2026-01-14: 144 games, MAE=5.1425
+  2026-01-15: 360 games, MAE=4.2899
+Retraining on 26927 samples (test date: 2026-01-16)
+    Epoch 10/30, Loss: -3.324994
+    Epoch 20/30, Loss: -3.328062
+    Epoch 30/30, Loss: -3.327510
+  2026-01-16: 180 games, MAE=4.9827
+  2026-01-17: 468 games, MAE=4.7809
+  2026-01-18: 108 games, MAE=4.2277
+  2026-01-19: 360 games, MAE=4.4404
+  2026-01-20: 288 games, MAE=4.7087
+  2026-01-21: 216 games, MAE=4.2891
+  2026-01-22: 288 games, MAE=4.2828
+  2026-01-23: 288 games, MAE=4.2033
+  2026-01-24: 324 games, MAE=4.7088
+  2026-01-25: 216 games, MAE=4.8546
+  2026-01-26: 144 games, MAE=4.8623
+  2026-01-27: 360 games, MAE=4.4880
+  2026-01-28: 108 games, MAE=4.9204
+  2026-01-29: 540 games, MAE=4.7374
+Retraining on 30815 samples (test date: 2026-01-30)
+    Epoch 10/30, Loss: -3.340349
+    Epoch 20/30, Loss: -3.342003
+    Epoch 30/30, Loss: -3.343309
+  2026-01-30: 36 games, MAE=4.3421
+  2026-01-31: 504 games, MAE=4.7146
+  2026-02-01: 108 games, MAE=4.1994
+  2026-02-02: 360 games, MAE=5.0519
+  2026-02-03: 252 games, MAE=5.0048
+  2026-02-04: 360 games, MAE=4.5757
+  2026-02-05: 252 games, MAE=4.8002
+
+======================================================================
+BACKTEST SUMMARY
+======================================================================
+Total predictions: 24551
+Overall MAE: 4.8803
+Overall RMSE: 6.6818
+
+Results saved to /sessions/youthful-funny-faraday/mnt/Code/projection/data/mdn_v4_backtest_results.csv
+
+======================================================================
+COMPARISON WITH V3 (MAE 4.091)
+======================================================================
+V3 MAE: 4.091
+V4 MAE: 4.8803
+Improvement: -0.7893 (-19.29%)
+

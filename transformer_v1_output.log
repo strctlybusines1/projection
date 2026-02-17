@@ -1,0 +1,159 @@
+Loading boxscore data...
+  32687 records, 2025-10-07 to 2026-02-05
+Loading MoneyPuck data...
+  Skaters 5v5: 867, PP: 867, Teams: 32
+Merging features...
+Merging MoneyPuck features...
+  MoneyPuck match rate: 32685/32687 (100.0%)
+
+================================================================================
+TRANSFORMER v1 WALK-FORWARD BACKTEST
+================================================================================
+  Period: 2025-11-07 to 2026-02-05
+  Retrain every 14 days
+  Architecture: d_model=64, nhead=4, layers=2
+
+
+>>> Retraining on data through 2025-11-06
+  Using 30 training dates
+  Train: 6508, Val: 1628, Features: 45
+  2025-11-07: 144 players
+  2025-11-08: 468 players
+  2025-11-09: 288 players
+  2025-11-10: 144 players
+  2025-11-11: 324 players
+  2025-11-12: 144 players
+  2025-11-13: 360 players
+  2025-11-14: 144 players
+  2025-11-15: 468 players
+  2025-11-16: 180 players
+  2025-11-17: 216 players
+  2025-11-18: 288 players
+  2025-11-19: 144 players
+  2025-11-20: 432 players
+
+>>> Retraining on data through 2025-11-20
+  Using 22 training dates
+  Train: 4982, Val: 1246, Features: 45
+  2025-11-21: 144 players
+  2025-11-22: 432 players
+  2025-11-23: 216 players
+  2025-11-24: 252 players
+  2025-11-25: 36 players
+  2025-11-26: 540 players
+  2025-11-28: 540 players
+  2025-11-29: 396 players
+  2025-11-30: 144 players
+  2025-12-01: 180 players
+  2025-12-02: 360 players
+  2025-12-03: 180 players
+  2025-12-04: 360 players
+
+>>> Retraining on data through 2025-12-04
+  Using 29 training dates
+  Train: 6422, Val: 1606, Features: 45
+  2025-12-05: 180 players
+  2025-12-06: 432 players
+  2025-12-07: 288 players
+  2025-12-08: 180 players
+  2025-12-09: 360 players
+  2025-12-10: 144 players
+  2025-12-11: 468 players
+  2025-12-12: 72 players
+  2025-12-13: 468 players
+  2025-12-14: 216 players
+  2025-12-15: 180 players
+  2025-12-16: 360 players
+  2025-12-17: 180 players
+  2025-12-18: 359 players
+
+>>> Retraining on data through 2025-12-18
+  Using 36 training dates
+  Train: 7832, Val: 1959, Features: 45
+  2025-12-19: 180 players
+  2025-12-20: 468 players
+  2025-12-21: 324 players
+  2025-12-22: 144 players
+  2025-12-23: 468 players
+  2025-12-27: 468 players
+  2025-12-28: 180 players
+  2025-12-29: 396 players
+  2025-12-30: 180 players
+  2025-12-31: 360 players
+  2026-01-01: 288 players
+
+>>> Retraining on data through 2026-01-01
+  Using 41 training dates
+  Train: 9301, Val: 2326, Features: 45
+  2026-01-02: 144 players
+  2026-01-03: 468 players
+  2026-01-04: 180 players
+  2026-01-05: 180 players
+  2026-01-06: 360 players
+  2026-01-07: 180 players
+  2026-01-08: 432 players
+  2026-01-09: 108 players
+  2026-01-10: 504 players
+  2026-01-11: 180 players
+  2026-01-12: 324 players
+  2026-01-13: 360 players
+  2026-01-14: 144 players
+  2026-01-15: 360 players
+
+>>> Retraining on data through 2026-01-15
+  Using 48 training dates
+  Train: 10972, Val: 2743, Features: 45
+  2026-01-16: 180 players
+  2026-01-17: 468 players
+  2026-01-18: 108 players
+  2026-01-19: 360 players
+  2026-01-20: 288 players
+  2026-01-21: 216 players
+  2026-01-22: 288 players
+  2026-01-23: 288 players
+  2026-01-24: 324 players
+  2026-01-25: 216 players
+  2026-01-26: 144 players
+  2026-01-27: 360 players
+  2026-01-28: 108 players
+  2026-01-29: 540 players
+
+>>> Retraining on data through 2026-01-29
+  Using 55 training dates
+  Train: 12124, Val: 3031, Features: 45
+  2026-01-30: 36 players
+  2026-01-31: 504 players
+  2026-02-01: 108 players
+  2026-02-02: 360 players
+  2026-02-03: 252 players
+  2026-02-04: 360 players
+  2026-02-05: 252 players
+
+================================================================================
+TRANSFORMER v1 — RESULTS
+================================================================================
+
+  Overall MAE:  4.096
+  Overall RMSE: 5.680
+  Correlation:  0.574
+  Predictions:  24551
+
+  Model                          MAE
+  -----------------------------------
+  Transformer v1               4.096
+  MDN v3 (baseline)            4.091
+  MDN v1                       4.107
+  Kalman filter                4.318
+  Poisson sim                  4.749
+
+  vs MDN v3: -0.13%
+
+  BY POSITION:
+  Pos         N      MAE     Corr
+  ------------------------------
+  C        8203    4.246    0.582
+  D        8234    3.600    0.584
+  L        4173    4.299    0.567
+  R        3941    4.608    0.547
+
+Saved to /sessions/youthful-funny-faraday/mnt/Code/projection/data/transformer_v1_backtest_results.csv

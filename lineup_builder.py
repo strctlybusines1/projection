@@ -27,6 +27,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Dict, List, Optional, Tuple
 from itertools import combinations
+import unicodedata
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -651,20 +652,46 @@ def build_player_pool(date_str: str, use_mdn: bool = True) -> pd.DataFrame:
             print(f"  MDN v3 projections: {len(mdn)} players")
 
             # MDN uses abbreviated names (C. Perry), DK uses full (Corey Perry)
-            # Build fuzzy match: last name + first initial
-            def name_key(name):
-                """Create matching key from name: 'last_firstinit'"""
+            # Also: DK uses ASCII (Stuetzle), MDN uses Unicode (Stützle)
+            # Build robust match: normalize accents + last name + first initial
+
+            def normalize_name_for_key(name):
+                """
+                Normalize a player name to a matching key.
+                Handles: diacritics (ü→u, é→e), German umlauts (ü→ue in DK),
+                hyphenated names, multi-part last names (Del Bel Belluz).
+                Returns: 'lastname_firstinit' in pure ASCII lowercase.
+                """
                 if pd.isna(name):
                     return ''
-                parts = str(name).strip().split()
+                name = str(name).strip()
+
+                # Strip diacritics: ü→u, é→e, ý→y etc.
+                name_ascii = unicodedata.normalize('NFD', name)
+                name_ascii = ''.join(c for c in name_ascii if unicodedata.category(c) != 'Mn')
+
+                # Handle German umlaut transliterations: ue→u, ae→a, oe→o
+                # DK uses "Stuetzle" but after accent strip we get "Stutzle"
+                # We normalize BOTH sides, so map ue→u for DK names too
+                name_lower = name_ascii.lower()
+                for umlaut, replacement in [('ue', 'u'), ('ae', 'a'), ('oe', 'o')]:
+                    name_lower = name_lower.replace(umlaut, replacement)
+
+                parts = name_lower.split()
                 if len(parts) < 2:
-                    return str(name).lower().strip()
-                last = parts[-1].lower()
-                first_init = parts[0][0].lower()
+                    return name_lower
+
+                last = parts[-1]
+                first_init = parts[0][0]
+
+                # Handle abbreviations like "J." → take just the letter
+                if len(parts[0]) <= 2 and parts[0].endswith('.'):
+                    first_init = parts[0][0]
+
                 return f"{last}_{first_init}"
 
-            dk['_match_key'] = dk['name'].apply(name_key)
-            mdn['_match_key'] = mdn['player_name'].apply(name_key)
+            dk['_match_key'] = dk['name'].apply(normalize_name_for_key)
+            mdn['_match_key'] = mdn['player_name'].apply(normalize_name_for_key)
 
             # Aggregate MDN predictions per match key (in case of duplicates)
             mdn_cols = ['predicted_fpts', 'std_fpts', 'floor_fpts', 'ceiling_fpts',
