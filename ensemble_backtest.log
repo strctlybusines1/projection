@@ -1,0 +1,124 @@
+================================================================================
+ENSEMBLE MODEL - WALK-FORWARD BACKTEST
+================================================================================
+
+Loading data...
+  Loaded 24551 boxscore records
+Computing opponent quality...
+  Computed quality for 1364 opponent-date pairs
+
+Phase 1: Collecting training data (2025-11-07 to 2025-12-07)
+  Collected 8424 training samples
+
+Phase 1.5: Optimizing weights via grid search...
+
+Optimal Weights (Training MAE=4.7893):
+  Expanding Mean:    0.200
+  EWM:               0.000
+  Kalman Filter:     0.400
+  Opponent-Adjusted: 0.000
+  TOI-Weighted:      0.400
+
+Phase 2: Validation with optimized weights (2025-12-07 + 1 to 2026-02-05)
+
+[2025-12-08] 180 players | MAE=4.2590 RMSE=6.0661
+[2025-12-09] 360 players | MAE=4.7183 RMSE=6.6304
+[2025-12-10] 144 players | MAE=4.3207 RMSE=6.1941
+[2025-12-11] 468 players | MAE=5.2295 RMSE=7.8377
+[2025-12-12]  72 players | MAE=4.7263 RMSE=6.8138
+[2025-12-13] 468 players | MAE=4.4861 RMSE=6.3453
+[2025-12-14] 216 players | MAE=4.2974 RMSE=6.0015
+[2025-12-15] 180 players | MAE=4.5518 RMSE=6.5148
+[2025-12-16] 360 players | MAE=4.8340 RMSE=6.7187
+[2025-12-17] 180 players | MAE=3.6380 RMSE=4.9771
+[2025-12-18] 359 players | MAE=4.1193 RMSE=5.5439
+[2025-12-19] 180 players | MAE=4.4880 RMSE=6.5159
+[2025-12-20] 468 players | MAE=5.0783 RMSE=6.9990
+[2025-12-21] 324 players | MAE=4.6415 RMSE=6.5218
+[2025-12-22] 144 players | MAE=4.1320 RMSE=5.6519
+[2025-12-23] 468 players | MAE=4.5125 RMSE=6.4023
+[2025-12-27] 468 players | MAE=5.0786 RMSE=7.1623
+[2025-12-28] 180 players | MAE=5.1481 RMSE=7.4091
+[2025-12-29] 396 players | MAE=4.2445 RMSE=6.1062
+[2025-12-30] 180 players | MAE=4.4808 RMSE=5.9952
+[2025-12-31] 360 players | MAE=4.4664 RMSE=6.2550
+[2026-01-01] 288 players | MAE=5.1865 RMSE=7.6077
+[2026-01-02] 144 players | MAE=4.8449 RMSE=7.5230
+[2026-01-03] 468 players | MAE=4.5428 RMSE=6.5232
+[2026-01-04] 180 players | MAE=4.4057 RMSE=6.0893
+[2026-01-05] 180 players | MAE=4.4702 RMSE=6.4295
+[2026-01-06] 360 players | MAE=4.9654 RMSE=7.3337
+[2026-01-07] 180 players | MAE=4.9883 RMSE=6.7379
+[2026-01-08] 432 players | MAE=4.5168 RMSE=6.4877
+[2026-01-09] 108 players | MAE=4.5804 RMSE=6.2224
+[2026-01-10] 504 players | MAE=4.6286 RMSE=6.7369
+[2026-01-11] 180 players | MAE=4.3581 RMSE=6.1296
+[2026-01-12] 324 players | MAE=4.3852 RMSE=5.9317
+[2026-01-13] 360 players | MAE=4.6053 RMSE=6.5909
+[2026-01-14] 144 players | MAE=5.0956 RMSE=6.8850
+[2026-01-15] 360 players | MAE=4.1784 RMSE=5.7897
+[2026-01-16] 180 players | MAE=5.2277 RMSE=7.9300
+[2026-01-17] 468 players | MAE=4.7826 RMSE=6.8031
+[2026-01-18] 108 players | MAE=4.2738 RMSE=5.6460
+[2026-01-19] 360 players | MAE=4.3797 RMSE=6.1940
+[2026-01-20] 288 players | MAE=4.6630 RMSE=6.7020
+[2026-01-21] 216 players | MAE=4.4445 RMSE=6.1132
+[2026-01-22] 288 players | MAE=4.4519 RMSE=5.9802
+[2026-01-23] 288 players | MAE=4.5151 RMSE=6.3420
+[2026-01-24] 324 players | MAE=4.8039 RMSE=7.5752
+[2026-01-25] 216 players | MAE=4.9038 RMSE=6.9048
+[2026-01-26] 144 players | MAE=4.7507 RMSE=7.0361
+[2026-01-27] 360 players | MAE=4.5052 RMSE=6.4396
+[2026-01-28] 108 players | MAE=4.8454 RMSE=6.7025
+[2026-01-29] 540 players | MAE=4.7738 RMSE=6.7168
+[2026-01-30]  36 players | MAE=4.9940 RMSE=8.6944
+[2026-01-31] 504 players | MAE=4.3845 RMSE=5.8704
+[2026-02-01] 108 players | MAE=4.3072 RMSE=6.1670
+[2026-02-02] 360 players | MAE=4.8656 RMSE=6.8809
+[2026-02-03] 252 players | MAE=4.4466 RMSE=6.1634
+[2026-02-04] 360 players | MAE=4.8198 RMSE=6.6729
+[2026-02-05] 252 players | MAE=4.3343 RMSE=5.9029
+
+================================================================================
+RESULTS SUMMARY
+================================================================================
+
+Validation Phase MAE (Dec 8 - Feb 5):
+  Ensemble (Weighted Average): 4.6227
+  Expanding Mean:             4.7733
+  EWM (halflife=15):          4.7812
+  Kalman Filter:              4.7623
+  Opponent-Adjusted:          4.9914
+  TOI-Weighted:               4.7751
+
+Baseline Comparison:
+  MDN v3:                     4.0910
+  Ensemble:                   4.6227
+  Improvement:                -0.5317 (-13.00%)
+
+================================================================================
+POSITION BREAKDOWN (Validation Phase)
+================================================================================
+  C: MAE=4.7495 (5357 games)
+  L: MAE=4.8635 (2747 games)
+  R: MAE=5.3203 (2621 games)
+  D: MAE=4.0361 (5402 games)
+
+================================================================================
+MONTHLY BREAKDOWN (Validation Phase)
+================================================================================
+  2025-12: MAE=4.6125 (6155 games)
+  2026-01: MAE=4.6291 (8640 games)
+  2026-02: MAE=4.6282 (1332 games)
+
+================================================================================
+SAVING RESULTS
+================================================================================
+Results saved to: /sessions/youthful-funny-faraday/mnt/Code/projection/ensemble_backtest_results.csv
+Total validation rows: 16127
+Daily stats saved to: /sessions/youthful-funny-faraday/mnt/Code/projection/ensemble_daily_stats.csv
+Weights saved to: /sessions/youthful-funny-faraday/mnt/Code/projection/ensemble_optimal_weights.txt
+
+================================================================================
+BACKTEST COMPLETE
+================================================================================
