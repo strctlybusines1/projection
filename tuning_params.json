@@ -100,6 +100,19 @@
     "_notes": "Backup tier from Jan 26 backtest (Korpisalo scored 4.8 FPTS)."
   },
 
+  "correlations": {
+    "artifact_path": "data/lw_correlations.json",
+    "fallback_values": {
+      "PP1": 0.95,
+      "Line1": 0.85,
+      "Line2": 0.70,
+      "Line1+D1": 0.75,
+      "Defense1": 0.50,
+      "Defense2": 0.40
+    },
+    "_notes": "Empirical values from Ledoit-Wolf shrinkage on game_logs_skaters. Fallbacks used when artifact missing."
+  },
+
   "advanced_stats": {
     "pdo_high_threshold": 102.0,
     "pdo_low_threshold": 98.0,

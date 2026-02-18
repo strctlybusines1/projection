@@ -243,7 +243,25 @@ class StackBuilder:
 
     def __init__(self, lines_data: Dict[str, Dict]):
         self.lines_data = lines_data
+        self._lw_corr = self._load_lw_artifact()
         self.correlations = self._build_correlation_matrix()
+
+    def _load_lw_artifact(self) -> Optional[Dict]:
+        """Try loading Ledoit-Wolf correlation artifact."""
+        try:
+            from correlation_matrix import load_correlations
+            data = load_correlations()
+            if data and "stack_correlations" in data:
+                return data["stack_correlations"]
+        except Exception:
+            pass
+        return None
+
+    def _get_stack_corr(self, stack_type: str, fallback: float) -> float:
+        """Get correlation value from LW artifact or fallback."""
+        if self._lw_corr and stack_type in self._lw_corr:
+            return self._lw_corr[stack_type]
+        return fallback
 
     def _build_correlation_matrix(self) -> List[Dict]:
         """Build player correlation data from line combinations."""
@@ -257,7 +275,12 @@ class StackBuilder:
             for line in data.get('forward_lines', []):
                 line_num = line.get('line', 1)
                 players = line.get('players', [])
-                corr_value = 0.85 if line_num == 1 else 0.70 if line_num == 2 else 0.55
+                if line_num == 1:
+                    corr_value = self._get_stack_corr("Line1", 0.85)
+                elif line_num == 2:
+                    corr_value = self._get_stack_corr("Line2", 0.70)
+                else:
+                    corr_value = 0.55
 
                 for i, p1 in enumerate(players):
                     for p2 in players[i + 1:]:
@@ -274,7 +297,10 @@ class StackBuilder:
             for pair in data.get('defense_pairs', []):
                 pair_num = pair.get('pair', 1)
                 players = pair.get('players', [])
-                corr_value = 0.50 if pair_num == 1 else 0.40
+                if pair_num == 1:
+                    corr_value = self._get_stack_corr("Defense1", 0.50)
+                else:
+                    corr_value = self._get_stack_corr("Defense2", 0.40)
 
                 for i, p1 in enumerate(players):
                     for p2 in players[i + 1:]:
@@ -291,7 +317,7 @@ class StackBuilder:
             for pp in data.get('pp_units', []):
                 unit_num = pp.get('unit', 1)
                 players = pp.get('players', [])
-                corr_value = 0.95 if unit_num == 1 else 0.75
+                corr_value = self._get_stack_corr("PP1", 0.95) if unit_num == 1 else 0.75
 
                 for i, p1 in enumerate(players):
                     for p2 in players[i + 1:]:
@@ -345,7 +371,7 @@ class StackBuilder:
                     'type': 'PP1',
                     'team': team,
                     'players': players,
-                    'correlation': 0.95,
+                    'correlation': self._get_stack_corr("PP1", 0.95),
                 }
 
                 if projections_df is not None and not projections_df.empty:
@@ -371,7 +397,7 @@ class StackBuilder:
                     'type': 'Line1',
                     'team': team,
                     'players': players,
-                    'correlation': 0.85,
+                    'correlation': self._get_stack_corr("Line1", 0.85),
                 }
 
                 if projections_df is not None and not projections_df.empty:
@@ -406,7 +432,7 @@ class StackBuilder:
                 'type': 'Line1+D1',
                 'team': team,
                 'players': combo_players,
-                'correlation': 0.75,  # Blended: Line1 0.85 + D1-Line1 cross ~0.50
+                'correlation': self._get_stack_corr("Line1+D1", 0.75),
             }
 
             if projections_df is not None and not projections_df.empty:
@@ -431,7 +457,7 @@ class StackBuilder:
                     'type': 'Line2',
                     'team': team,
                     'players': players,
-                    'correlation': 0.70,
+                    'correlation': self._get_stack_corr("Line2", 0.70),
                 }
 
                 if projections_df is not None and not projections_df.empty:
