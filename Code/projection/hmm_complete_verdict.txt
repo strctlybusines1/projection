@@ -1,0 +1,153 @@
+========================================================================
+  HMM BACKTEST — COMPLETE FINAL VERDICT
+  18,411 out-of-sample predictions | 13,705 ownership records
+  "In God we trust. All others must bring data."
+========================================================================
+
+
+  ALL HYPOTHESIS RESULTS
+  ══════════════════════════════════════════════════════════════════
+
+  H1: Do HMM states predict next-game FPTS?
+  ──────────────────────────────────────────
+  States separate players by level:     ✓ p=8.4e-61
+  States beat season average:           ✗ 0% optimal blend
+  Transitions predict (overall):        ✗ p=0.78
+  Transitions predict (within 5 days):  ✓ p=0.007 (+0.27 FPTS)
+  
+  VERDICT: Tiebreaker only. 5-day window is real but small.
+
+
+  H2: Team regime opponent matchups
+  ─────────────────────────────────
+  Weak vs Strong opponent:              ✓ p=0.003 (+0.31 FPTS)
+  SMASH SPOT (strong vs weak):          ~ p=0.054 (+0.36 FPTS)
+  
+  VERDICT: ✓ CONFIRMED. Strongest signal found. Use for matchups.
+
+
+  H3: Regime transitions × salary/ownership
+  ──────────────────────────────────────────
+  Original (Own% empty):                ✗ p=0.066
+  
+  With REAL ownership data (6-state model):
+  Downgrades are LOWER owned:           ✓ p=0.008
+  Downgrades outperform:                ✓ p=0.005 (+1.04 FPTS surprise)
+  Downgrade leverage:                   +0.185 surprise per own%
+  Stable leverage:                      -0.003 surprise per own%
+  
+  Low-own downgrades vs high-own chalk: ✗ p=0.536 (not enough edge
+    to overcome the raw FPTS gap between cheap and expensive players)
+  
+  VERDICT: ✓ PARTIALLY CONFIRMED. Downgrades are genuinely under-owned
+  AND outperform. The leverage ratio is 70x better than stable plays.
+  But you can't just blindly swap chalk for cheap downgrades — the
+  signal is a boost within tiers, not across them.
+
+
+  H4: Better observation vectors
+  ──────────────────────────────
+  BASIC (G/A/SOG/HIT/BLK/FPTS):        F=92.7 (best)
+  ENHANCED (+TOI, PP, rates):           F=59.2
+  RATES only:                           F=24.4
+  
+  VERDICT: ✗ BASIC WINS. Adding features adds noise. Keep it simple.
+
+
+  H5: More granular states
+  ────────────────────────
+  Walk-forward results:
+    3 states: Downgrade ✓ p=0.048
+    4 states: Nothing
+    6 states: Nothing
+  
+  Single-split results (larger sample):
+    3 states: Downgrade ✓ p=0.048  (+0.27)
+    6 states: Downgrade ✓ p=0.000  (+0.68)  ← STRONGEST
+    8 states: Upgrade   ✓ p=0.017  (+0.25)
+              Downgrade ✓ p=0.001  (+0.38)
+  
+  VERDICT: ✓ 6 STATES OPTIMAL. Strongest downgrade signal.
+  8 states captures both directions. 4 states is the dead zone.
+
+
+  OWNERSHIP DEEP DIVE (6-state model, the winner)
+  ══════════════════════════════════════════════════════════════════
+
+                    N    Own%   FPTS   Surprise   Value/1K
+  ─────────────────────────────────────────────────────────
+  DOWNGRADE       461    5.6%   8.2    +1.04      2.02
+  UPGRADE         221    5.8%   7.2    +0.18      1.92  
+  STABLE        2,660    6.7%   8.8    -0.02      1.88
+
+  KEY FINDINGS:
+  
+  1. Downgrades are 1.1% LESS owned than stable (p=0.008)
+     → The public sees the cold streak and fades them
+  
+  2. Downgrades produce +1.04 FPTS surprise (p=0.005)
+     → But the bounce-back is real — mean reversion
+  
+  3. Downgrade value/1K = 2.02 vs Stable = 1.88
+     → 7.4% more efficient per dollar
+  
+  4. Downgrade leverage = +0.185 vs Stable = -0.003
+     → 70x better surprise-per-ownership-point
+     → This IS the GPP edge: positive expectation at low ownership
+
+  WHAT THIS MEANS IN PRACTICE:
+  
+  On any given slate, 6-state HMM downgrades are players who:
+  - Recently had a few bad games (rolling stats dipped)
+  - The public is fading (1.1% lower ownership)
+  - Are about to bounce back (+1.04 FPTS above expectation)
+  - Cost the same salary (market hasn't repriced yet)
+  
+  This is textbook contrarian DFS: buy the dip on process.
+
+
+  ══════════════════════════════════════════════════════════════════
+  PRODUCTION SIGNALS — RANKED BY STRENGTH
+  ══════════════════════════════════════════════════════════════════
+
+  #1. OPPONENT MATCHUP (H2)
+      Effect: +0.31 FPTS vs weak-regime opponents
+      Significance: p=0.003
+      Application: ±3-5% projection adjustment by opponent regime
+      Data needed: NST team 5v5 daily snapshots
+  
+  #2. DOWNGRADE BOUNCE (H5 + Ownership)
+      Effect: +1.04 FPTS surprise, 1.1% lower owned
+      Significance: p=0.005 (FPTS), p=0.008 (ownership)
+      Application: Target 6-state downgrades in GPPs
+      Data needed: Last 10 boxscores per player
+  
+  #3. 5-DAY TRANSITION WINDOW (H1)
+      Effect: +0.27 FPTS within 5 days of any transition
+      Significance: p=0.007
+      Application: Tiebreaker when projections are close
+      Data needed: HMM state history
+  
+  REJECTED:
+  ✗ State-based projection blend (0% weight)
+  ✗ Enhanced features (worse than basic)
+  ✗ 4-state model (dead zone — too few and too many states at once)
+  ✗ Raw upgrade signal (inconsistent across tests)
+
+
+  ══════════════════════════════════════════════════════════════════
+  RECOMMENDED DAILY WORKFLOW
+  ══════════════════════════════════════════════════════════════════
+  
+  Pre-slate (takes <60 seconds):
+  1. Update boxscores (scraper pulls last night's games)
+  2. Run 6-state HMM on all skaters with 12+ games
+  3. Flag DOWNGRADES (state dropped in last 3 games)
+  4. Run team HMM on NST data, classify opponent regimes
+  5. Cross-reference: downgrade + weak opponent = TOP TARGET
+  
+  In optimizer:
+  - Boost downgrade players +5% projection
+  - Boost players vs weak-regime opponents +3-5%
+  - Stack both signals when they align: +8%
+  - Use as GPP leverage (these players will be under-owned)

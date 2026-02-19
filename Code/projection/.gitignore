@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environment
+.env
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Output files
+projections_output*.csv
+own.csv
+ownership_example.csv
+*.xlsx
+
+# Daily projections output
+daily_projections/*.csv
+daily_projections/lines_*.json
+
+# Backtests output
+backtests/*.xlsx
+backtests/*.pkl
+backtests/*.json
+backtests/*.png
+
+# Contest results
+contests/*.csv
+
+# DraftKings salary files (optional - remove if you want to share)
+DKSalaries*.csv
+
+# Edge stats cache
+cache/
+
+# Logs
+logs/
+
+# Misc
+.mcp.json.backup
+NHL_DFS_Research_Integration.md
+data/nhl_dfs_history.db
+data/.fuse_hidden*

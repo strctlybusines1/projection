@@ -1,0 +1,580 @@
+
+# NHL DFS Projection System - Daily Workflow
+
+## System Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                    DATA SOURCES                                          │
+├─────────────────┬─────────────────┬─────────────────┬──────────────────┬─────────────────┤
+│   NHL API       │   MoneyPuck     │ Natural Stat    │   DailyFaceoff   │  The Odds API   │
+│   (nhl_api.py)  │   (scrapers.py) │ Trick           │   (lines.py)     │  (main.py)      │
+│                 │                 │ (scrapers.py)   │                  │                 │
+│ • Player stats  │ • Injuries      │ • xG/60         │ • Line combos    │ • Moneylines    │
+│ • Schedule      │ • Return dates  │ • Corsi/Fenwick │ • PP units       │ • Spreads       │
+│ • Team stats    │                 │ • PDO           │ • Confirmed      │ • Game totals   │
+│ • Game logs     │                 │ • Recent form   │   goalies        │ • Implied totals│
+└────────┬────────┴────────┬────────┴────────┬────────┴────────┬─────────┴────────┬────────┘
+         │                 │                 │                  │                  │
+         └─────────────────┴─────────────────┴──────────────────┴──────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        DATA PIPELINE (data_pipeline.py)                      │
+│  • Fetches all data sources                                                  │
+│  • Builds unified dataset: skaters, goalies, teams, schedule, injuries       │
+│  • Filters injured players                                                   │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      FEATURE ENGINEERING (features.py)                       │
+│  • Per-game rates (goals_pg, shots_pg, etc.)                                │
+│  • Bonus probabilities (5+ shots, 3+ points, hat trick)                     │
+│  • Opponent adjustments (opp_softness, opp_xga_60)                          │
+│  • xG matchup boost, PDO regression, streak adjustments                     │
+│  • Injury opportunity boost                                                 │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      PROJECTIONS (projections.py)                            │
+│  • Expected fantasy points calculation                                       │
+│  • Position-specific bias corrections (backtest-derived)                     │
+│  • Floor/ceiling estimates                                                   │
+│  • Optional TabPFN ML model                                                  │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┴─────────────────┐
+                    │                                   │
+                    ▼                                   ▼
+┌───────────────────────────────┐     ┌───────────────────────────────────────┐
+│   OWNERSHIP (ownership.py)    │     │         OPTIMIZER (optimizer.py)       │
+│  • Salary-based curve         │     │  • GPP mode (stacking)                 │
+│  • PP1/Line1 boosts           │     │  • Cash mode (consistency)             │
+│  • Goalie confirmation        │     │  • Salary cap: $50,000                 │
+│  • Vegas total multipliers    │     │  • Roster: 2C, 3W, 2D, 1G, 1UTIL       │
+│  • 900% total normalization   │     │  • Team correlation boosts             │
+└───────────────────────────────┘     └───────────────────────────────────────┘
+                    │                                   │
+                    └─────────────────┬─────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           MAIN CLI (main.py)                                 │
+│  • Command-line interface                                                    │
+│  • Fetches Vegas odds (Odds API → CSV fallback)                             │
+│  • Loads DK salaries, merges with projections                               │
+│  • Formats output, exports CSV                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        BACKTEST (backtest.py)                                │
+│  • Compare projections to actual results                                     │
+│  • Calculate MAE, RMSE, correlation                                         │
+│  • Model comparison (rolling avg vs TabPFN)                                 │
+│  • Results feed into projection bias and improvement plans                   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## File Reference
+
+| File | Purpose | Key Classes/Functions |
+|------|---------|----------------------|
+| `config.py` | Constants & settings | DK scoring rules, API URLs, thresholds, `VEGAS_DIR` |
+| `nhl_api.py` | NHL API client | `NHLAPIClient` - fetches stats, schedule |
+| `scrapers.py` | External scrapers | `MoneyPuckClient` (injuries), `NaturalStatTrickScraper` (xG) |
+| `data_pipeline.py` | Data orchestration | `NHLDataPipeline.build_projection_dataset()` |
+| `features.py` | Feature engineering | `FeatureEngineer.engineer_skater_features()` |
+| `projections.py` | Projection model | `NHLProjectionModel.generate_projections()` |
+| `lines.py` | Line combinations | `LinesScraper`, `StackBuilder` |
+| `ownership.py` | Ownership prediction | `OwnershipModel.predict_ownership()`, `set_vegas_data()` |
+| `optimizer.py` | Lineup optimizer | `NHLLineupOptimizer.optimize_lineup()` |
+| `contest_roi.py` | Contest leverage & EV | `ContestProfile`, `recommend_leverage()`, `contest_ev_score()` |
+| `dashboard/server.py` | Local dashboard | Flask app with live odds, projections, lines at http://127.0.0.1:5000 |
+| `main.py` | CLI entry point | `main()`, `_fetch_odds_api()`, `build_team_total_map()` |
+| `backtest.py` | Backtesting | `NHLBacktester.run_backtest()` |
+| `.env` | API keys | `ODDS_API_KEY` for The Odds API |
+
+### Data folders
+
+All paths are relative to the `projection/` folder. The code looks in these directories first (with fallback to project root where applicable).
+
+| Folder | Purpose |
+|--------|---------|
+| **daily_salaries/** | DK salary CSVs per slate (e.g. `DKSalaries_M.DD.YY.csv`) |
+| **vegas/** | Vegas lines CSV fallback (e.g. `VegasNHL_M.DD.YY.csv`). Used when Odds API is unavailable. |
+| **backtests/** | xlsx backtest workbooks (e.g. `1.26.26_nhl_backtest.xlsx`) |
+| **contests/** | DK contest result CSVs (e.g. `$5main_NHL_M.DD.YY.csv`) |
+| **daily_projections/** | Generated projection and lineup CSVs (dates in filenames) |
+
+---
+
+## Daily Workflow
+
+### Phase 0: Review Latest Backtest (optional but recommended)
+
+Before building today's slate, know where your model stands:
+
+- **Option A:** Open the most recent backtest spreadsheet (**backtests/X.XX.XX_nhl_backtest.xlsx**) and skim MAE, correlation, and bias by position.
+- **Option B:** Run `python backtest.py --players 75` to refresh metrics.
+
+Use this to spot weak spots (e.g. goalie bias, position over/under) before locking in stacks.
+
+---
+
+### Phase 1: Data Collection & Verification
+
+#### Step 1: Check Data Sources First
+Run all APIs and verify data before anything else.
+
+```bash
+cd /Users/brendanhorlbeck/Desktop/Code/projection
+
+# 1. Fetch line combinations and confirmed goalies
+python lines.py
+
+# 2. Check for postponements/schedule changes
+# Review output for any games marked as postponed
+```
+
+**Data Source Checklist:**
+- [ ] Line combinations loaded for all games
+- [ ] Confirmed goalies identified (usually ~5pm ET)
+- [ ] No postponed games (remove affected players)
+- [ ] PP1 unit assignments noted
+- [ ] Vegas odds available (Odds API or CSV fallback)
+
+#### Step 2: Vegas Lines (Auto-Fetched)
+
+Vegas data is fetched **automatically** when you run `main.py`. No manual download needed if the Odds API key is configured.
+
+**How it works:**
+1. **Primary: Odds API** — `main.py` calls [the-odds-api.com](https://the-odds-api.com) using the key in `projection/.env` (`ODDS_API_KEY`). Fetches live moneylines, spreads, and game totals. Implied team totals are derived by converting moneylines to win probabilities (vig-removed) and multiplying by the game total.
+2. **Fallback: Vegas CSV** — If the API is unavailable or no key is set, the system auto-detects the most recent `VegasNHL_*.csv` in the **vegas/** folder.
+3. **Manual override** — Use `--vegas <path>` to force a specific CSV file.
+
+**Output:** `main.py` prints a **Vegas Game Ranking** showing each game sorted by total, with implied team totals, moneylines, and spreads. Games are labeled PRIMARY / SECONDARY / TERTIARY by total.
+
+**Key Vegas Metrics:**
+- Team implied totals (3.5+ = high scoring environment)
+- Game totals (6.5+ = shootout potential)
+- Line movement (sharp money indicators)
+
+**Fallback only — manual CSV download:**
+If the Odds API is down, save lines as `VegasNHL_M.DD.YY.csv` in the **vegas/** folder. CSV format: `team,opp,moneyline,spread,handicap_spread,game_total,game_total_over,game_total_under` with two rows per game (one per side).
+
+#### Step 3: Download DraftKings Salary File
+1. Go to DraftKings → NHL → Select contest
+2. Export CSV → Save as `DKSalaries_M.DD.YY.csv` in the **daily_salaries/** folder
+3. Cross-reference - remove players from postponed games
+
+---
+
+### Phase 2: Slate Analysis (THE CRITICAL STEP)
+
+#### Step 4: Analyze Slate Characteristics
+
+**Slate Size Strategy:**
+| Slate Size | Games | Stack Strategy |
+|------------|-------|----------------|
+| Small | 2-4 | Concentrate in ONE game, max line + PP overlap |
+| Medium | 5-7 | 1 primary line stack + secondary correlation |
+| Large | 8+ | 2 line stacks from different games |
+
+**Ceiling Game Identification:**
+The #1 question: Which team/line will EXCEED its Vegas expectation tonight?
+
+Check these signals for each game:
+1. **Goalie Vulnerability**
+   - [ ] Backup goalie starting?
+   - [ ] Starter on back-to-back?
+   - [ ] Recent save % struggles?
+
+2. **Team Mean Regression**
+   - [ ] High-skill team with recent cold streak?
+   - [ ] Star player due for breakout (5-game avg vs season avg)?
+
+3. **Special Teams Edge**
+   - [ ] Elite PP vs weak PK matchup?
+   - [ ] PP hot streak (unsustainable but exploitable)?
+   - [ ] **Penalties volume**: Opponent takes a lot of penalties (boost your PP1); your team takes a lot (more PK, tougher for goalie). Matchups matter partly because of penalties taken/allowed.
+
+4. **Rest & Schedule**
+   - [ ] Team off rest vs back-to-back opponent?
+   - [ ] Travel/timezone advantage?
+
+**Chalk Trap Detection:**
+Historical pattern shows top Vegas teams often BUST:
+- Jan 22: CAR (Vegas #1 → Actual #11), EDM (Vegas #2 → Actual #14)
+- Jan 23: COL (Vegas #1 → Actual #7), NYR (Vegas #3 → Actual #16)
+
+Don't blindly stack the highest Vegas total. Look for WHY a team will exceed expectations.
+
+#### Step 5: Build Stack Thesis
+Before running projections, document your conviction:
+
+```
+PRIMARY STACK: [TEAM] - [Why they'll exceed expectations]
+- Line: [Players]
+- Catalyst: [Goalie vulnerability / regression / matchup edge]
+- Ownership read: [Chalk / moderate / contrarian]
+
+SECONDARY STACK: [TEAM or bring-back]
+- Line: [Players]
+- Correlation path: [Same line / PP overlap / opposing goalie]
+```
+
+**Stack Types Reference:**
+| Stack Type | Description | When to Use |
+|------------|-------------|-------------|
+| Line Stack (3-man) | C + LW + RW same line | High conviction game |
+| Line Stack (2-man) | Any 2 forwards same line | Moderate conviction |
+| PP1 Stack | Players on first PP unit | PP-heavy matchup |
+| Team Stack (4+) | 4+ players same team | Small slate, max correlation |
+| Bring-back | Stack + 1 opposing player | Hedge correlation |
+
+---
+
+### Phase 3: Projection Generation
+
+#### Step 6: Generate Projections
+```bash
+# Full run with stacks and injury report
+python main.py --stacks --show-injuries
+
+# Full options:
+#   --date YYYY-MM-DD    : Specific date (default: today)
+#   --salaries FILE      : Specific salary file
+#   --vegas FILE         : Use specific Vegas CSV (overrides Odds API)
+#   --stacks             : Show stacking recommendations
+#   --show-injuries      : Display injury report
+#   --include-dtd        : Include day-to-day players
+#   --no-injuries        : Disable injury filtering
+#   --lineups N          : Generate N lineups
+#   --export FILE        : Export to CSV
+```
+
+#### Step 7: Review Output Against Your Thesis
+The system outputs:
+1. **Vegas Game Ranking** - Games sorted by total, implied team totals, moneylines (auto-fetched from Odds API or CSV)
+2. **Injury Report** - Who's out, who's DTD
+3. **Line Combinations** - Current lines from DailyFaceoff
+4. **Confirmed Goalies** - Which goalies are starting
+5. **Top Projections** - Highest projected players
+6. **Value Plays** - Best pts/$ plays
+7. **Stacking Recommendations** - Best correlated groups
+
+**Cross-check with your thesis:**
+- Does the optimizer's stack align with your conviction?
+- If not, why? (Salary constraints? Missing data?)
+- Override if your thesis has strong catalyst support
+
+---
+
+### Phase 4: Lineup Construction & Export
+
+#### Step 8: Build & Export Final Lineups
+
+**Lineup Construction Framework:**
+1. **Lock in core stack** (2-4 players from primary game)
+2. **Add secondary correlation** (bring-back or second stack)
+3. **Fill with ceiling pieces** (high-variance individuals)
+4. **Select goalie** (win probability + saves upside)
+
+**Ownership Leverage Guide:**
+| Ownership | Strategy | When to Use |
+|-----------|----------|-------------|
+| 0-5% | Max leverage, need strong thesis | Large fields, top-heavy payouts |
+| 5-15% | Balanced EV | Standard GPPs |
+| 15-25% | Only if ceiling probability is elite | Small fields |
+| 25%+ | Avoid in GPPs | Cash games only |
+
+**DraftKings Constraints:**
+- $50,000 salary cap
+- Roster: 2C, 3W, 2D, 1G, 1UTIL
+- **Minimum 3 teams** (enforced by DK)
+
+**Generate and export lineups:**
+```bash
+# Generate multiple lineups for GPP
+python main.py --lineups 5 --stacks
+
+# Export for DraftKings upload (writes to daily_projections/)
+python main.py --lineups 20 --export projections.csv
+```
+Projections and lineup exports are written to **daily_projections/** (filenames include date).
+
+#### Contest-Specific Workflow (Leverage & EV)
+
+To maximize long-term ROI for a **specific contest**, use contest-aware leverage and lineup ranking by expected payout:
+
+1. **Enter contest parameters**  
+   When running `main.py`, pass the contest you’re building for:
+   - `--contest-entry-fee` (e.g. 5, 360)
+   - `--contest-max-entries` (e.g. 1, 20, 150)
+   - `--contest-field-size` (e.g. 10000, 50000)
+   - `--contest-payout` preset: `top_heavy_gpp`, `flat`, or `high_dollar_single`
+
+2. **Get leverage recommendation**  
+   The run prints a **Contest Leverage Recommendation**: target total lineup ownership band (e.g. 35–50%), leverage tier (Conservative / Moderate / Aggressive), and for multi-entry an optional entry allocation (chalk / moderate / leverage).
+
+3. **Generate lineups**  
+   Use `--lineups N` as usual. The optimizer produces N candidate lineups with stacking rules unchanged.
+
+4. **Rank by EV**  
+   With contest params set, the tool scores each lineup by **contest expected value** (bucket model: projected points + total ownership → P(top 1%, top 10%, min-cash) × contest payouts). Lineups are **re-ordered by EV descending** and each lineup is printed with its Contest EV ($).
+
+5. **Select lineup(s)**  
+   - Single entry: take the **top lineup by EV**.
+   - Multi-entry: take the top K by EV; optionally respect the printed entry allocation (e.g. 8 chalk, 8 moderate, 4 leverage).
+
+**Example (single-entry $5 GPP, 10k field):**
+```bash
+python main.py --stacks --contest-entry-fee 5 --contest-max-entries 1 --contest-field-size 10000 --contest-payout top_heavy_gpp --lineups 5
+```
+
+**Example (20-max, custom field size):**
+```bash
+python main.py --lineups 20 --contest-entry-fee 5 --contest-max-entries 20 --contest-field-size 50000
+```
+
+Leverage-only (no lineups): run `python contest_roi.py --entry-fee 5 --max-entries 20 --field-size 10000 --payout top_heavy_gpp` to print only the recommendation.
+
+#### Step 9: Final Verification
+Before submitting:
+- [ ] Check Twitter for late scratches/line changes
+- [ ] Re-verify goalie confirmations if close to lock
+- [ ] Confirm 3-team minimum met
+- [ ] Salary under $50,000
+- [ ] Stack thesis documented for post-slate review
+
+---
+
+### Phase 5: Contest Entry
+
+Use the lineups you built and exported in Phase 4.
+
+1. Use exported CSV or manually enter on DraftKings
+2. Verify lineup validity on DraftKings
+3. Submit before lock
+
+---
+
+### Phase 6: Post-Slate Analysis (Next Morning)
+
+#### Step 1: Download Contest Results
+1. DraftKings → My Contests → Click on finished contest
+2. Download standings/results CSV
+3. Save as `$5main_NHL_M.DD.YY.csv` in the **contests/** folder
+
+#### Step 2: Update Backtest Spreadsheet
+1. Open **backtests/X.XX.XX_nhl_backtest.xlsx**
+2. Add actual FPTS and ownership to "Actual" sheet
+3. Compare to "Projection" sheet
+
+#### Step 3: Run Backtest
+```bash
+python backtest.py --players 75
+```
+Review output (MAE, RMSE, correlation) and compare to your backtest spreadsheet. Use this to tune the model.
+
+#### Step 4: Update Plans
+Based on backtest results, update:
+- `DAILY_PROJECTION_IMPROVEMENT_PLAN.md` - FPTS model tuning
+- `OWNERSHIP_PLAN.md` - Ownership model tuning
+
+---
+
+## Quick Commands Reference
+
+### Before Slate (optional)
+```bash
+# Review latest backtest metrics
+python backtest.py --players 75
+```
+
+### Daily Run (Most Common)
+```bash
+# Full run with stacks and injury report
+python main.py --stacks --show-injuries
+
+# Generate 3 GPP lineups
+python main.py --lineups 3 --stacks
+
+# Contest-specific: leverage recommendation + lineups ranked by EV
+python main.py --lineups 5 --stacks --contest-entry-fee 5 --contest-max-entries 1 --contest-field-size 10000 --contest-payout top_heavy_gpp
+```
+
+### Local Dashboard
+View odds, projections, ownership, lines, and suggested lineup in one page:
+
+```bash
+cd projection
+python dashboard/server.py
+```
+
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000). The dashboard uses the same odds flow as `main.py`: Odds API first (cached 12 min), Vegas CSV fallback. Requires `ODDS_API_KEY` in `projection/.env`.
+
+Data shown: live odds with implied team totals, latest **daily_projections/** file (projections + ownership), latest **\*_lineups.csv** (suggested lineup), and latest **lines_*.json** (written when you run `main.py --stacks`).
+
+### Testing Individual Components
+```bash
+# Test data pipeline only
+python data_pipeline.py
+
+# Test projections only
+python projections.py
+
+# Test lines scraper only
+python lines.py
+
+# Test optimizer only
+python optimizer.py
+
+# Test ownership model
+python ownership.py
+```
+
+### Post-slate: run backtest
+```bash
+python backtest.py --players 75
+```
+(See Phase 6, Step 3 for full post-slate validation.)
+
+---
+
+## Key Configuration (config.py)
+
+### DraftKings Scoring
+| Stat | Points |
+|------|--------|
+| Goal | 8.5 |
+| Assist | 5.0 |
+| Shot on Goal | 1.5 |
+| Blocked Shot | 1.3 |
+| SH Point Bonus | +2.0 |
+
+| Bonus | Points | Trigger |
+|-------|--------|---------|
+| Hat Trick | +3.0 | 3+ goals |
+| 5+ Shots | +3.0 | 5+ SOG |
+| 3+ Blocks | +3.0 | 3+ blocks |
+| 3+ Points | +3.0 | 3+ points |
+
+### Goalie Scoring
+| Stat | Points |
+|------|--------|
+| Win | 6.0 |
+| Save | 0.7 |
+| Goal Against | -3.5 |
+| Shutout Bonus | +4.0 |
+| OT Loss | +2.0 |
+| 35+ Saves Bonus | +3.0 |
+
+### Bias Corrections (projections.py)
+| Position | Correction | Note |
+|----------|------------|------|
+| C | 0.95 (-5%) | Over-projected by ~1.58 pts |
+| L/LW/R/RW/W | 0.94 (-6%) | Over-projected by ~1.85 pts |
+| D | 0.93 (-7%) | Over-projected by ~1.14 pts |
+| G | 0.93 (-7%) | Over-projected by ~2.40 pts |
+
+*Global bias correction (0.97) also applies to skaters on top of position correction.*
+
+---
+
+## Troubleshooting
+
+### "No DraftKings salary file found"
+- Download from DK and save as `DKSalaries*.csv` in project folder
+
+### "No games scheduled for today"
+- Check the date with `--date YYYY-MM-DD`
+- NHL API may not have games loaded yet
+
+### "No confirmed goalies matched"
+- DailyFaceoff may not have updated yet
+- Manually check goalie starters closer to game time
+
+### Low MAE but high bias
+- Model is systematically over/under projecting
+- Update bias corrections in `projections.py`
+
+### Ownership predictions way off
+- Check if lines data was fetched (confirmed goalies)
+- Update multipliers in `ownership.py`
+
+### "No Vegas odds available" or stale odds
+- Verify `ODDS_API_KEY` is set in `projection/.env`
+- Check API quota at [the-odds-api.com](https://the-odds-api.com) (free tier = 500 requests/month)
+- Fallback: manually save a CSV as `VegasNHL_M.DD.YY.csv` in **vegas/** or pass `--vegas <path>`
+- Dashboard caches API data for 12 minutes — refresh after that window
+
+---
+
+## File Dependencies
+
+```
+config.py (no dependencies)
+    │
+    ├──▶ nhl_api.py
+    ├──▶ scrapers.py
+    ├──▶ data_pipeline.py ──▶ nhl_api.py, scrapers.py
+    ├──▶ features.py ──▶ config.py
+    ├──▶ projections.py ──▶ config.py, features.py
+    ├──▶ lines.py ──▶ config.py
+    ├──▶ ownership.py ──▶ receives Vegas data via set_vegas_data()
+    ├──▶ optimizer.py ──▶ config.py, lines.py
+    ├──▶ main.py ──▶ ALL FILES + Odds API (.env) + Vegas CSV fallback
+    └──▶ backtest.py ──▶ nhl_api.py, config.py
+```
+
+---
+
+## Current Model Performance
+
+### Projection Accuracy (as of 1/29/26)
+| Metric | Skaters | Goalies | Overall |
+|--------|---------|---------|---------|
+| MAE | 4.93 | 6.48 | 5.01 |
+| Correlation | 0.406 | 0.305 | 0.406 |
+| Bias | -1.52 | -2.40 | -1.57 |
+
+*Negative bias = model over-projects (predicts higher than actual)*
+
+### Ownership Accuracy (as of 1/29/26)
+| Metric | Value |
+|--------|-------|
+| MAE | 1.14% |
+| Correlation | 0.541 |
+| Bias | -0.04% |
+
+### Season-Long Backtest (top 75 skaters)
+| Model | MAE | Corr |
+|-------|-----|------|
+| TabPFN (pooled) | **6.97** | 0.108 |
+| 10-game avg | 7.11 | 0.166 |
+| 5-game avg | 7.44 | 0.113 |
+| 3-game avg | 7.76 | 0.099 |
+
+---
+
+## Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `DAILY_PROJECTION_IMPROVEMENT_PLAN.md` | **Strategic framework** - Stack theory, ceiling identification, leverage analysis, backtest case studies |
+| `OWNERSHIP_PLAN.md` | Ownership model details and calibration |
+| `README.md` | Project setup (if exists) |
+
+**Quick Reference:**
+- This doc (`DAILY_WORKFLOW.md`) = **WHAT to do, WHEN**
+- Improvement Plan = **WHY (strategy, theory, historical analysis)**
+
+---
+
+*Last Updated: January 30, 2026*

@@ -1,0 +1,66 @@
+# Secrets
+.mcp.json
+**/.env
+.env
+
+# Cache & generated data
+projection/cache/
+__pycache__/
+*.pyc
+
+# Log files
+*.log
+
+# Lock files
+.~lock.*
+
+# R files
+.RData
+.Rhistory
+.Rapp.history
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+.localized
+.DS_Store
+
+# Archives & backups
+*.zip
+projection_backup_*/
+
+# All CSVs (source code doesn't need CSVs tracked)
+*.csv
+
+# All Excel files
+*.xlsx
+
+# ML model pickles
+*.pkl
+
+# Projection data directories (output, not source)
+projection/daily_salaries/
+projection/daily_projections/
+projection/backtests/
+projection/contests/
+projection/vegas/
+projection/dashboard/
+
+# Archive/experimental
+projection/archive/
+
+# Linemate cache (huge)
+projection/.linemate_cache/
+
+# Projection internal data/reports
+projection/backtest_results/
+projection/data/
+projection/reports/
+projection/references/
+projection/line_changes/
+projection/website/
+
+# Test data
+test/
+projection/tests/

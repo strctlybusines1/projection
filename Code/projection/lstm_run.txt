@@ -1,0 +1,17 @@
+Using device: cpu
+Loading data...
+Loaded 220062 historical rows from seasons 2020 to 2024
+Loaded 32687 current season rows
+Loaded 220062 historical rows
+
+================================================================================
+WALK-FORWARD BACKTEST: LSTM-CNN vs MDN v3 vs Kalman
+================================================================================
+Computing opponent FPTS allowed...
+Training data size: 8136 rows
+
+Retrain cycle 1: Training date = 2025-11-07
+  Merging historical data...
+  Total training data: 102582 rows
+  Creating sequences...
+  Training model...
