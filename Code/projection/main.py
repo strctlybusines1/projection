@@ -52,6 +52,7 @@ from contest_roi import (
     PAYOUT_PRESETS,
 )
 from single_entry import SingleEntrySelector, print_se_lineup
+from leverage import compute_leverage_scores, print_leverage_report
 
 
 def load_dk_salaries(csv_path: str) -> pd.DataFrame:
@@ -1154,6 +1155,18 @@ def main():
     player_pool = ownership_model.predict_ownership(player_pool)
     print_ownership_report(player_pool)
 
+    # --- Compute GPP Leverage Scores ---
+    # Leverage = implied_ownership / predicted_ownership
+    # Requires: projected_fpts, floor, ceiling, predicted_ownership, position
+    print("\nComputing GPP leverage scores...")
+    try:
+        player_pool = compute_leverage_scores(player_pool)
+        print_leverage_report(player_pool)
+    except Exception as e:
+        print(f"  Warning: Leverage computation failed: {e}")
+        player_pool['gpp_leverage'] = 1.0
+        player_pool['leverage_tier'] = 'Unknown'
+
     # --- Run simulator if requested ---
     if args.simulate:
         OptimalLineupSimulator = get_simulator(args.sim_engine)
@@ -1291,7 +1304,9 @@ def main():
 
     export_cols = ['name', 'team', 'position', 'salary', 'projected_fpts',
                    'dk_avg_fpts', 'edge', 'value', 'floor', 'ceiling',
-                   'player_type', 'predicted_ownership', 'ownership_tier', 'leverage_score', 'dk_id']
+                   'player_type', 'predicted_ownership', 'ownership_tier',
+                   'gpp_leverage', 'implied_ownership', 'leverage_tier',
+                   'win_probability', 'dk_id']
     export_cols = [c for c in export_cols if c in player_pool.columns]
     player_pool.sort_values('projected_fpts', ascending=False)[export_cols].to_csv(auto_export_path, index=False)
     print(f"\nProjections + ownership exported to: {auto_export_path}")

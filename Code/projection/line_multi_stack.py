@@ -51,6 +51,7 @@ from scipy import stats
 from sklearn.linear_model import HuberRegressor
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.preprocessing import RobustScaler
+from leverage import compute_leverage_scores, compute_stack_leverage, compute_lineup_leverage
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -417,11 +418,12 @@ def _find_game_matchups(dk_pool, team_data):
 
 
 def _get_team_lines(dk_pool):
-    """Extract L1 and L2 forward groups per team from DK pool.
+    """Extract L1, L2, L3 forward groups per team from DK pool.
     Also tracks PP1 overlap and available PP1 D for stack correlation scoring.
-    Returns dict: team -> {'l1': [records], 'l2': [records], 'impl': float,
-                           'game_total': float, 'l1_pp1_count': int,
-                           'has_pp1_d': bool, 'pp1_d': record or None}
+    Returns dict: team -> {'l1': [records], 'l2': [records], 'l3': [records],
+                           'impl': float, 'game_total': float, 'l1_pp1_count': int,
+                           'has_pp1_d': bool, 'pp1_d': record or None,
+                           'd1': [records], 'goalies': [records]}
     """
     has_lines = dk_pool[dk_pool['start_line'].isin(['1', '2', '3', '4'])].copy()
     has_lines['_key'] = has_lines['player_name'].str.lower().str.strip() + '_' + has_lines['team'].apply(norm)
@@ -431,6 +433,7 @@ def _get_team_lines(dk_pool):
     for team, team_df in has_lines.groupby('team'):
         l1 = team_df[(team_df['start_line'] == '1') & (team_df['position'].isin(fwd_pos))].to_dict('records')
         l2 = team_df[(team_df['start_line'] == '2') & (team_df['position'].isin(fwd_pos))].to_dict('records')
+        l3 = team_df[(team_df['start_line'] == '3') & (team_df['position'].isin(fwd_pos))].to_dict('records')
         if len(l1) < 2 or len(l2) < 2:
             continue
         impl = team_df['team_implied_total'].iloc[0] if pd.notna(team_df['team_implied_total'].iloc[0]) else 0
@@ -447,11 +450,20 @@ def _get_team_lines(dk_pool):
         has_pp1_d = len(pp1_d_rows) > 0
         pp1_d = pp1_d_rows.iloc[0].to_dict() if has_pp1_d else None
 
+        # D1 pair (top 2 D by salary from this team)
+        d1 = team_pool.nlargest(2, 'salary').to_dict('records') if len(team_pool) >= 2 else []
+
+        # Goalies from this team
+        g_pool = dk_pool[(dk_pool['team'] == team) & (dk_pool['position'] == 'G')]
+        goalies = g_pool.to_dict('records')
+
         team_data[team] = {
-            'l1': l1, 'l2': l2, 'impl': impl, 'game_total': gt,
+            'l1': l1, 'l2': l2, 'l3': l3, 'impl': impl, 'game_total': gt,
             'l1_pp1_count': l1_pp1_count,
             'has_pp1_d': has_pp1_d,
             'pp1_d': pp1_d,
+            'd1': d1,
+            'goalies': goalies,
         }
     return team_data
 
@@ -465,7 +477,63 @@ def _check_position_feasibility(forwards):
     return n_c >= 1 and n_w >= 2
 
 
-def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
+def compute_pool_leverage(dk_pool, conn=None):
+    """Compute GPP leverage scores for all players in the DK pool.
+
+    Requires dk_pool to have: projected_fpts (or dk_avg_fpts as proxy),
+    floor, ceiling, predicted_ownership, and position columns.
+
+    For backtest mode: uses dk_avg_fpts as projection proxy and synthesizes
+    floor/ceiling from salary + dk_avg since we don't have full projection data.
+
+    Returns:
+        leverage_map: dict mapping player_name -> gpp_leverage score
+        pool_with_leverage: dk_pool DataFrame with leverage columns added
+    """
+    pool = dk_pool.copy()
+
+    # Ensure we have the columns leverage.py needs
+    if 'projected_fpts' not in pool.columns:
+        # Backtest mode: use dk_avg_fpts as projection proxy
+        pool['projected_fpts'] = pool['dk_avg_fpts'].fillna(0)
+
+    if 'floor' not in pool.columns:
+        pool['floor'] = pool['projected_fpts'] * 0.25
+
+    if 'ceiling' not in pool.columns:
+        pool['ceiling'] = pool['projected_fpts'] * 2.5 + 5
+
+    if 'predicted_ownership' not in pool.columns:
+        # Heuristic ownership estimate from salary + role
+        # Higher salary → higher ownership, PP1 → higher ownership
+        base_own = pool['salary'] / 500  # $5000 → 10%
+        pp_boost = pool['pp_unit'].apply(
+            lambda x: 1.5 if pd.notna(x) and str(x).strip() in ['1', '1.0'] else 1.0)
+        pool['predicted_ownership'] = (base_own * pp_boost).clip(0.5, 35.0)
+        # Normalize to ~900% total
+        total = pool['predicted_ownership'].sum()
+        if total > 0:
+            pool['predicted_ownership'] = pool['predicted_ownership'] * (900.0 / total)
+
+    if 'name' not in pool.columns:
+        pool['name'] = pool['player_name']
+
+    if 'team' not in pool.columns and 'team' in dk_pool.columns:
+        pool['team'] = dk_pool['team']
+
+    # Compute leverage
+    pool = compute_leverage_scores(pool)
+
+    # Build player_name -> leverage map
+    leverage_map = {}
+    for _, row in pool.iterrows():
+        pname = row.get('player_name', row.get('name', ''))
+        leverage_map[pname] = row['gpp_leverage']
+
+    return leverage_map, pool
+
+
+def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None, leverage_map=None):
     """
     Build scored stack candidates — BOTH single-team and dual-team.
 
@@ -501,6 +569,11 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
         # PP1 score: each L1 forward on PP1 = +1, PP1 D available = +1
         pp1_score = pp1_overlap + (1 if has_pp1_d else 0)
 
+        # Compute stack leverage (average GPP leverage of forwards)
+        stack_lev = compute_stack_leverage(all_fwds, leverage_map) if leverage_map else 1.0
+        # Leverage-weighted projection: projection × avg leverage
+        lev_combo = (l1_proj_h + l2_proj_h) * stack_lev
+
         stack = {
             'team': team,
             'teams': [team],  # List of teams in stack
@@ -522,6 +595,8 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
             'has_pp1_d': has_pp1_d,
             'ml_proj': None,
             'ml_ceiling': None,
+            'stack_leverage': stack_lev,
+            'lev_combo': lev_combo,
         }
 
         # ML projections
@@ -588,6 +663,9 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
             has_pp1_d_p = td_p.get('has_pp1_d', False)
             pp1_score = pp1_overlap_p + (1 if has_pp1_d_p else 0)
 
+            stack_lev = compute_stack_leverage(all_fwds, leverage_map) if leverage_map else 1.0
+            lev_combo = (proj_p + proj_s) * stack_lev
+
             stack = {
                 'team': f"{primary}+{secondary}",
                 'teams': [primary, secondary],
@@ -613,6 +691,8 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
                 'has_pp1_d': has_pp1_d_p,
                 'ml_proj': None,
                 'ml_ceiling': None,
+                'stack_leverage': stack_lev,
+                'lev_combo': lev_combo,
             }
 
             # ML projections for dual stacks
@@ -638,6 +718,116 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
 
             stacks.append(stack)
 
+    # ─── PHASE 3: Value stacks (L1+L3 from same team) ───────────────────
+    # Cheaper L3 frees ~$3,800 salary vs L2 for premium D/G fill.
+    # Balanced approach for big slates (10+ games) where you need salary flexibility.
+    for team, td in team_data.items():
+        l1_fwds, l3_fwds = td['l1'], td.get('l3', [])
+        if len(l3_fwds) < 2:
+            continue
+        team_impl, game_total = td['impl'], td['game_total']
+
+        l1_proj_h = score_line_heuristic(l1_fwds, 1, team_impl, game_total, all_logs, date_str)
+        l3_proj_h = score_line_heuristic(l3_fwds, 3, team_impl, game_total, all_logs, date_str)
+
+        all_fwds = l1_fwds + l3_fwds
+        if not _check_position_feasibility(all_fwds):
+            continue
+
+        fwd_salary = sum(f['salary'] for f in all_fwds)
+        pp1_overlap = td.get('l1_pp1_count', 0)
+        has_pp1_d = td.get('has_pp1_d', False)
+        pp1_score = pp1_overlap + (1 if has_pp1_d else 0)
+
+        stack_lev = compute_stack_leverage(all_fwds, leverage_map) if leverage_map else 1.0
+        lev_combo = (l1_proj_h + l3_proj_h) * stack_lev
+
+        stack = {
+            'team': team,
+            'teams': [team],
+            'stack_type': 'value13',
+            'l1_proj_h': l1_proj_h,
+            'l2_proj_h': l3_proj_h,
+            'combo_proj': l1_proj_h + l3_proj_h,
+            'fwd_salary': fwd_salary,
+            'remaining_budget': SALARY_CAP - fwd_salary,
+            'n_fwd': len(all_fwds),
+            'n_c': sum(1 for f in all_fwds if f['position'] == 'C'),
+            'n_w': sum(1 for f in all_fwds if f['position'] in ['W', 'LW', 'RW', 'L', 'R']),
+            'forwards': all_fwds,
+            'team_impl': team_impl,
+            'game_total': game_total,
+            'impl_rank': 0,
+            'pp1_score': pp1_score,
+            'pp1_overlap': pp1_overlap,
+            'has_pp1_d': has_pp1_d,
+            'ml_proj': None,
+            'ml_ceiling': None,
+            'stack_leverage': stack_lev,
+            'lev_combo': lev_combo,
+        }
+        stacks.append(stack)
+
+    # ─── PHASE 4: Full-correlation stacks (D+G locked to stack teams) ───
+    # Force D from primary team + G from primary team = all 9 players correlated.
+    # Only built for teams with PP1 D + goalie available.
+    for team, td in team_data.items():
+        l1_fwds, l2_fwds = td['l1'], td['l2']
+        team_impl, game_total = td['impl'], td['game_total']
+        d1_list = td.get('d1', [])
+        goalie_list = td.get('goalies', [])
+
+        if len(d1_list) < 2 or not goalie_list:
+            continue
+
+        all_fwds = l1_fwds + l2_fwds
+        if not _check_position_feasibility(all_fwds):
+            continue
+
+        # Pre-lock the D and G from this team
+        total_salary = sum(f['salary'] for f in all_fwds) + sum(d['salary'] for d in d1_list[:2]) + goalie_list[0]['salary']
+        if total_salary > SALARY_CAP:
+            continue
+
+        pp1_overlap = td.get('l1_pp1_count', 0)
+        has_pp1_d = td.get('has_pp1_d', False)
+        pp1_score = pp1_overlap + (1 if has_pp1_d else 0)
+
+        l1_proj_h = score_line_heuristic(l1_fwds, 1, team_impl, game_total, all_logs, date_str)
+        l2_proj_h = score_line_heuristic(l2_fwds, 2, team_impl, game_total, all_logs, date_str)
+
+        stack_lev = compute_stack_leverage(all_fwds, leverage_map) if leverage_map else 1.0
+        lev_combo = (l1_proj_h + l2_proj_h) * stack_lev
+
+        stack = {
+            'team': team,
+            'teams': [team],
+            'stack_type': 'mono',
+            'l1_proj_h': l1_proj_h,
+            'l2_proj_h': l2_proj_h,
+            'combo_proj': l1_proj_h + l2_proj_h,
+            'fwd_salary': sum(f['salary'] for f in all_fwds),
+            'remaining_budget': SALARY_CAP - total_salary,
+            'locked_d': d1_list[:2],
+            'locked_g': goalie_list[0],
+            'total_salary': total_salary,
+            'n_fwd': len(all_fwds),
+            'n_c': sum(1 for f in all_fwds if f['position'] == 'C'),
+            'n_w': sum(1 for f in all_fwds if f['position'] in ['W', 'LW', 'RW', 'L', 'R']),
+            'forwards': all_fwds,
+            'team_impl': team_impl,
+            'game_total': game_total,
+            'impl_rank': 0,
+            'pp1_score': pp1_score,
+            'pp1_overlap': pp1_overlap,
+            'has_pp1_d': has_pp1_d,
+            'ml_proj': None,
+            'ml_ceiling': None,
+            'stack_leverage': stack_lev,
+            'lev_combo': lev_combo,
+        }
+        stacks.append(stack)
+
     # Rank by avg implied total (single stacks use team_impl, dual use avg)
     stacks.sort(key=lambda x: x['team_impl'], reverse=True)
     for i, s in enumerate(stacks):
@@ -647,7 +837,8 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
     return stacks
 
 
-def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=None):
+def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=None,
+                     leverage_map=None):
     """Score a defenseman for ceiling potential (WTA optimization).
 
     PP1 D on high-implied teams in the same game as our stack = maximum
@@ -655,6 +846,8 @@ def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=
 
     Architecture: D from primary team creates 4-player correlated stack.
     This applies to BOTH single and dual stacks.
+
+    NEW: leverage_map adds GPP leverage bonus — underowned D get extra score.
     """
     score = 0.0
 
@@ -707,10 +900,18 @@ def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=
     if pd.notna(fc) and fc > 0:
         score += fc * 2
 
+    # GPP Leverage bonus: underowned D relative to ceiling = extra value
+    if leverage_map:
+        d_name = d_row.get('player_name', '')
+        lev = leverage_map.get(d_name, 1.0)
+        # Scale: leverage 2.0 = +20 bonus, 0.5 = -10 penalty
+        score += (lev - 1.0) * 20
+
     return score
 
 
-def _score_g_ceiling(g_row, stack_team=None, stack_teams=None, opponent_teams=None):
+def _score_g_ceiling(g_row, stack_team=None, stack_teams=None, opponent_teams=None,
+                     leverage_map=None):
     """Score a goalie for ceiling potential.
 
     Goalies are near-unpredictable (best rho=0.111). For WTA:
@@ -718,6 +919,8 @@ def _score_g_ceiling(g_row, stack_team=None, stack_teams=None, opponent_teams=No
     - PREFER goalie from primary stack team (positive correlation: stack scores → goalie wins)
     - PENALIZE goalie facing our primary stack (negative correlation — soft, not hard block)
     - Cheaper goalies free budget for better D (where signal is stronger)
+
+    NEW: leverage_map adds GPP leverage bonus — underowned G get extra score.
     """
     score = 0.0
     g_team = norm(str(g_row.get('team', '')))
@@ -758,10 +961,17 @@ def _score_g_ceiling(g_row, stack_team=None, stack_teams=None, opponent_teams=No
     if pd.notna(dk_avg) and dk_avg > 0:
         score += dk_avg
 
+    # GPP Leverage bonus: underowned G relative to ceiling = extra value
+    if leverage_map:
+        g_name = g_row.get('player_name', '')
+        lev = leverage_map.get(g_name, 1.0)
+        # Scale: leverage 2.0 = +15 bonus (lighter than D since G signal is weaker)
+        score += (lev - 1.0) * 15
+
     return score
 
 
-def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
+def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling', leverage_map=None):
     """Fill a stack with 2D + 1G. Returns player list or None.
 
     fill_mode:
@@ -831,15 +1041,18 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
         # But still apply goalie correlation scoring (positive for stack team, penalty for opponents)
         pool_d = pool_d.sort_values('salary', ascending=False)
         pool_g['_ceil_score'] = pool_g.apply(
-            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams), axis=1)
+            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams,
+                                       leverage_map=leverage_map), axis=1)
         pool_g = pool_g.sort_values('_ceil_score', ascending=False)
     else:
-        # Ceiling/game_corr mode: PP1-weighted scoring with stack correlation
+        # Ceiling/game_corr mode: PP1-weighted scoring with stack correlation + leverage
         game_teams = stack_game_teams
         pool_d['_ceil_score'] = pool_d.apply(
-            lambda r: _score_d_ceiling(r, stack_team, game_teams, stack_teams), axis=1)
+            lambda r: _score_d_ceiling(r, stack_team, game_teams, stack_teams,
+                                       leverage_map=leverage_map), axis=1)
         pool_g['_ceil_score'] = pool_g.apply(
-            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams), axis=1)
+            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams,
+                                       leverage_map=leverage_map), axis=1)
         pool_d = pool_d.sort_values('_ceil_score', ascending=False)
         pool_g = pool_g.sort_values('_ceil_score', ascending=False)
 
@@ -892,18 +1105,62 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
     return players
 
 
+def fill_mono_lineup(stack, actuals=None):
+    """Fill a mono stack where D and G are pre-locked from the same team.
+    Returns player list or None. All 9 players from same team = full correlation."""
+    actual_keys = None
+    if actuals is not None:
+        actual_keys = set(actuals['_key'].tolist())
+
+    # Check pre-locked D players are in actuals (if filtering)
+    locked_d = stack.get('locked_d', [])
+    locked_g = stack.get('locked_g', None)
+    if not locked_d or locked_g is None:
+        return None
+
+    if actual_keys:
+        for d in locked_d:
+            k = d['player_name'].lower().strip() + '_' + norm(str(d['team']))
+            if k not in actual_keys:
+                return None
+        gk = locked_g['player_name'].lower().strip() + '_' + norm(str(locked_g['team']))
+        if gk not in actual_keys:
+            return None
+
+    players = []
+    for f in stack['forwards']:
+        if actual_keys:
+            k = f['player_name'].lower().strip() + '_' + norm(str(f['team']))
+            if k not in actual_keys:
+                return None
+        players.append({'name': f['player_name'], 'team': f['team'],
+                        'salary': f['salary'], 'position': f['position'], 'role': 'stack'})
+    for d in locked_d[:2]:
+        players.append({'name': d['player_name'], 'team': d['team'],
+                        'salary': d['salary'], 'position': 'D', 'role': 'stack'})
+    players.append({'name': locked_g['player_name'], 'team': locked_g['team'],
+                    'salary': locked_g['salary'], 'position': 'G', 'role': 'stack'})
+
+    if sum(p['salary'] for p in players) > SALARY_CAP:
+        return None
+    return players
+
+
 # ==============================================================================
 # MULTI-STACK SELECTION STRATEGIES (Heuristic + ML)
 # ==============================================================================
 
 HEURISTIC_STRATEGIES = ['chalk', 'contrarian_1', 'contrarian_2', 'value', 'ceiling', 'game_stack',
-                        'pp1_stack', 'dual_chalk', 'dual_ceiling', 'dual_game']
+                        'pp1_stack', 'dual_chalk', 'dual_ceiling', 'dual_game',
+                        'mono_chalk', 'mono_ceiling',
+                        'lev_chalk', 'lev_ceiling', 'lev_contrarian',
+                        'lev_dual', 'lev_value']
 ML_STRATEGIES = ['ml_chalk', 'ml_ceiling', 'ml_contrarian', 'ml_value',
                  'ml_dual_chalk', 'ml_dual_ceiling']
 ALL_STRATEGIES = HEURISTIC_STRATEGIES + ML_STRATEGIES
 
 
-def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
+def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False, leverage_map=None):
     """
     Generate multiple lineup candidates using different selection strategies.
     Returns dict of strategy -> (lineup, stack_info)
@@ -992,10 +1249,54 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
             candidates = sorted(
                 [s for s in dual_stacks if s['ml_ceiling'] is not None],
                 key=lambda s: s['ml_ceiling'], reverse=True)
+
+        # ── Mono stacks (all 9 from same team — full correlation) ──
+        elif strategy == 'mono_chalk':
+            mono_stacks = [s for s in stacks if s['stack_type'] == 'mono']
+            candidates = sorted(mono_stacks,
+                                key=lambda s: s['combo_proj'], reverse=True)
+        elif strategy == 'mono_ceiling':
+            mono_stacks = [s for s in stacks if s['stack_type'] == 'mono']
+            def mono_ceil(s):
+                pp1_bonus = s.get('pp1_score', 0) * 500
+                return s['combo_proj'] + pp1_bonus
+            candidates = sorted(mono_stacks, key=mono_ceil, reverse=True)
+
+        # ── LEVERAGE STRATEGIES (4for4 GPP leverage score methodology) ──
+        # Sort stacks by leverage-weighted projection: combo_proj × avg_leverage
+        # High leverage = forwards are underowned relative to their ceiling probability
+        elif strategy == 'lev_chalk':
+            # Best leverage-weighted single stack (high proj + underowned)
+            candidates = sorted(single_stacks,
+                                key=lambda s: s.get('lev_combo', s['combo_proj']),
+                                reverse=True)
+        elif strategy == 'lev_ceiling':
+            # Leverage + ceiling: PP1 bonus weighted by leverage
+            def lev_ceil_score(s):
+                lev = s.get('stack_leverage', 1.0)
+                pp1_bonus = s.get('pp1_score', 0) * 500
+                max_sal = max(f['salary'] for f in s['forwards']) if s['forwards'] else 0
+                return (max_sal + pp1_bonus) * lev + s['combo_proj'] * 0.1
+            candidates = sorted(single_stacks, key=lev_ceil_score, reverse=True)
+        elif strategy == 'lev_contrarian':
+            # Leverage-weighted contrarian: implied rank 3-8, sorted by leverage combo
+            candidates = [s for s in single_stacks if 3 <= s['impl_rank'] <= 8]
+            candidates.sort(key=lambda s: s.get('lev_combo', s['combo_proj']), reverse=True)
+        elif strategy == 'lev_dual':
+            # Best leverage-weighted dual stack
+            candidates = sorted(dual_stacks,
+                                key=lambda s: s.get('lev_combo', s['combo_proj']),
+                                reverse=True)
+        elif strategy == 'lev_value':
+            # Leverage + value: highest leverage among affordable stacks
+            candidates = [s for s in single_stacks if s['combo_proj'] > 35]
+            candidates.sort(key=lambda s: (s.get('stack_leverage', 1.0), -s['fwd_salary']),
+                           reverse=True)
         else:
             continue
 
         # Chalk/value use salary-weighted fill (salary rho=0.387 for D — best single predictor)
+        # Leverage strategies use ceiling mode (leverage already captures value vs ownership)
         # All others use ceiling-weighted PP1/correlation scoring
         if strategy in ['chalk', 'value', 'ml_chalk', 'ml_value']:
             fill_mode = 'salary'  # High-salary D = safe floor + strong predictor
@@ -1006,7 +1307,12 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
 
         # Try to fill lineup for each candidate
         for stack in candidates[:5]:
-            lineup = fill_lineup(stack, dk_pool, actuals, fill_mode=fill_mode)
+            # Mono stacks have pre-locked D+G — use special fill
+            if stack.get('stack_type') == 'mono':
+                lineup = fill_mono_lineup(stack, actuals)
+            else:
+                lineup = fill_lineup(stack, dk_pool, actuals, fill_mode=fill_mode,
+                                    leverage_map=leverage_map)
             if lineup is not None:
                 results[strategy] = {
                     'lineup': lineup,
@@ -1081,16 +1387,21 @@ def run_multi_stack_backtest(start_date='2025-11-07', confirmed_only=True):
         if has_ml:
             ml_active_count += 1
 
-        # Build all stacks (with ML if available)
-        stacks = build_all_stacks(dk_pool, all_logs, date_str, ml_models)
+        # Compute GPP leverage scores for all players on this slate
+        leverage_map, _ = compute_pool_leverage(dk_pool)
+
+        # Build all stacks (with ML and leverage if available)
+        stacks = build_all_stacks(dk_pool, all_logs, date_str, ml_models,
+                                  leverage_map=leverage_map)
         if not stacks:
             continue
 
-        # Generate multi-strategy lineups
+        # Generate multi-strategy lineups (with leverage)
         lineups = select_lineups(
             stacks, dk_pool,
             actuals if confirmed_only else None,
-            has_ml=has_ml
+            has_ml=has_ml,
+            leverage_map=leverage_map,
         )
 
         if not lineups:
@@ -1121,10 +1432,13 @@ def run_multi_stack_backtest(start_date='2025-11-07', confirmed_only=True):
             fwd_teams = set(norm(str(p['team'])) for p in lineup if p['role'] == 'stack')
             n_fwd_teams = len(fwd_teams)
 
+            # Compute lineup-level leverage metrics
+            lineup_lev = compute_lineup_leverage(lineup, leverage_map)
+
             all_results.append({
                 'date': date_str,
                 'strategy': strat,
-                'scoring': 'ML' if strat.startswith('ml_') else 'heuristic',
+                'scoring': 'ML' if strat.startswith('ml_') else ('leverage' if strat.startswith('lev_') else 'heuristic'),
                 'stack_type': stack.get('stack_type', 'single'),
                 'stack_team': stack['team'],
                 'impl_rank': stack['impl_rank'],
@@ -1132,6 +1446,9 @@ def run_multi_stack_backtest(start_date='2025-11-07', confirmed_only=True):
                 'combo_proj': stack['combo_proj'],
                 'ml_proj': stack.get('ml_proj'),
                 'ml_ceiling': stack.get('ml_ceiling'),
+                'stack_leverage': stack.get('stack_leverage', 1.0),
+                'lineup_avg_leverage': lineup_lev.get('avg_leverage', 1.0),
+                'lineup_leverage_score': lineup_lev.get('leverage_score', 0.0),
                 'actual': actual_total,
                 'matched': n_matched,
                 'scratched': n_scratched,
@@ -1274,6 +1591,31 @@ def run_multi_stack_backtest(start_date='2025-11-07', confirmed_only=True):
         print(f"    Best-of {label}/date: avg {best['actual'].mean():.1f} FPTS, "
               f"Cash {n_cash}/{n_dates} ({n_cash/max(1,n_dates)*100:.1f}%), "
               f"1st {n_first}/{n_dates} ({n_first/max(1,n_dates)*100:.1f}%)")
+
+    # Leverage analysis
+    print(f"\n  LEVERAGE ANALYSIS:")
+    if 'lineup_avg_leverage' in r.columns:
+        for strat in ALL_STRATEGIES:
+            sr = r[r['strategy'] == strat]
+            if sr.empty:
+                continue
+            avg_lev = sr['lineup_avg_leverage'].mean()
+            avg_stack_lev = sr['stack_leverage'].mean()
+            with_cash = sr[sr['cash_line'] > 0]
+            if len(with_cash) > 0:
+                cash_avg_lev = with_cash[with_cash['is_cash'] == True]['lineup_avg_leverage'].mean()
+                miss_avg_lev = with_cash[with_cash['is_cash'] == False]['lineup_avg_leverage'].mean()
+                cash_avg_lev = cash_avg_lev if pd.notna(cash_avg_lev) else 0
+                miss_avg_lev = miss_avg_lev if pd.notna(miss_avg_lev) else 0
+                print(f"    {strat:18s} | Stack Lev: {avg_stack_lev:.2f} | "
+                      f"Lineup Lev: {avg_lev:.2f} | Cash Lev: {cash_avg_lev:.2f} | Miss Lev: {miss_avg_lev:.2f}")
+
+        # Leverage correlation with actual scoring
+        from scipy.stats import pearsonr
+        valid = r[r['lineup_avg_leverage'].notna() & r['actual'].notna()]
+        if len(valid) > 10:
+            corr, pval = pearsonr(valid['lineup_avg_leverage'], valid['actual'])
+            print(f"\n    Leverage-Actual Correlation: r={corr:.3f} (p={pval:.4f})")
 
     # Contrarian value
     print(f"\n  CONTRARIAN VALUE:")
