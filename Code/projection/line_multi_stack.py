@@ -4,20 +4,33 @@ Multi-Stack Line Optimizer — Production Build
 ==================================================
 
 Combines heuristic + ML-powered line scoring into a unified optimizer.
-Generates 10 strategy lineups per slate:
-  HEURISTIC (6):
-    - chalk: Highest projected stack
+Generates 16 strategy lineups per slate:
+  HEURISTIC (10):
+    - chalk: Highest projected stack (PP1 tiebreaker)
     - contrarian_1: Implied rank 3-5, sorted by projection
     - contrarian_2: Implied rank 5-8, sorted by projection
     - value: Cheapest stack with decent projection
-    - ceiling: Highest star power (max single-player salary)
+    - ceiling: Highest star power + PP1 correlation
     - game_stack: Highest game total
+    - pp1_stack: Highest PP1 overlap (L1=PP1 + PP1 D available)
+    - dual_chalk: Best same-game dual stack by projection
+    - dual_ceiling: Best same-game dual stack by ceiling + PP1
+    - dual_game: Best same-game dual stack by game total
 
-  ML-POWERED (4):
+  ML-POWERED (6):
     - ml_chalk: Top ML projected stack (Huber L1/L2 split)
     - ml_ceiling: Top quantile-75 ceiling stack
     - ml_contrarian: Implied rank 3-6, sorted by ML projection
     - ml_value: ML proj > 30, cheapest salary
+    - ml_dual_chalk: Top ML projected dual stack
+    - ml_dual_ceiling: Top ML ceiling dual stack
+
+Key changes (v2):
+  - ALL fill modes now use ceiling scoring (salary-mode D fill killed)
+  - PP1 D from primary stack team gets massive bonus (4-player correlated core)
+  - Goalie from primary stack team preferred (positive correlation)
+  - Goalie facing stack team blocked (negative correlation)
+  - PP1 overlap scored as primary stack selection criterion
 
 ML models trained walk-forward: all data BEFORE each date, no future leakage.
 Models: Split Huber regressors for L1/L2, GradientBoosting quantile (75th) for ceiling.
@@ -405,7 +418,10 @@ def _find_game_matchups(dk_pool, team_data):
 
 def _get_team_lines(dk_pool):
     """Extract L1 and L2 forward groups per team from DK pool.
-    Returns dict: team -> {'l1': [records], 'l2': [records], 'impl': float, 'game_total': float}
+    Also tracks PP1 overlap and available PP1 D for stack correlation scoring.
+    Returns dict: team -> {'l1': [records], 'l2': [records], 'impl': float,
+                           'game_total': float, 'l1_pp1_count': int,
+                           'has_pp1_d': bool, 'pp1_d': record or None}
     """
     has_lines = dk_pool[dk_pool['start_line'].isin(['1', '2', '3', '4'])].copy()
     has_lines['_key'] = has_lines['player_name'].str.lower().str.strip() + '_' + has_lines['team'].apply(norm)
@@ -419,7 +435,24 @@ def _get_team_lines(dk_pool):
             continue
         impl = team_df['team_implied_total'].iloc[0] if pd.notna(team_df['team_implied_total'].iloc[0]) else 0
         gt = team_df['game_total'].iloc[0] if pd.notna(team_df['game_total'].iloc[0]) else 0
-        team_data[team] = {'l1': l1, 'l2': l2, 'impl': impl, 'game_total': gt}
+
+        # PP1 overlap: how many L1 forwards are also PP1?
+        l1_pp1_count = sum(1 for f in l1
+                           if pd.notna(f.get('pp_unit')) and str(f['pp_unit']).strip() in ['1', '1.0'])
+
+        # Check for PP1 D on this team (from full dk_pool, not just forwards)
+        team_pool = dk_pool[(dk_pool['team'] == team) & (dk_pool['position'] == 'D')]
+        pp1_d_rows = team_pool[team_pool['pp_unit'].apply(
+            lambda x: pd.notna(x) and str(x).strip() in ['1', '1.0'])]
+        has_pp1_d = len(pp1_d_rows) > 0
+        pp1_d = pp1_d_rows.iloc[0].to_dict() if has_pp1_d else None
+
+        team_data[team] = {
+            'l1': l1, 'l2': l2, 'impl': impl, 'game_total': gt,
+            'l1_pp1_count': l1_pp1_count,
+            'has_pp1_d': has_pp1_d,
+            'pp1_d': pp1_d,
+        }
     return team_data
 
 
@@ -462,6 +495,12 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
 
         fwd_salary = sum(f['salary'] for f in all_fwds)
 
+        # PP1 overlap score: teams where L1 = PP1 get massive correlation bonus
+        pp1_overlap = td.get('l1_pp1_count', 0)
+        has_pp1_d = td.get('has_pp1_d', False)
+        # PP1 score: each L1 forward on PP1 = +1, PP1 D available = +1
+        pp1_score = pp1_overlap + (1 if has_pp1_d else 0)
+
         stack = {
             'team': team,
             'teams': [team],  # List of teams in stack
@@ -478,6 +517,9 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
             'team_impl': team_impl,
             'game_total': game_total,
             'impl_rank': 0,
+            'pp1_score': pp1_score,
+            'pp1_overlap': pp1_overlap,
+            'has_pp1_d': has_pp1_d,
             'ml_proj': None,
             'ml_ceiling': None,
         }
@@ -541,6 +583,11 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
             proj_p = score_line_heuristic(fwds_p, 1, td_p['impl'], gt, all_logs, date_str)
             proj_s = score_line_heuristic(fwds_s, 1, td_s['impl'], gt, all_logs, date_str)
 
+            # PP1 overlap for dual: primary team's PP1 score matters most
+            pp1_overlap_p = td_p.get('l1_pp1_count', 0)
+            has_pp1_d_p = td_p.get('has_pp1_d', False)
+            pp1_score = pp1_overlap_p + (1 if has_pp1_d_p else 0)
+
             stack = {
                 'team': f"{primary}+{secondary}",
                 'teams': [primary, secondary],
@@ -561,6 +608,9 @@ def build_all_stacks(dk_pool, all_logs, date_str, ml_models=None):
                 'team_impl': (td_p['impl'] + td_s['impl']) / 2,
                 'game_total': gt,
                 'impl_rank': 0,
+                'pp1_score': pp1_score,
+                'pp1_overlap': pp1_overlap_p,
+                'has_pp1_d': has_pp1_d_p,
                 'ml_proj': None,
                 'ml_ceiling': None,
             }
@@ -603,7 +653,8 @@ def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=
     PP1 D on high-implied teams in the same game as our stack = maximum
     correlated upside. This is the key to 130+ FPTS lineups.
 
-    For dual stacks: D from primary team creates 4-player primary stack (optimizer.py 4+3).
+    Architecture: D from primary team creates 4-player correlated stack.
+    This applies to BOTH single and dual stacks.
     """
     score = 0.0
 
@@ -636,15 +687,20 @@ def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=
         if d_team in stack_game_teams:
             score += 20  # Same-game correlation bonus
 
-    # ── 4+3 ARCHITECTURE BONUS ──
-    # For dual stacks, D from primary team creates 4-player primary stack
-    # PP1 D from primary team = MASSIVE correlated ceiling
-    if stack_teams and len(stack_teams) > 1:
+    # ── PRIMARY TEAM D BONUS (applies to ALL stack types) ──
+    # D from primary stack team creates correlated 4-player core.
+    # PP1 D from primary = optimal ceiling construction.
+    if stack_teams:
         primary_team = norm(str(stack_teams[0]))
         if d_team == primary_team:
-            score += 25  # Primary team D bonus (creates 4-player stack)
+            score += 30  # Primary team D bonus (creates 4-player stack)
             if is_pp1:
-                score += 30  # PP1 D on primary team = optimal 4+3 correlation
+                score += 40  # PP1 D on primary team = maximum correlation
+        # For dual stacks, secondary team D is also correlated (but less)
+        elif len(stack_teams) > 1 and d_team == norm(str(stack_teams[1])):
+            score += 15  # Secondary team D (still same-game correlated)
+            if is_pp1:
+                score += 20
 
     # fc_proj (rho=0.360)
     fc = d_row.get('fc_proj', 0)
@@ -654,15 +710,18 @@ def _score_d_ceiling(d_row, stack_team=None, stack_game_teams=None, stack_teams=
     return score
 
 
-def _score_g_ceiling(g_row, stack_team=None):
+def _score_g_ceiling(g_row, stack_team=None, stack_teams=None, opponent_teams=None):
     """Score a goalie for ceiling potential.
 
     Goalies are near-unpredictable (best rho=0.111). For WTA:
     - dk_ceiling is the best signal we have
-    - Avoid goalies facing our stacked team (negative correlation)
+    - PREFER goalie from primary stack team (positive correlation: stack scores → goalie wins)
+    - PENALIZE goalie facing our primary stack (negative correlation — soft, not hard block)
     - Cheaper goalies free budget for better D (where signal is stronger)
     """
     score = 0.0
+    g_team = norm(str(g_row.get('team', '')))
+    all_stack_teams = [norm(str(t)) for t in (stack_teams or [stack_team] if stack_team else [])]
 
     # dk_ceiling (best predictor, rho=0.111)
     ceiling = g_row.get('dk_ceiling', 0)
@@ -674,13 +733,25 @@ def _score_g_ceiling(g_row, stack_team=None):
     if pd.notna(fc) and fc > 0:
         score += fc * 2
 
-    # Avoid goalie whose team we're stacking against (negative correlation)
-    if stack_team:
-        g_team = norm(str(g_row.get('team', '')))
-        opp_impl = g_row.get('opp_implied_total', 3.0)
-        if pd.notna(opp_impl):
-            # Lower opp implied = fewer goals against = better for goalie
-            score += max(0, (4.0 - opp_impl)) * 5
+    # ── POSITIVE CORRELATION: goalie from primary stack team ──
+    # If our stack goes off (5 goals), the goalie gets the win + save bonus
+    if all_stack_teams:
+        if g_team == all_stack_teams[0]:
+            score += 25  # Preference for primary team goalie
+        elif len(all_stack_teams) > 1 and g_team == all_stack_teams[1]:
+            score += 10  # Moderate preference for secondary team goalie
+
+    # ── NEGATIVE CORRELATION PENALTY: goalie facing our stack ──
+    # If we stack EDM and play the goalie who faces EDM, when EDM scores
+    # the goalie gets shelled. Soft penalty (not hard block — sometimes
+    # the opponent goalie is still the best option on thin slates).
+    if opponent_teams and g_team in opponent_teams:
+        score -= 20  # Penalty, not block
+
+    # Opp implied (lower = fewer goals against = better for goalie)
+    opp_impl = g_row.get('opp_implied_total', 3.0)
+    if pd.notna(opp_impl):
+        score += max(0, (4.0 - opp_impl)) * 5
 
     # dk_avg (rho=0.061)
     dk_avg = g_row.get('dk_avg_fpts', 0)
@@ -729,6 +800,7 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
     pool_d = dk_pool[(dk_pool['position'] == 'D') & (~dk_pool['player_name'].isin(fwd_names))].copy()
     pool_g = dk_pool[dk_pool['position'] == 'G'].copy()
 
+    actual_keys = None
     if actuals is not None:
         actual_keys = set(actuals['_key'].tolist())
         pool_d['_k'] = pool_d['player_name'].str.lower().str.strip() + '_' + pool_d['team'].apply(norm)
@@ -739,16 +811,35 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
     if len(pool_d) < 2 or len(pool_g) < 1:
         return None
 
+    # ── Identify opponent teams for goalie penalty (soft, not hard block) ──
+    opponent_teams = set()
+    for st in stack_teams:
+        st_rows = dk_pool[dk_pool['team'].apply(norm) == st]
+        if not st_rows.empty:
+            st_gt = st_rows.iloc[0].get('game_total', 0)
+            if st_gt > 0:
+                for _, opp_row in dk_pool.drop_duplicates('team').iterrows():
+                    opp_team = norm(str(opp_row['team']))
+                    if opp_team not in stack_teams:
+                        opp_gt = opp_row.get('game_total', 0)
+                        if pd.notna(opp_gt) and abs(opp_gt - st_gt) < 0.1:
+                            opponent_teams.add(opp_team)
+
     # Score and sort based on fill mode
     if fill_mode == 'salary':
+        # Salary mode: sort by salary (rho=0.387 for D — strongest single predictor)
+        # But still apply goalie correlation scoring (positive for stack team, penalty for opponents)
         pool_d = pool_d.sort_values('salary', ascending=False)
-        pool_g = pool_g.sort_values('salary', ascending=False)
+        pool_g['_ceil_score'] = pool_g.apply(
+            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams), axis=1)
+        pool_g = pool_g.sort_values('_ceil_score', ascending=False)
     else:
-        game_teams = stack_game_teams if fill_mode == 'game_corr' else None
+        # Ceiling/game_corr mode: PP1-weighted scoring with stack correlation
+        game_teams = stack_game_teams
         pool_d['_ceil_score'] = pool_d.apply(
             lambda r: _score_d_ceiling(r, stack_team, game_teams, stack_teams), axis=1)
         pool_g['_ceil_score'] = pool_g.apply(
-            lambda r: _score_g_ceiling(r, stack_team), axis=1)
+            lambda r: _score_g_ceiling(r, stack_team, stack_teams, opponent_teams), axis=1)
         pool_d = pool_d.sort_values('_ceil_score', ascending=False)
         pool_g = pool_g.sort_values('_ceil_score', ascending=False)
 
@@ -776,7 +867,7 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
             continue
 
         if fill_mode == 'salary':
-            quality = d1['salary'] + d2['salary'] + g_row['salary']
+            quality = d1['salary'] + d2['salary'] + g_row.get('_ceil_score', g_row['salary'])
         else:
             quality = d1['_ceil_score'] + d2['_ceil_score'] + g_row['_ceil_score']
 
@@ -806,7 +897,7 @@ def fill_lineup(stack, dk_pool, actuals=None, fill_mode='ceiling'):
 # ==============================================================================
 
 HEURISTIC_STRATEGIES = ['chalk', 'contrarian_1', 'contrarian_2', 'value', 'ceiling', 'game_stack',
-                        'dual_chalk', 'dual_ceiling', 'dual_game']
+                        'pp1_stack', 'dual_chalk', 'dual_ceiling', 'dual_game']
 ML_STRATEGIES = ['ml_chalk', 'ml_ceiling', 'ml_contrarian', 'ml_value',
                  'ml_dual_chalk', 'ml_dual_ceiling']
 ALL_STRATEGIES = HEURISTIC_STRATEGIES + ML_STRATEGIES
@@ -836,7 +927,10 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
 
         # ── Single-team strategies (original) ──
         if strategy == 'chalk':
-            candidates = sorted(single_stacks, key=lambda s: s['combo_proj'], reverse=True)
+            # Chalk with PP1 tiebreaker: projection first, then PP1 correlation
+            candidates = sorted(single_stacks,
+                                key=lambda s: (s['combo_proj'], s.get('pp1_score', 0)),
+                                reverse=True)
         elif strategy == 'contrarian_1':
             candidates = [s for s in single_stacks if 3 <= s['impl_rank'] <= 5]
             candidates.sort(key=lambda s: s['combo_proj'], reverse=True)
@@ -849,10 +943,17 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
         elif strategy == 'ceiling':
             def ceiling_score(s):
                 max_sal = max(f['salary'] for f in s['forwards']) if s['forwards'] else 0
-                return max_sal + s['combo_proj'] * 0.1
+                pp1_bonus = s.get('pp1_score', 0) * 500  # PP1 overlap as ceiling tiebreaker
+                return max_sal + s['combo_proj'] * 0.1 + pp1_bonus
             candidates = sorted(single_stacks, key=ceiling_score, reverse=True)
         elif strategy == 'game_stack':
             candidates = sorted(single_stacks, key=lambda s: (s['game_total'], s['combo_proj']), reverse=True)
+        elif strategy == 'pp1_stack':
+            # PP1 overlap: prioritize teams where L1 forwards ARE the PP1 unit
+            # AND PP1 D is available = maximum 4-5 player correlated ceiling
+            candidates = sorted(single_stacks,
+                                key=lambda s: (s.get('pp1_score', 0), s['combo_proj']),
+                                reverse=True)
 
         # ── Dual-team strategies (NEW — 2-team stacking) ──
         elif strategy == 'dual_chalk':
@@ -860,7 +961,8 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
         elif strategy == 'dual_ceiling':
             def dual_ceil_score(s):
                 max_sal = max(f['salary'] for f in s['forwards']) if s['forwards'] else 0
-                return max_sal + s['combo_proj'] * 0.1
+                pp1_bonus = s.get('pp1_score', 0) * 500  # PP1 on primary team = asymmetric ceiling
+                return max_sal + s['combo_proj'] * 0.1 + pp1_bonus
             candidates = sorted(dual_stacks, key=dual_ceil_score, reverse=True)
         elif strategy == 'dual_game':
             candidates = sorted(dual_stacks, key=lambda s: (s['game_total'], s['combo_proj']), reverse=True)
@@ -893,14 +995,14 @@ def select_lineups(stacks, dk_pool, actuals, strategies=None, has_ml=False):
         else:
             continue
 
-        # Choose fill mode based on strategy intent
-        # WTA strategies get ceiling fill, conservative gets salary
-        if strategy in ['chalk', 'value', 'ml_value']:
-            fill_mode = 'salary'  # Safe floor for chalk/value
+        # Chalk/value use salary-weighted fill (salary rho=0.387 for D — best single predictor)
+        # All others use ceiling-weighted PP1/correlation scoring
+        if strategy in ['chalk', 'value', 'ml_chalk', 'ml_value']:
+            fill_mode = 'salary'  # High-salary D = safe floor + strong predictor
         elif strategy in ['game_stack', 'dual_game']:
-            fill_mode = 'game_corr'  # Maximize same-game correlation
+            fill_mode = 'game_corr'  # Extra weight on same-game correlation
         else:
-            fill_mode = 'ceiling'  # PP1-weighted ceiling for all others
+            fill_mode = 'ceiling'  # PP1-weighted ceiling + stack correlation
 
         # Try to fill lineup for each candidate
         for stack in candidates[:5]:
@@ -1102,7 +1204,7 @@ def run_multi_stack_backtest(start_date='2025-11-07', confirmed_only=True):
     # Best-of-all — heuristic only, ML only, and combined
     for label, subset in [('HEURISTIC ONLY', r[~r['strategy'].str.startswith('ml_')]),
                           ('ML ONLY', r[r['strategy'].str.startswith('ml_')]),
-                          ('ALL 10 STRATEGIES', r)]:
+                          (f'ALL {len(ALL_STRATEGIES)} STRATEGIES', r)]:
         if subset.empty:
             continue
         best_per_date = subset.groupby('date').apply(
