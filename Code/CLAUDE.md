@@ -2,6 +2,99 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 1. Project Directory & Structure
+
+- **Git repo root**: `/Users/brendanhorlbeck/Desktop/Code/`
+- **Pipeline code**: `/Users/brendanhorlbeck/Desktop/Code/projection/` — all Python scripts live here
+- **Main entry point**: `projection/main.py`
+- Always run git commands from the repo root (`/Users/brendanhorlbeck/Desktop/Code/`)
+- Always run Python pipeline scripts from `projection/`
+- **Do NOT confuse the repo root with the projection subdirectory** — this has caused issues in past sessions
+
+```
+Code/                          ← git repo root
+├── CLAUDE.md                  ← this file
+├── .claude/                   ← skills, hooks, settings
+├── projection/                ← ALL pipeline code runs from here
+│   ├── main.py                ← CLI entry point
+│   ├── daily_salaries/        ← DK salary CSVs (input)
+│   ├── daily_projections/     ← projection + lineup CSVs (output)
+│   ├── cache/                 ← Edge stats, goalie, recent scores caches
+│   ├── contests/              ← DK contest results (post-slate)
+│   ├── backtests/             ← backtest workbooks + models
+│   ├── vegas/                 ← Vegas lines fallback CSVs
+│   └── .env                   ← API keys (ODDS_API_KEY)
+└── archive/experimental/      ← abandoned experiments
+```
+
+## 2. Python Environment
+
+- **Python**: Homebrew Python 3.13 at `/opt/homebrew/bin/python3` (no venv — uses system install)
+- **Key dependencies**: `pandas`, `numpy`, `requests`, `nhl-api-py`, `tabpfn`, `scikit-learn`, `flask`, `python-dotenv`, `tqdm`, `scipy`
+- **Known issue**: OpenMP duplicate library conflict on macOS — always set `export KMP_DUPLICATE_LIB_OK=TRUE` before running
+- **Requires** `.env` file in `projection/` with `ODDS_API_KEY=<key>`
+
+### Pre-Flight Check (REQUIRED before running any Python scripts)
+
+1. Confirm working directory is `/Users/brendanhorlbeck/Desktop/Code/projection/`
+2. Verify key dependencies: `pip3 list | grep tabpfn`
+3. Set `export KMP_DUPLICATE_LIB_OK=TRUE`
+
+Only proceed with script execution after all 3 checks pass.
+
+## 3. Data Files (Import from ~/Downloads)
+
+- DK salary CSVs are downloaded from the DraftKings lobby and saved to `~/Downloads/`
+- Files are often **inside zip archives** — always check zips with `unzip -l` before assuming files aren't there
+- **Salary CSVs**: copy to `projection/daily_salaries/DKSalaries_M.DD.YY.csv`
+- **Contest results**: copy to `projection/contests/`
+- **Vegas lines**: copy to `projection/vegas/VegasNHL_M.DD.YY.csv` (if using fallback)
+- Use a task agent to scan `~/Downloads` for DFS-related files when unsure what's available
+
+## 4. Running the Pipeline
+
+All commands run from `projection/`. Complete the Pre-Flight Check first.
+
+```bash
+# First run of day (fetches + caches Edge data)
+python main.py --stacks --show-injuries --lineups 5 --edge --refresh-edge
+
+# Subsequent runs (uses cached Edge data — much faster)
+python main.py --stacks --show-injuries --lineups 5 --edge
+
+# Single-entry mode (generate 40 candidates, auto-select best)
+python main.py --stacks --show-injuries --lineups 40 --edge --single-entry
+
+# Without Edge (fastest, use for quick iteration)
+python main.py --stacks --show-injuries --lineups 5 --no-edge
+```
+
+Output goes to `daily_projections/`:
+- `{date}_projections_{timestamp}.csv` — player projections
+- `{date}_lineups_{timestamp}.csv` — optimized lineups
+- `{date}_lines.json` — line combos/stacks
+
+## 5. Pushing Results to GitHub
+
+Always run git commands from the repo root: `/Users/brendanhorlbeck/Desktop/Code/`
+
+```bash
+# Step 1: Pre-check auth (REQUIRED — expired tokens have caused failures)
+gh auth status
+# If expired: gh auth login — wait for user to complete browser auth
+
+# Step 2: Review changes
+git status
+
+# Step 3: Stage specific files (avoid -A to prevent committing .env or large binaries)
+git add projection/daily_projections/*.csv
+git add CLAUDE.md  # or whatever changed
+
+# Step 4: Commit and push
+git commit -m "<summarize changes>"
+git push origin main
+```
+
 ## Project Overview
 
 NHL DFS (Daily Fantasy Sports) projection and lineup optimization system for DraftKings. Generates player fantasy point projections from multiple data sources, predicts ownership percentages, and builds salary-cap-constrained GPP lineups with correlated stacking.

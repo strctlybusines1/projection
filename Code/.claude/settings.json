@@ -6,6 +6,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "echo 'export KMP_DUPLICATE_LIB_OK=TRUE'"
+          },
+          {
+            "type": "command",
             "command": "echo 'Reminder: ensure venv is active and tabpfn is installed'"
           },
           {
