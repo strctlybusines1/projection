@@ -12,19 +12,122 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Do NOT confuse the repo root with the projection subdirectory** — this has caused issues in past sessions
 
 ```
-Code/                          ← git repo root
-├── CLAUDE.md                  ← this file
-├── .claude/                   ← skills, hooks, settings
-├── projection/                ← ALL pipeline code runs from here
-│   ├── main.py                ← CLI entry point
-│   ├── daily_salaries/        ← DK salary CSVs (input)
-│   ├── daily_projections/     ← projection + lineup CSVs (output)
-│   ├── cache/                 ← Edge stats, goalie, recent scores caches
-│   ├── contests/              ← DK contest results (post-slate)
-│   ├── backtests/             ← backtest workbooks + models
-│   ├── vegas/                 ← Vegas lines fallback CSVs
-│   └── .env                   ← API keys (ODDS_API_KEY)
-└── archive/experimental/      ← abandoned experiments
+/Users/brendanhorlbeck/Desktop/Code/          ← git repo root
+├── CLAUDE.md                                  ← this file
+├── .claude/                                   ← skills, hooks, settings
+├── projection/                                ← ALL pipeline code runs from here
+│
+│   ── Core Pipeline ──
+│   ├── main.py                    — CLI entry point, orchestrates full pipeline
+│   ├── config.py                  — Static config: DK scoring, API URLs, team mappings
+│   ├── utils.py                   — Shared utilities: position normalization, fuzzy matching, DK scoring
+│   ├── tuning.py                  — Centralized tuning parameter loader (reads tuning_params.json)
+│   ├── components.py              — Component factory: swappable optimizer/simulator/ownership
+│   │
+│   ── Data & Features ──
+│   ├── data_pipeline.py           — Fetches NHL API, MoneyPuck injuries, NST xG/Corsi
+│   ├── features.py                — Feature engineering: rates, bonuses, matchup adjustments
+│   ├── nhl_api.py                 — NHL API client for schedule, stats, game data
+│   ├── scrapers.py                — MoneyPuck injury + Natural Stat Trick web scraper
+│   ├── nst_scraper.py             — Natural Stat Trick scraper (teams, skaters, goalies)
+│   ├── lines.py                   — DailyFaceoff scraper for lines, PP, goalies, stack correlations
+│   ├── danger_stats.py            — Team shot danger stats (HD/MD/LD) from NST CSVs
+│   ├── team_normalize.py          — Team abbreviation normalization (DK vs NHL)
+│   │
+│   ── Projections ──
+│   ├── projections.py             — Main projection model with TabPFN + bias corrections
+│   ├── edge_stats.py              — NHL Edge tracking data (speed, bursts, OZ time, goalie SV%)
+│   ├── edge_cache.py              — Daily Edge stats cache to avoid redundant API calls
+│   ├── recent_scores_cache.py     — Daily recent game scores cache (last 1/3/5 games)
+│   ├── goalie_model.py            — Goalie projection model (win prob, saves, QS%)
+│   ├── game_environment.py        — Vegas-implied scoring, pace-of-play adjustments
+│   │
+│   ── Ownership & Contest ──
+│   ├── ownership.py               — Ownership prediction (Ridge, XGBoost, heuristic fallback)
+│   ├── ownership_v2.py            — Ownership v2 (XGBoost + game theory leverage scoring)
+│   ├── se_ownership.py            — Single-entry ownership model (small-field specific)
+│   ├── payout_ev.py               — Payout-weighted EV calculator (Newell & Easton method)
+│   ├── contest_analysis.py        — Parse DK contest standings, analyze winning lineups
+│   ├── leverage_score.py          — Ownership-aware tournament equity scorer
+│   ├── conformal_calibration.py   — Conformal prediction calibration for std_fpts
+│   ├── roi_dashboard.py           — Contest P&L and cumulative ROI tracker
+│   ├── contest_roi.py             — Contest ROI tracking utilities
+│   │
+│   ── Lineup Optimization ──
+│   ├── optimizer.py               — Greedy heuristic optimizer (salary cap, stacks, correlation)
+│   ├── optimizer_ilp.py           — ILP optimizer (PuLP, mathematically optimal)
+│   ├── single_entry.py            — SE selector: scores candidates on 6 dims, picks best
+│   ├── candidate_generator.py     — Generates structurally diverse lineup candidates
+│   ├── correlated_selector.py     — Selects lineups using correlated simulation
+│   ├── linemate_corr.py           — Linemate chemistry analysis + boost factors
+│   ├── advanced_optimizer.py      — Advanced optimizer variants
+│   ├── lineup_builder.py          — Lineup construction utilities
+│   ├── lineup_export.py           — Export lineups to various formats
+│   │
+│   ── Simulation ──
+│   ├── simulator.py               — Deterministic + independent MC team-pair simulator
+│   ├── simulation_engine.py       — Correlated MC simulator (zero-inflated lognormal)
+│   ├── line_multi_stack.py        — Multi-stack optimizer (heuristic + ML strategies)
+│   │
+│   ── Backtesting & Validation ──
+│   ├── backtest.py                — Main backtest: projections vs actuals (MAE/RMSE/corr)
+│   ├── backtest_full_pipeline.py  — Full pipeline backtest with 5-signal blend + ceiling
+│   ├── backtest_full.py           — Batch backtest across multiple dates
+│   ├── backtest_improved.py       — Enhanced backtest with subgroup analysis
+│   ├── backtest_sim.py            — Simulation backtest (MC outcome validation)
+│   ├── backtest_se_lineups.py     — Single-entry lineup backtest
+│   ├── validate.py                — Pre-flight validation for pipeline health
+│   │
+│   ── Post-Slate Analysis ──
+│   ├── actual_scores.py           — Fetch actual DK scores from NHL API
+│   ├── post_slate.py              — Auto post-slate backtest (run after games)
+│   ├── history_db.py              — Historical SQLite DB (projections, actuals, metrics)
+│   ├── historical_odds.py         — Historical Vegas odds tracking
+│   ├── historical_fetcher.py      — Multi-season NHL boxscore data (2020-25)
+│   ├── xlsx_utils.py              — Robust xlsx file reading utilities
+│   │
+│   ── Experimental Models ──
+│   ├── ensemble_model.py          — Skater ensemble (5 sub-models: mean, EWM, Kalman, opp-adj, TOI)
+│   ├── mdn_v4.py                  — Mixture Density Network v4 (MoneyPuck extended)
+│   ├── transformer_v1.py          — Transformer projection model (self-attention)
+│   ├── lstm_cnn.py                — LSTM-CNN hybrid model (temporal + spatial)
+│   ├── bayesian_projection.py     — Bayesian inference projection method
+│   ├── kalman_projection.py       — Kalman filter projections
+│   ├── projection_blender.py      — Blend multiple projection models
+│   ├── correlation_matrix.py      — Player correlation matrices
+│   │
+│   ── Misc Utilities ──
+│   ├── goalie_context.py          — Goalie matchup context analysis
+│   ├── goalie_backtest.py         — Goalie-specific backtest
+│   ├── opponent_profiling.py      — Opponent defense quality profiling
+│   ├── game_log_fetcher.py        — Historical game log fetcher
+│   ├── tournament_equity.py       — Tournament equity analysis
+│   ├── nhl_discord_bot.py         — Discord bot for posting results
+│   │
+│   ── Web Interfaces ──
+│   ├── dashboard/server.py        — Flask dashboard (/api/odds, /api/projections, /api/lines)
+│   ├── website/app.py             — Flask web app (login, lineup review dashboard)
+│   ├── website/lineup_export.py   — Lineup export to website format
+│   │
+│   ── Tests ──
+│   ├── tests/conftest.py          — Pytest config + fixtures
+│   ├── tests/test_optimizer.py    — Optimizer unit tests
+│   ├── tests/test_integration.py  — Full integration tests
+│   ├── tests/test_regressions.py  — Regression tests
+│   ├── tests/test_baseline_probability.py  — Baseline probability tests
+│   ├── tests/test_baseline_integration.py  — Baseline model integration tests
+│   │
+│   ── Data Directories ──
+│   ├── daily_salaries/            — DK salary CSVs (DKSalaries_M.DD.YY.csv)
+│   ├── daily_projections/         — Output: projections, lineups, lines JSON
+│   ├── vegas/                     — Vegas lines CSV fallback
+│   ├── contests/                  — DK contest result CSVs (post-slate)
+│   ├── cache/                     — Daily caches (Edge, goalie Edge, recent scores)
+│   ├── backtests/                 — Backtest workbooks + models
+│   └── .env                       — API keys (ODDS_API_KEY)
+│
+├── archive/experimental/          ← abandoned experiments (13 files)
+└── projection_backup_20260216/    ← one-time backup snapshot (ignore)
 ```
 
 ## 2. Python Environment
